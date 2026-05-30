@@ -9,16 +9,23 @@ export class KinotochkaProvider {
   }
 
   async resolveKpId(tmdbId) {
-    try {
-      const res = await PotokSDK.http.get(`https://api.alloha.tv/?token=04941a9a3ca3ac16e2b4327347bbc1&tmdb=${tmdbId}`);
-      if (res.status === 200) {
-        const responseObj = JSON.parse(res.data);
-        if (responseObj && responseObj.data && responseObj.data.id_kp) {
-          return String(responseObj.data.id_kp);
+    const domains = [
+      "https://api.alloha.tv",
+      "https://api.allohacdn.com",
+      "https://api.apialloha.net"
+    ];
+    for (const domain of domains) {
+      try {
+        const res = await PotokSDK.http.get(`${domain}/?token=04941a9a3ca3ac16e2b4327347bbc1&tmdb=${tmdbId}`);
+        if (res.status === 200) {
+          const responseObj = JSON.parse(res.data);
+          if (responseObj && responseObj.data && responseObj.data.id_kp) {
+            return String(responseObj.data.id_kp);
+          }
         }
+      } catch (err) {
+        console.warn(`[Kinotochka] Failed resolving ID via ${domain}:`, err);
       }
-    } catch (err) {
-      console.error("[Kinotochka] KP ID resolution failed:", err);
     }
     return null;
   }

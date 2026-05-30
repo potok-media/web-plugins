@@ -10,27 +10,52 @@ export class LiftProvider {
     this.userAgent = "Mozilla/5.0 (Linux; Android 14; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36";
   }
 
-  async resolveExternalIds(tmdbId) {
+  async resolveExternalIds(tmdbId, mediaType = "tv") {
+    const domains = [
+      "https://api.alloha.tv",
+      "https://api.allohacdn.com",
+      "https://api.apialloha.net"
+    ];
+    for (const domain of domains) {
+      try {
+        const res = await PotokSDK.http.get(`${domain}/?token=04941a9a3ca3ac16e2b4327347bbc1&tmdb=${tmdbId}`);
+        if (res.status === 200) {
+          const responseObj = JSON.parse(res.data);
+          if (responseObj && responseObj.data) {
+            return {
+              kpId: responseObj.data.id_kp ? String(responseObj.data.id_kp) : "",
+              imdbId: responseObj.data.id_imdb ? String(responseObj.data.id_imdb) : ""
+            };
+          }
+        }
+      } catch (err) {
+        console.warn(`[Lift] Failed resolving ID via ${domain}:`, err);
+      }
+    }
+
+    // Ultimate Fallback: Query TMDB official API via local BFF proxy for imdb_id (Zenith/Lift supports searching by IMDb ID directly)
     try {
-      const res = await PotokSDK.http.get(`https://api.alloha.tv/?token=04941a9a3ca3ac16e2b4327347bbc1&tmdb=${tmdbId}`);
+      const typePath = mediaType === "tv" ? "tv" : "movie";
+      const res = await PotokSDK.http.get(`/api/tmdb/${typePath}/${tmdbId}/external_ids`);
       if (res.status === 200) {
         const responseObj = JSON.parse(res.data);
-        if (responseObj && responseObj.data) {
+        if (responseObj && responseObj.imdb_id) {
           return {
-            kpId: responseObj.data.id_kp ? String(responseObj.data.id_kp) : "",
-            imdbId: responseObj.data.id_imdb ? String(responseObj.data.id_imdb) : ""
+            kpId: "",
+            imdbId: String(responseObj.imdb_id)
           };
         }
       }
     } catch (err) {
-      console.error("[Lift] ID resolution failed:", err);
+      console.error("[Lift] TMDB external_ids resolution fallback failed:", err);
     }
+
     return { kpId: "", imdbId: "" };
   }
 
   async search(query) {
     try {
-      const { kpId, imdbId } = await this.resolveExternalIds(query.tmdbId);
+      const { kpId, imdbId } = await this.resolveExternalIds(query.tmdbId, query.type);
       if (!kpId && !imdbId) {
         return [];
       }
