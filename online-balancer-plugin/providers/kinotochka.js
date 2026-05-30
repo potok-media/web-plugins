@@ -17,7 +17,10 @@ export class KinotochkaProvider {
       const typePath = type === "tv" ? "tv" : "movie";
       const url = `/api/media/detail/${typePath}/${tmdbId}/external_ids`;
       console.log(`[Kinotochka] Resolving kpId via BFF: ${url}`);
-      const response = await PotokSDK.http.get(url).catch(() => null);
+      const response = await PotokSDK.http.get(url).catch(err => {
+        console.error("[Kinotochka] BFF GET request failed:", err);
+        return null;
+      });
       
       if (response && response.status === 200 && response.data) {
         const json = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
@@ -28,6 +31,27 @@ export class KinotochkaProvider {
     } catch (err) {
       console.warn("[Kinotochka] Failed to resolve kpId via BFF:", err);
     }
+
+    // Direct browser lookup fallback if BFF returned null
+    try {
+      const token = "04941a9a3ca3ac16e2b4327347bbc1";
+      const directUrl = `https://api.alloha.tv/?token=${token}&tmdb=${tmdbId}`;
+      console.log(`[Kinotochka] BFF returned no kpId. Attempting direct browser lookup: ${directUrl}`);
+      const response = await PotokSDK.http.get(directUrl).catch(err => {
+        console.error("[Kinotochka] Direct browser lookup GET request failed:", err);
+        return null;
+      });
+      if (response && response.status === 200 && response.data) {
+        const json = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+        if (json && json.data && json.data.id_kp) {
+          console.log(`[Kinotochka] Direct browser lookup succeeded: kpId = ${json.data.id_kp}`);
+          return String(json.data.id_kp);
+        }
+      }
+    } catch (err) {
+      console.warn("[Kinotochka] Direct browser lookup failed:", err);
+    }
+
     return null;
   }
 

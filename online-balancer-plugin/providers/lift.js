@@ -11,24 +11,50 @@ export class LiftProvider {
   }
 
   async resolveExternalIds(tmdbId, mediaType = "tv") {
+    let kpId = "";
+    let imdbId = "";
+
     // Query local BFF API for resolved external IDs (includes both kpId and imdbId)
     try {
       const typePath = mediaType === "tv" ? "tv" : "movie";
-      const res = await PotokSDK.http.get(`/api/media/detail/${typePath}/${tmdbId}/external_ids`);
-      if (res.status === 200) {
-        const responseObj = JSON.parse(res.data);
+      const res = await PotokSDK.http.get(`/api/media/detail/${typePath}/${tmdbId}/external_ids`).catch(err => {
+        console.error("[Lift] BFF GET request failed:", err);
+        return null;
+      });
+      if (res && res.status === 200) {
+        const responseObj = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
         if (responseObj) {
-          return {
-            kpId: responseObj.kpId ? String(responseObj.kpId) : "",
-            imdbId: responseObj.imdbId ? String(responseObj.imdbId) : ""
-          };
+          kpId = responseObj.kpId ? String(responseObj.kpId) : "";
+          imdbId = responseObj.imdbId ? String(responseObj.imdbId) : "";
         }
       }
     } catch (err) {
       console.error("[Lift] External IDs resolution via BFF failed:", err);
     }
 
-    return { kpId: "", imdbId: "" };
+    // Direct browser lookup fallback if kpId is missing
+    if (!kpId) {
+      try {
+        const token = "04941a9a3ca3ac16e2b4327347bbc1";
+        const directUrl = `https://api.alloha.tv/?token=${token}&tmdb=${tmdbId}`;
+        console.log(`[Lift] BFF returned no kpId. Attempting direct browser lookup: ${directUrl}`);
+        const response = await PotokSDK.http.get(directUrl).catch(err => {
+          console.error("[Lift] Direct browser lookup GET request failed:", err);
+          return null;
+        });
+        if (response && response.status === 200 && response.data) {
+          const json = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+          if (json && json.data) {
+            if (json.data.id_kp) kpId = String(json.data.id_kp);
+            if (json.data.imdb) imdbId = String(json.data.imdb);
+          }
+        }
+      } catch (err) {
+        console.warn("[Lift] Direct browser lookup failed:", err);
+      }
+    }
+
+    return { kpId, imdbId };
   }
 
   async search(query) {

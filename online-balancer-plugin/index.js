@@ -167,7 +167,7 @@ PotokSDK.registerSlotContribution({
     // Run initial search
     runSearch();
 
-    const compileLayout = () => {
+    function compileLayout() {
       // 1. Quality options
       const uniqueQualities = Array.from(new Set(state.streams.map(s => s.quality).filter(Boolean)));
       const qualityOptions = [
@@ -296,7 +296,7 @@ PotokSDK.registerSlotContribution({
         .child(header)
         .child(Divider())
         .child(resultsList);
-    };
+    }
 
     return {
       label: "Онлайн просмотр",
