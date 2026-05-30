@@ -1,19 +1,19 @@
 import { PotokSDK } from '../sdk.js';
 import { VideoDBProvider } from './providers/videodb.js';
-import { KinotochkaProvider } from './providers/kinotochka.js';
 import { LiftProvider } from './providers/lift.js';
+import { KinotochkaProvider } from './providers/kinotochka.js';
 
 const { Card, VStack, HStack, Text, Input, Button, Spacer, Badge, Divider, Select } = PotokSDK.ui.components;
 const videoDB = new VideoDBProvider();
-const kinotochka = new KinotochkaProvider();
 const lift = new LiftProvider();
+const kinotochka = new KinotochkaProvider();
 
 // 1. Register main plugin metadata in host
 PotokSDK.registerPlugin({
   id: "potok-online-balancer",
   name: "Модульные Онлайн Источники",
   version: "2.0.0",
-  description: "Клиентский порт Go-движка онлайн-балансеров (VideoDB, Kinotochka, Lift)"
+  description: "Клиентский порт Go-движка онлайн-балансеров (VideoDB, Lift, Киноточка)"
 });
 
 // 2. Register lookup provider search engines in host registry
@@ -25,17 +25,17 @@ PotokSDK.registerSource({
 });
 
 PotokSDK.registerSource({
-  id: kinotochka.id,
-  name: kinotochka.name,
-  supportedTypes: ["movie", "tv"],
-  lookup: (query) => kinotochka.search(query)
-});
-
-PotokSDK.registerSource({
   id: lift.id,
   name: lift.name,
   supportedTypes: ["movie", "tv"],
   lookup: (query) => lift.search(query)
+});
+
+PotokSDK.registerSource({
+  id: kinotochka.id,
+  name: kinotochka.name,
+  supportedTypes: ["movie", "tv"],
+  lookup: (query) => kinotochka.search(query)
 });
 
 // 3. Settings Slot Tab contribution
@@ -107,7 +107,7 @@ PotokSDK.registerSlotContribution({
   slotName: "media-online-streams",
   id: "online-balancer-search",
   render(props) {
-    const { mediaId, mediaType, season, episode, title, originalTitle } = props;
+    const { mediaId, mediaType, season, episode, title, originalTitle, kpId, imdbId } = props;
 
     // React state inside sandbox
     const state = PotokSDK.createState({
@@ -128,15 +128,17 @@ PotokSDK.registerSlotContribution({
         type: queryType,
         tmdbId: mediaId,
         season,
-        episode
+        episode,
+        kpId,
+        imdbId
       };
 
       try {
         // Query providers in parallel
         const results = await Promise.all([
           videoDB.search(query).catch(err => { console.error(err); return []; }),
-          kinotochka.search(query).catch(err => { console.error(err); return []; }),
-          lift.search(query).catch(err => { console.error(err); return []; })
+          lift.search(query).catch(err => { console.error(err); return []; }),
+          kinotochka.search(query).catch(err => { console.error(err); return []; })
         ]);
 
         // Flatten all streams
@@ -151,8 +153,8 @@ PotokSDK.registerSlotContribution({
     const getProviderName = (providerId) => {
       switch (providerId) {
         case "videodb": return "VideoDB Cloud";
-        case "kinotochka": return "Kinotochka";
         case "lift": return "Lift";
+        case "kinotochka": return "Киноточка";
         default: return providerId;
       }
     };

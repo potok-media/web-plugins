@@ -11,29 +11,7 @@ export class LiftProvider {
   }
 
   async resolveExternalIds(tmdbId, mediaType = "tv") {
-    const domains = [
-      "https://api.alloha.tv",
-      "https://api.allohacdn.com",
-      "https://api.apialloha.net"
-    ];
-    for (const domain of domains) {
-      try {
-        const res = await PotokSDK.http.get(`${domain}/?token=04941a9a3ca3ac16e2b4327347bbc1&tmdb=${tmdbId}`);
-        if (res.status === 200) {
-          const responseObj = JSON.parse(res.data);
-          if (responseObj && responseObj.data) {
-            return {
-              kpId: responseObj.data.id_kp ? String(responseObj.data.id_kp) : "",
-              imdbId: responseObj.data.id_imdb ? String(responseObj.data.id_imdb) : ""
-            };
-          }
-        }
-      } catch (err) {
-        console.warn(`[Lift] Failed resolving ID via ${domain}:`, err);
-      }
-    }
-
-    // Ultimate Fallback: Query TMDB official API via local BFF proxy for imdb_id (Zenith/Lift supports searching by IMDb ID directly)
+    // Query TMDB official API via local BFF proxy for imdb_id (Zenith/Lift supports searching by IMDb ID directly)
     try {
       const typePath = mediaType === "tv" ? "tv" : "movie";
       const res = await PotokSDK.http.get(`/api/tmdb/${typePath}/${tmdbId}/external_ids`);
@@ -47,7 +25,7 @@ export class LiftProvider {
         }
       }
     } catch (err) {
-      console.error("[Lift] TMDB external_ids resolution fallback failed:", err);
+      console.error("[Lift] TMDB external_ids resolution failed:", err);
     }
 
     return { kpId: "", imdbId: "" };
