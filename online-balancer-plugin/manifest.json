@@ -2,7 +2,7 @@
   "id": "potok-online-balancer",
   "name": "Модульные Онлайн Источники",
   "version": "1.0.0",
-  "description": "Полноценный клиентский порт Go-движка поиска VideoDB Cloud",
+  "description": "Онлайн источники",
   "author": "author",
   "entrypoint": "index.js",
   "permissions": [
