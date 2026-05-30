@@ -10,45 +10,23 @@ export class KinotochkaProvider {
   }
 
   /**
-   * Securely query Alloha TV API to map TMDB/IMDb IDs to Kinopoisk ID (id_kp)
+   * Securely query local BFF API to map TMDB/IMDb IDs to Kinopoisk ID (id_kp)
    */
   async resolveKpId(tmdbId, imdbId, type) {
-    const token = "04941a9a3ca3ac16e2b4327347bbc1";
     try {
-      let url = `${this.apiDomain}/?token=${token}&tmdb=${tmdbId}`;
-      console.log(`[Kinotochka] Resolving kpId from: ${url}`);
-      let response = await PotokSDK.http.get(url).catch(() => null);
-      
-      if (!response || response.status !== 200) {
-        if (imdbId) {
-          url = `${this.apiDomain}/?token=${token}&imdb=${imdbId}`;
-          response = await PotokSDK.http.get(url).catch(() => null);
-        }
-      }
+      const typePath = type === "tv" ? "tv" : "movie";
+      const url = `/api/media/detail/${typePath}/${tmdbId}/external_ids`;
+      console.log(`[Kinotochka] Resolving kpId via BFF: ${url}`);
+      const response = await PotokSDK.http.get(url).catch(() => null);
       
       if (response && response.status === 200 && response.data) {
-        let json;
-        try {
-          json = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
-        } catch {
-          return null;
-        }
-        
-        if (json && json.data) {
-          let kpId = null;
-          if (Array.isArray(json.data) && json.data.length > 0) {
-            kpId = json.data[0].id_kp || json.data[0].kp;
-          } else if (typeof json.data === 'object') {
-            kpId = json.data.id_kp || json.data.kp;
-          }
-          
-          if (kpId && kpId !== "0" && kpId !== 0) {
-            return String(kpId);
-          }
+        const json = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+        if (json && json.kpId) {
+          return String(json.kpId);
         }
       }
     } catch (err) {
-      console.warn(`[Kinotochka] Failed to resolve from domain ${this.apiDomain}:`, err);
+      console.warn("[Kinotochka] Failed to resolve kpId via BFF:", err);
     }
     return null;
   }

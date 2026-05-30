@@ -11,21 +11,21 @@ export class LiftProvider {
   }
 
   async resolveExternalIds(tmdbId, mediaType = "tv") {
-    // Query TMDB official API via local BFF proxy for imdb_id (Zenith/Lift supports searching by IMDb ID directly)
+    // Query local BFF API for resolved external IDs (includes both kpId and imdbId)
     try {
       const typePath = mediaType === "tv" ? "tv" : "movie";
-      const res = await PotokSDK.http.get(`/api/tmdb/${typePath}/${tmdbId}/external_ids`);
+      const res = await PotokSDK.http.get(`/api/media/detail/${typePath}/${tmdbId}/external_ids`);
       if (res.status === 200) {
         const responseObj = JSON.parse(res.data);
-        if (responseObj && responseObj.imdb_id) {
+        if (responseObj) {
           return {
-            kpId: "",
-            imdbId: String(responseObj.imdb_id)
+            kpId: responseObj.kpId ? String(responseObj.kpId) : "",
+            imdbId: responseObj.imdbId ? String(responseObj.imdbId) : ""
           };
         }
       }
     } catch (err) {
-      console.error("[Lift] TMDB external_ids resolution failed:", err);
+      console.error("[Lift] External IDs resolution via BFF failed:", err);
     }
 
     return { kpId: "", imdbId: "" };
