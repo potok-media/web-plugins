@@ -9,6 +9,10 @@ export class KinotochkaProvider {
     this.apiDomain = 'https://api.alloha.tv';
   }
 
+  getProxyUrl(url) {
+    return `/api/proxy?url=${encodeURIComponent(url)}`;
+  }
+
   /**
    * Securely query local BFF API to map TMDB/IMDb IDs to Kinopoisk ID (id_kp)
    */
@@ -78,25 +82,18 @@ export class KinotochkaProvider {
         console.warn("[Kinotochka] Failed to resolve Kinopoisk ID.");
         return [];
       }
-
       console.log(`[Kinotochka] Resolved Kinopoisk ID: ${kpId}. Querying kinovibe.vip...`);
 
-      // 1. Query search on kinovibe.vip
-      // DLE search via GET story
+      // 1. Query search on kinovibe.vip via CORS bypass proxy
       const searchUrl = `${this.host}/index.php?do=search&subaction=search&story=${kpId}`;
-      let searchResponse = await PotokSDK.http.get(searchUrl).catch(() => null);
+      console.log(`[Kinotochka] Fetching search results via proxy: ${searchUrl}`);
+      const searchResponse = await PotokSDK.http.get(this.getProxyUrl(searchUrl)).catch(err => {
+        console.error("[Kinotochka] Search GET proxy request failed:", err);
+        return null;
+      });
 
       if (!searchResponse || searchResponse.status !== 200) {
-        // Try DLE search via POST as fallback
-        console.log("[Kinotochka] GET search failed or blocked. Trying POST search...");
-        const postData = `do=search&subaction=search&search_start=0&full_search=0&result_from=1&story=${kpId}`;
-        searchResponse = await PotokSDK.http.post(`${this.host}/index.php?do=search`, postData, {
-          "Content-Type": "application/x-www-form-urlencoded"
-        }).catch(() => null);
-      }
-
-      if (!searchResponse || searchResponse.status !== 200) {
-        console.warn("[Kinotochka] Both GET and POST search requests failed on kinovibe.vip");
+        console.warn("[Kinotochka] GET search request failed on kinovibe.vip via proxy");
         return [];
       }
 
@@ -123,9 +120,12 @@ export class KinotochkaProvider {
 
       // We'll scrape the first matched page link
       const targetPageUrl = matches[0];
-      console.log(`[Kinotochka] Scraping target page: ${targetPageUrl}`);
+      console.log(`[Kinotochka] Scraping target page via proxy: ${targetPageUrl}`);
       
-      const pageResponse = await PotokSDK.http.get(targetPageUrl).catch(() => null);
+      const pageResponse = await PotokSDK.http.get(this.getProxyUrl(targetPageUrl)).catch(err => {
+        console.error("[Kinotochka] Page scrape proxy request failed:", err);
+        return null;
+      });
       if (!pageResponse || pageResponse.status !== 200) {
         console.warn(`[Kinotochka] Failed to load target page HTML from ${targetPageUrl}`);
         return [];
@@ -166,10 +166,13 @@ export class KinotochkaProvider {
       let playerHtml = null;
       let usedDomain = "";
 
-      // Try the original URL first
+      // Try the original URL first via proxy
       try {
-        console.log(`[Kinotochka] Attempting to fetch iframe directly: ${playerUrl}`);
-        const response = await PotokSDK.http.get(playerUrl).catch(() => null);
+        console.log(`[Kinotochka] Attempting to fetch iframe via proxy: ${playerUrl}`);
+        const response = await PotokSDK.http.get(this.getProxyUrl(playerUrl)).catch(err => {
+          console.error("[Kinotochka] Player iframe proxy request failed:", err);
+          return null;
+        });
         if (response && response.status === 200) {
           playerHtml = response.data;
           usedDomain = new URL(playerUrl).origin;
@@ -184,8 +187,11 @@ export class KinotochkaProvider {
           // Rewrite the URL domain to our apiDomain
           const urlObj = new URL(playerUrl);
           const rewrittenUrl = `${this.apiDomain}${urlObj.pathname}${urlObj.search}`;
-          console.log(`[Kinotochka] Attempting to fetch rewritten iframe: ${rewrittenUrl}`);
-          const response = await PotokSDK.http.get(rewrittenUrl).catch(() => null);
+          console.log(`[Kinotochka] Attempting to fetch rewritten iframe via proxy: ${rewrittenUrl}`);
+          const response = await PotokSDK.http.get(this.getProxyUrl(rewrittenUrl)).catch(err => {
+            console.error("[Kinotochka] Rewritten player iframe proxy request failed:", err);
+            return null;
+          });
           if (response && response.status === 200) {
             playerHtml = response.data;
             usedDomain = this.apiDomain;
