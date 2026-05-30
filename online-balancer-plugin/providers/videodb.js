@@ -27,7 +27,7 @@ export class VideoDBProvider {
 
       const finalUrl = baseUrl + (apiKey ? `&key=${apiKey}` : "");
 
-      // Execute secure request through the parent window's proxy bypass RPC
+      // Execute request directly through the parent window's browser fetch RPC
       const response = await PotokSDK.http.get(finalUrl, {
         "Referer": this.host + "/"
       });
