@@ -124,7 +124,10 @@ PotokSDK.registerSlotContribution({
         id: props.mediaId,
         season: props.season,
         episode: props.episode,
-        torrentHash: "" // Flag to bypass torrent service loading
+        torrentHash: "", // Flag to bypass torrent service loading
+        streamType: stream.kind === "mp4" ? "mp4" : "m3u8",
+        headers: stream.headers,
+        audios: stream.audios
       });
       PotokSDK.ui.showHUD("success", `Запуск воспроизведения: ${stream.voice}`);
     };
