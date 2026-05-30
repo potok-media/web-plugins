@@ -15,6 +15,11 @@
       "slotName": "settings-tabs",
       "id": "online-balancer-settings",
       "title": "Онлайн балансеры"
+    },
+    {
+      "slotName": "media-online-streams",
+      "id": "online-balancer-search",
+      "title": "Поиск Онлайн Источников"
     }
   ],
   "config": {

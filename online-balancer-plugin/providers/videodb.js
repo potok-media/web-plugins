@@ -48,13 +48,28 @@ export class VideoDBProvider {
         rawPlaylist = fileMatch[1];
       } else {
         // 2. TV Show/Anime: Extract folder structure JSON array representing seasons & episodes
-        const fileMatch = html.match(/"file"\s*:\s*(\[[\s\S]*?\])\s*,\s*"/);
-        if (!fileMatch) {
-          return [];
+        const fileIndex = html.search(/"file"\s*:/i);
+        if (fileIndex === -1) return [];
+        
+        const textFromFile = html.substring(fileIndex);
+        const bracketStart = textFromFile.indexOf("[");
+        if (bracketStart === -1) return [];
+
+        let balance = 0;
+        let jsonStr = "";
+        for (let i = bracketStart; i < textFromFile.length; i++) {
+          const char = textFromFile[i];
+          if (char === "[") balance++;
+          else if (char === "]") balance--;
+          
+          jsonStr += char;
+          if (balance === 0) {
+            break;
+          }
         }
 
         try {
-          const cleanJSON = fileMatch[1].replace(/,\s*([}\]])/g, "$1"); // Strip trailing commas
+          const cleanJSON = jsonStr.replace(/,\s*([}\]])/g, "$1"); // Strip trailing commas
           const seasons = JSON.parse(cleanJSON);
           if (!seasons || seasons.length === 0) {
             return [];

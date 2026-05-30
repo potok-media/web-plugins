@@ -62,48 +62,63 @@ export class LiftProvider {
       };
 
       // Detect serial case: seasons:[...]
-      const seasonsMatch = html.match(/seasons\s*:\s*(\[[\s\S]*?\])\s*,\s*/i) ||
-                           html.match(/seasons\s*:\s*(\[[^\n\r]+)/i);
+      const seasonsIndex = html.search(/seasons\s*:/i);
+      if (seasonsIndex !== -1) {
+        const textFromSeasons = html.substring(seasonsIndex);
+        const bracketStart = textFromSeasons.indexOf("[");
+        if (bracketStart !== -1) {
+          let balance = 0;
+          let jsonStr = "";
+          for (let i = bracketStart; i < textFromSeasons.length; i++) {
+            const char = textFromSeasons[i];
+            if (char === "[") balance++;
+            else if (char === "]") balance--;
+            
+            jsonStr += char;
+            if (balance === 0) {
+              break;
+            }
+          }
 
-      if (seasonsMatch) {
-        let seasons = [];
-        try {
-          seasons = JSON.parse(seasonsMatch[1].replace(/,\s*([}\]])/g, "$1")); // strip trailing commas
-        } catch {
-          return [];
+          let seasons = [];
+          try {
+            seasons = JSON.parse(jsonStr.replace(/,\s*([}\]])/g, "$1")); // strip trailing commas
+          } catch {
+            return [];
+          }
+
+          const targetSeason = query.season || 1;
+          const seasonData = seasons.find(s => s.season === targetSeason) || seasons[0];
+          if (!seasonData || !seasonData.episodes) return [];
+
+          const targetEpisode = query.episode || 1;
+          const episodeData = seasonData.episodes.find(ep => {
+            const match = ep.episode.match(/([0-9]+)/);
+            return match && parseInt(match[1], 10) === targetEpisode;
+          }) || seasonData.episodes[0];
+
+          if (!episodeData) return [];
+
+          const streamUrl = this.normalizeUrl(episodeData.hls || episodeData.dasha || episodeData.dash);
+          if (!streamUrl) return [];
+
+          const voice = episodeData.audio && episodeData.audio.names && episodeData.audio.names.length > 0
+            ? episodeData.audio.names[0]
+            : "Original (Zenith)";
+
+          const audioNames = episodeData.audio ? episodeData.audio.names : [];
+
+          return [{
+            provider: this.id,
+            quality: "1080p", // Lift supports adaptive HLS by default
+            voice: voice,
+            label: `S${targetSeason}E${targetEpisode}`,
+            url: streamUrl,
+            kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+            headers: streamHeaders,
+            audioNames: audioNames
+          }];
         }
-
-        const targetSeason = query.season || 1;
-        const seasonData = seasons.find(s => s.season === targetSeason) || seasons[0];
-        if (!seasonData || !seasonData.episodes) return [];
-
-        const targetEpisode = query.episode || 1;
-        const episodeData = seasonData.episodes.find(ep => {
-          const match = ep.episode.match(/([0-9]+)/);
-          return match && parseInt(match[1], 10) === targetEpisode;
-        }) || seasonData.episodes[0];
-
-        if (!episodeData) return [];
-
-        const streamUrl = this.normalizeUrl(episodeData.hls || episodeData.dasha || episodeData.dash);
-        if (!streamUrl) return [];
-
-        const voice = episodeData.audio && episodeData.audio.names && episodeData.audio.names.length > 0
-          ? episodeData.audio.names[0]
-          : "Original (Zenith)";
-
-        const audioNames = episodeData.audio ? episodeData.audio.names : [];
-
-        return [{
-          provider: this.id,
-          quality: "1080p", // Lift supports adaptive HLS by default
-          voice: voice,
-          label: `S${targetSeason}E${targetEpisode}`,
-          url: streamUrl,
-          kind: streamUrl.includes(".mpd") ? "dash" : "hls",
-          headers: streamHeaders,
-          audioNames: audioNames
-        }];
       }
 
       // Movie case: makePlayer({
