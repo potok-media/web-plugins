@@ -6,56 +6,49 @@ export class KinotochkaProvider {
     this.id = "kinotochka";
     this.name = "Киноточка";
     this.host = "https://kinovibe.vip";
-    this.fallbackDomains = [
-      'https://api.alloha.tv',
-      'https://api.allohacdn.com',
-      'https://api.alloha.live',
-      'https://api.alloha.cloud'
-    ];
+    this.apiDomain = 'https://api.alloha.tv';
   }
 
   /**
-   * Securely query sequential Alloha TV domains to map TMDB/IMDb IDs to Kinopoisk ID (id_kp)
+   * Securely query Alloha TV API to map TMDB/IMDb IDs to Kinopoisk ID (id_kp)
    */
   async resolveKpId(tmdbId, imdbId, type) {
     const token = "04941a9a3ca3ac16e2b4327347bbc1";
-    for (const domain of this.fallbackDomains) {
-      try {
-        let url = `${domain}/?token=${token}&tmdb=${tmdbId}`;
-        console.log(`[Kinotochka] Resolving kpId from: ${url}`);
-        let response = await PotokSDK.http.get(url).catch(() => null);
-        
-        if (!response || response.status !== 200) {
-          if (imdbId) {
-            url = `${domain}/?token=${token}&imdb=${imdbId}`;
-            response = await PotokSDK.http.get(url).catch(() => null);
-          }
+    try {
+      let url = `${this.apiDomain}/?token=${token}&tmdb=${tmdbId}`;
+      console.log(`[Kinotochka] Resolving kpId from: ${url}`);
+      let response = await PotokSDK.http.get(url).catch(() => null);
+      
+      if (!response || response.status !== 200) {
+        if (imdbId) {
+          url = `${this.apiDomain}/?token=${token}&imdb=${imdbId}`;
+          response = await PotokSDK.http.get(url).catch(() => null);
+        }
+      }
+      
+      if (response && response.status === 200 && response.data) {
+        let json;
+        try {
+          json = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+        } catch {
+          return null;
         }
         
-        if (response && response.status === 200 && response.data) {
-          let json;
-          try {
-            json = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
-          } catch {
-            continue;
+        if (json && json.data) {
+          let kpId = null;
+          if (Array.isArray(json.data) && json.data.length > 0) {
+            kpId = json.data[0].id_kp || json.data[0].kp;
+          } else if (typeof json.data === 'object') {
+            kpId = json.data.id_kp || json.data.kp;
           }
           
-          if (json && json.data) {
-            let kpId = null;
-            if (Array.isArray(json.data) && json.data.length > 0) {
-              kpId = json.data[0].id_kp || json.data[0].kp;
-            } else if (typeof json.data === 'object') {
-              kpId = json.data.id_kp || json.data.kp;
-            }
-            
-            if (kpId && kpId !== "0" && kpId !== 0) {
-              return String(kpId);
-            }
+          if (kpId && kpId !== "0" && kpId !== 0) {
+            return String(kpId);
           }
         }
-      } catch (err) {
-        console.warn(`[Kinotochka] Failed to resolve from domain ${domain}:`, err);
       }
+    } catch (err) {
+      console.warn(`[Kinotochka] Failed to resolve from domain ${this.apiDomain}:`, err);
     }
     return null;
   }
@@ -183,23 +176,20 @@ export class KinotochkaProvider {
         console.warn("[Kinotochka] Direct iframe fetch failed:", e);
       }
 
-      // Sequential fallback domains attempt if direct fetch failed
+      // Rewrite iframe fallback attempt if direct fetch failed
       if (!playerHtml) {
-        for (const domain of this.fallbackDomains) {
-          try {
-            // Rewrite the URL domain to the fallback domain
-            const urlObj = new URL(playerUrl);
-            const rewrittenUrl = `${domain}${urlObj.pathname}${urlObj.search}`;
-            console.log(`[Kinotochka] Attempting to fetch rewritten iframe: ${rewrittenUrl}`);
-            const response = await PotokSDK.http.get(rewrittenUrl).catch(() => null);
-            if (response && response.status === 200) {
-              playerHtml = response.data;
-              usedDomain = domain;
-              break;
-            }
-          } catch (err) {
-            console.warn(`[Kinotochka] Failed to fetch rewritten iframe from domain ${domain}:`, err);
+        try {
+          // Rewrite the URL domain to our apiDomain
+          const urlObj = new URL(playerUrl);
+          const rewrittenUrl = `${this.apiDomain}${urlObj.pathname}${urlObj.search}`;
+          console.log(`[Kinotochka] Attempting to fetch rewritten iframe: ${rewrittenUrl}`);
+          const response = await PotokSDK.http.get(rewrittenUrl).catch(() => null);
+          if (response && response.status === 200) {
+            playerHtml = response.data;
+            usedDomain = this.apiDomain;
           }
+        } catch (err) {
+          console.warn(`[Kinotochka] Failed to fetch rewritten iframe from domain ${this.apiDomain}:`, err);
         }
       }
 
