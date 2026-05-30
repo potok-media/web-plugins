@@ -12,9 +12,9 @@ export class KinotochkaProvider {
     try {
       const res = await PotokSDK.http.get(`https://api.alloha.tv/?token=04941a9a3ca3ac16e2b4327347bbc1&tmdb=${tmdbId}`);
       if (res.status === 200) {
-        const data = JSON.parse(res.data);
-        if (data && data.id_kp) {
-          return String(data.id_kp);
+        const responseObj = JSON.parse(res.data);
+        if (responseObj && responseObj.data && responseObj.data.id_kp) {
+          return String(responseObj.data.id_kp);
         }
       }
     } catch (err) {

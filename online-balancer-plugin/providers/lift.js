@@ -14,11 +14,11 @@ export class LiftProvider {
     try {
       const res = await PotokSDK.http.get(`https://api.alloha.tv/?token=04941a9a3ca3ac16e2b4327347bbc1&tmdb=${tmdbId}`);
       if (res.status === 200) {
-        const data = JSON.parse(res.data);
-        if (data) {
+        const responseObj = JSON.parse(res.data);
+        if (responseObj && responseObj.data) {
           return {
-            kpId: data.id_kp ? String(data.id_kp) : "",
-            imdbId: data.id_imdb ? String(data.id_imdb) : ""
+            kpId: responseObj.data.id_kp ? String(responseObj.data.id_kp) : "",
+            imdbId: responseObj.data.id_imdb ? String(responseObj.data.id_imdb) : ""
           };
         }
       }
