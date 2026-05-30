@@ -131,22 +131,42 @@ export class LiftProvider {
           const streamUrl = this.normalizeUrl(episodeData.hls || episodeData.dasha || episodeData.dash);
           if (!streamUrl) return [];
 
-          const voice = episodeData.audio && episodeData.audio.names && episodeData.audio.names.length > 0
-            ? episodeData.audio.names[0]
-            : "Original (Zenith)";
-
           const audioNames = episodeData.audio ? episodeData.audio.names : [];
+          const streams = [];
 
-          return [{
-            provider: this.id,
-            quality: "1080p", // Lift supports adaptive HLS by default
-            voice: voice,
-            label: `S${targetSeason}E${targetEpisode}`,
-            url: streamUrl,
-            kind: streamUrl.includes(".mpd") ? "dash" : "hls",
-            headers: streamHeaders,
-            audioNames: audioNames
-          }];
+          if (audioNames && audioNames.length > 0) {
+            audioNames.forEach((voice, audioIndex) => {
+              const trackUrl = streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${audioIndex}`;
+              const audios = audioNames.map((name, idx) => ({
+                name: name,
+                url: streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${idx}`
+              }));
+
+              streams.push({
+                provider: this.id,
+                quality: "1080p",
+                voice: voice,
+                label: `S${targetSeason}E${targetEpisode}`,
+                url: trackUrl,
+                kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+                headers: streamHeaders,
+                audios: audios
+              });
+            });
+          } else {
+            streams.push({
+              provider: this.id,
+              quality: "1080p",
+              voice: "Original (Zenith)",
+              label: `S${targetSeason}E${targetEpisode}`,
+              url: streamUrl,
+              kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+              headers: streamHeaders,
+              audios: []
+            });
+          }
+
+          return streams;
         }
       }
 
@@ -172,18 +192,41 @@ export class LiftProvider {
         } catch {}
       }
 
-      const voice = audioNames.length > 0 ? audioNames[0] : "Original (Zenith)";
+      const streams = [];
 
-      return [{
-        provider: this.id,
-        quality: "1080p",
-        voice: voice,
-        label: "Lift",
-        url: streamUrl,
-        kind: streamUrl.includes(".mpd") ? "dash" : "hls",
-        headers: streamHeaders,
-        audioNames: audioNames
-      }];
+      if (audioNames && audioNames.length > 0) {
+        audioNames.forEach((voice, audioIndex) => {
+          const trackUrl = streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${audioIndex}`;
+          const audios = audioNames.map((name, idx) => ({
+            name: name,
+            url: streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${idx}`
+          }));
+
+          streams.push({
+            provider: this.id,
+            quality: "1080p",
+            voice: voice,
+            label: "Lift",
+            url: trackUrl,
+            kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+            headers: streamHeaders,
+            audios: audios
+          });
+        });
+      } else {
+        streams.push({
+          provider: this.id,
+          quality: "1080p",
+          voice: "Original (Zenith)",
+          label: "Lift",
+          url: streamUrl,
+          kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+          headers: streamHeaders,
+          audios: []
+        });
+      }
+
+      return streams;
     } catch (err) {
       console.error("[Lift] Search failed:", err);
       return [];
