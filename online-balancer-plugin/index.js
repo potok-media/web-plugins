@@ -107,7 +107,26 @@ PotokSDK.registerSlotContribution({
   slotName: "media-online-streams",
   id: "online-balancer-search",
   render(props) {
-    const { mediaId, mediaType, season, episode, title, originalTitle, kpId, imdbId } = props;
+    const { mediaId, mediaType, season, episode, title, originalTitle, kpId, imdbId, progress, numberOfSeasons } = props;
+
+    // Detect initial season/episode based on progress or default to 1
+    let initSeason = season;
+    let initEpisode = episode;
+    if (mediaType === "tv" && (!initSeason || !initEpisode)) {
+      if (progress && progress.watchedEpisodes && progress.watchedEpisodes.length > 0) {
+        // Sort watched episodes to find the latest
+        const sorted = [...progress.watchedEpisodes].sort((a, b) => {
+          if (a.season !== b.season) return b.season - a.season;
+          return b.number - a.number;
+        });
+        const latest = sorted[0];
+        initSeason = latest.season;
+        initEpisode = latest.number + 1; // Try next episode
+      } else {
+        initSeason = 1;
+        initEpisode = 1;
+      }
+    }
 
     // React state inside sandbox
     const state = PotokSDK.createState({
@@ -115,8 +134,45 @@ PotokSDK.registerSlotContribution({
       loading: true,
       qualityFilter: "all",
       providerFilter: "all",
-      error: ""
+      error: "",
+      // TV Series browsing states
+      selectedSeason: initSeason || 1,
+      selectedEpisode: initEpisode || 1,
+      availableEpisodes: [], // synced from TMDB: [{ episodeNumber: 1, name: "Серия 1" }, ...]
+      loadingEpisodes: false
     });
+
+    const loadTvSeasonMetadata = async (targetSeason) => {
+      if (mediaType !== "tv") return;
+      state.loadingEpisodes = true;
+      try {
+        const res = await PotokSDK.http.get(`/api/media/tmdb/tv/${mediaId}/season/${targetSeason}`);
+        if (res && res.status === 200) {
+          const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+          if (data && data.episodes) {
+            state.availableEpisodes = data.episodes.map(ep => ({
+              label: `Серия ${ep.episodeNumber}: ${ep.name || `Эпизод ${ep.episodeNumber}`}`,
+              value: ep.episodeNumber
+            }));
+            
+            // Adjust selected episode if it's out of bounds
+            if (!data.episodes.some(ep => ep.episodeNumber === state.selectedEpisode)) {
+              state.selectedEpisode = data.episodes[0] ? data.episodes[0].episodeNumber : 1;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[OnlineBalancer] Failed to fetch TMDB season metadata:", err);
+        // Fallback generic episode list if TMDB request fails
+        const fallbackList = [];
+        for (let i = 1; i <= 30; i++) {
+          fallbackList.push({ label: `Серия ${i}`, value: i });
+        }
+        state.availableEpisodes = fallbackList;
+      } finally {
+        state.loadingEpisodes = false;
+      }
+    };
 
     const runSearch = async () => {
       state.loading = true;
@@ -127,8 +183,8 @@ PotokSDK.registerSlotContribution({
       const query = {
         type: queryType,
         tmdbId: mediaId,
-        season,
-        episode,
+        season: mediaType === "tv" ? state.selectedSeason : undefined,
+        episode: mediaType === "tv" ? state.selectedEpisode : undefined,
         kpId,
         imdbId
       };
@@ -165,7 +221,13 @@ PotokSDK.registerSlotContribution({
     });
 
     // Run initial search
-    runSearch();
+    if (mediaType === "tv") {
+      loadTvSeasonMetadata(state.selectedSeason).then(() => {
+        runSearch();
+      });
+    } else {
+      runSearch();
+    }
 
     function compileLayout() {
       // 1. Quality options
@@ -230,6 +292,51 @@ PotokSDK.registerSlotContribution({
 
       const resultsList = VStack().spacing(12);
 
+      // Add TV episode/season selector if TV series
+      if (mediaType === "tv") {
+        const numSeasons = numberOfSeasons || 1;
+        const seasonOptions = [];
+        for (let i = 1; i <= numSeasons; i++) {
+          seasonOptions.push({ label: `${i} Сезон`, value: i });
+        }
+
+        const tvSelectorRow = HStack()
+          .spacing(12)
+          .alignItems("center")
+          .child(
+            Select("tv_season_select")
+              .label("Сезон")
+              .options(seasonOptions)
+              .selected(state.selectedSeason)
+              .onChange(async (val) => {
+                const newSeason = parseInt(val, 10);
+                state.selectedSeason = newSeason;
+                state.selectedEpisode = 1; // Default to ep 1 of new season
+                await loadTvSeasonMetadata(newSeason);
+                runSearch();
+              })
+          )
+          .child(
+            Select("tv_episode_select")
+              .label("Серия")
+              .options(state.availableEpisodes.length > 0 ? state.availableEpisodes : [{ label: `Серия ${state.selectedEpisode}`, value: state.selectedEpisode }])
+              .selected(state.selectedEpisode)
+              .disabled(state.loadingEpisodes)
+              .onChange((val) => {
+                const newEpisode = parseInt(val, 10);
+                state.selectedEpisode = newEpisode;
+                runSearch();
+              })
+          );
+
+        resultsList.child(
+          Card()
+            .title("Навигация по сериям")
+            .subtitle("Выберите сезон и серию для воспроизведения онлайн.")
+            .child(tvSelectorRow)
+        );
+      }
+
       if (state.loading) {
         // Skeleton loaders using simple cards
         resultsList.child(Card().subtitle("Поиск потоков... Загрузка..."));
@@ -269,8 +376,8 @@ PotokSDK.registerSlotContribution({
                         title: `${title || "Видео"} (${s.voice})`,
                         mediaType: mediaType === "tv" ? "tv" : "movie",
                         id: mediaId,
-                        season,
-                        episode,
+                        season: mediaType === "tv" ? state.selectedSeason : undefined,
+                        episode: mediaType === "tv" ? state.selectedEpisode : undefined,
                         audios: s.audios,
                         headers: s.headers
                       });

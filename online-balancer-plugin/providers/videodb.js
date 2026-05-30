@@ -119,24 +119,38 @@ export class VideoDBProvider {
         return a.localeCompare(b);
       });
 
-      for (const voice of voices) {
-        const options = parsedData[voice];
-        if (options.length === 0) continue;
+      if (voices.length > 0) {
+        const audios = [];
+        let maxQuality = "1080p";
+        let defaultUrl = "";
+        let defaultKind = "hls";
 
-        // Build audios tracks collection
-        const audios = options.map(opt => ({
-          name: voice,
-          url: opt.url
-        }));
+        for (const voice of voices) {
+          const options = parsedData[voice];
+          if (options.length === 0) continue;
 
-        // Normalize format into standard Potok contract
+          const opt = options[0];
+          if (!defaultUrl) {
+            defaultUrl = opt.url;
+            defaultKind = opt.url.includes(".m3u8") ? "hls" : "mp4";
+            maxQuality = normalizeQuality(opt.quality);
+          }
+
+          audios.push({
+            name: voice,
+            url: opt.url
+          });
+        }
+
+        const voiceLabel = `Мультиаудио (${voices.join(", ")})`;
+
         streams.push({
           provider: this.id,
-          quality: normalizeQuality(options[0].quality),
-          voice: voice,
+          quality: maxQuality,
+          voice: voiceLabel,
           label: query.type === "tv" ? `S${query.season || 1}E${query.episode || 1}` : "VideoDB Cloud",
-          url: options[0].url,
-          kind: options[0].url.includes(".m3u8") ? "hls" : "mp4",
+          url: defaultUrl,
+          kind: defaultKind,
           headers: { "Referer": this.host + "/" },
           audios: audios
         });

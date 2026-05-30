@@ -135,23 +135,20 @@ export class LiftProvider {
           const streams = [];
 
           if (audioNames && audioNames.length > 0) {
-            audioNames.forEach((voice, audioIndex) => {
-              const trackUrl = streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${audioIndex}`;
-              const audios = audioNames.map((name, idx) => ({
-                name: name,
-                url: streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${idx}`
-              }));
+            const audios = audioNames.map((name, idx) => ({
+              name: name,
+              url: streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${idx}`
+            }));
 
-              streams.push({
-                provider: this.id,
-                quality: "1080p",
-                voice: voice,
-                label: `S${targetSeason}E${targetEpisode}`,
-                url: trackUrl,
-                kind: streamUrl.includes(".mpd") ? "dash" : "hls",
-                headers: streamHeaders,
-                audios: audios
-              });
+            streams.push({
+              provider: this.id,
+              quality: "1080p",
+              voice: `Мультиаудио (${audioNames.join(", ")})`,
+              label: `S${targetSeason}E${targetEpisode}`,
+              url: streamUrl,
+              kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+              headers: streamHeaders,
+              audios: audios
             });
           } else {
             streams.push({
@@ -195,23 +192,20 @@ export class LiftProvider {
       const streams = [];
 
       if (audioNames && audioNames.length > 0) {
-        audioNames.forEach((voice, audioIndex) => {
-          const trackUrl = streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${audioIndex}`;
-          const audios = audioNames.map((name, idx) => ({
-            name: name,
-            url: streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${idx}`
-          }));
+        const audios = audioNames.map((name, idx) => ({
+          name: name,
+          url: streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${idx}`
+        }));
 
-          streams.push({
-            provider: this.id,
-            quality: "1080p",
-            voice: voice,
-            label: "Lift",
-            url: trackUrl,
-            kind: streamUrl.includes(".mpd") ? "dash" : "hls",
-            headers: streamHeaders,
-            audios: audios
-          });
+        streams.push({
+          provider: this.id,
+          quality: "1080p",
+          voice: `Мультиаудио (${audioNames.join(", ")})`,
+          label: "Lift",
+          url: streamUrl,
+          kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+          headers: streamHeaders,
+          audios: audios
         });
       } else {
         streams.push({
