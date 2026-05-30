@@ -11,12 +11,17 @@ export class VideoDBProvider {
   /**
    * Search external video sources for movies/series
    * @param {Object} query - Lookup queries
+   * @param {string} query.type - "movie" or "tv"
+   * @param {number} query.tmdbId - The TMDB identifier
+   * @param {number} [query.season] - Season number
+   * @param {number} [query.episode] - Episode number
    * @returns {Promise<Array<any>>}
    */
   async search(query) {
     try {
       const apiKey = await PotokSDK.storage.local.getItem("videodb_key");
-      const baseUrl = query.type === "movie" 
+      const isMovie = query.type === "movie";
+      const baseUrl = isMovie 
         ? `${this.host}/embed/player.php?type=movie&id=${query.tmdbId}`
         : `${this.host}/embed/splayer.php?type=serial&id=${query.tmdbId}`;
 
@@ -32,15 +37,57 @@ export class VideoDBProvider {
       }
 
       const html = response.data;
-      
-      // Extract PlayerJS encoded playlist from scripts inside HTML
-      const fileMatch = html.match(/"file"\s*:\s*"([^"]+)"/);
-      if (!fileMatch) {
-        return [];
+      let rawPlaylist = "";
+
+      if (isMovie) {
+        // 1. Movie: Extract PlayerJS playlist encoded string from single file match
+        const fileMatch = html.match(/"file"\s*:\s*"([^"]+)"/);
+        if (!fileMatch) {
+          return [];
+        }
+        rawPlaylist = fileMatch[1];
+      } else {
+        // 2. TV Show/Anime: Extract folder structure JSON array representing seasons & episodes
+        const fileMatch = html.match(/"file"\s*:\s*(\[[\s\S]*?\])\s*,\s*"/);
+        if (!fileMatch) {
+          return [];
+        }
+
+        try {
+          const cleanJSON = fileMatch[1].replace(/,\s*([}\]])/g, "$1"); // Strip trailing commas
+          const seasons = JSON.parse(cleanJSON);
+          if (!seasons || seasons.length === 0) {
+            return [];
+          }
+
+          // Helper to extract number from title (e.g., "1 Сезон" -> 1, "Сезон 2" -> 2)
+          const extractNum = (str) => {
+            const m = str.match(/([0-9]+)/);
+            return m ? parseInt(m[1], 10) : 1;
+          };
+
+          // Find requested season
+          const targetSeason = query.season || 1;
+          const seasonFolder = seasons.find(s => extractNum(s.title) === targetSeason) || seasons[0];
+          if (!seasonFolder || !seasonFolder.folder) {
+            return [];
+          }
+
+          // Find requested episode
+          const targetEpisode = query.episode || 1;
+          const episodeFile = seasonFolder.folder.find(ep => extractNum(ep.title) === targetEpisode) || seasonFolder.folder[0];
+          if (!episodeFile || !episodeFile.file) {
+            return [];
+          }
+
+          rawPlaylist = episodeFile.file;
+        } catch (jsonErr) {
+          console.error("[VideoDB] JSON parsing of serial layout failed:", jsonErr);
+          return [];
+        }
       }
 
-      const rawFile = fileMatch[1];
-      const parsedData = parsePlayerJSFile(rawFile);
+      const parsedData = parsePlayerJSFile(rawPlaylist);
       if (!parsedData) {
         return [];
       }
@@ -72,7 +119,7 @@ export class VideoDBProvider {
           provider: this.id,
           quality: normalizeQuality(options[0].quality),
           voice: voice,
-          label: query.type === "tv" ? `S${query.season}E${query.episode}` : "VideoDB Cloud",
+          label: query.type === "tv" ? `S${query.season || 1}E${query.episode || 1}` : "VideoDB Cloud",
           url: options[0].url,
           kind: options[0].url.includes(".m3u8") ? "hls" : "mp4",
           headers: { "Referer": this.host + "/" },
