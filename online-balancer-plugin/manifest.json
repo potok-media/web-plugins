@@ -10,28 +10,11 @@
     "http-proxy",
     "ui-notifications"
   ],
-  "slots": [
-    {
-      "slotName": "settings-tabs",
-      "id": "online-balancer-settings",
-      "title": "Онлайн балансеры"
-    },
-    {
-      "slotName": "media-online-streams",
-      "id": "online-balancer-search",
-      "title": "Поиск Онлайн Источников"
-    }
-  ],
   "config": {
-    "videodb_api_url": {
+    "videodb_key": {
       "type": "string",
-      "default": "https://videodb.cloud",
-      "label": "Адрес VideoDB Cloud API"
-    },
-    "enable_4k": {
-      "type": "boolean",
-      "default": true,
-      "label": "Поиск 4К источников"
+      "default": "",
+      "label": "API Ключ VideoDB Cloud"
     }
   }
 }
