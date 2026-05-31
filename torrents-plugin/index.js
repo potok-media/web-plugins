@@ -79,7 +79,7 @@ PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
   }
 });
 
-// Fetch search results from Jackett/TorrServer/SearchEngine via the host gateway proxy
+// Fetch search results from native SearchEngine via the host gateway proxy
 async function runTorrentsSearch(force = false) {
   if (!streamsState.mediaId) return;
   streamsState.loading = true;
@@ -94,7 +94,7 @@ async function runTorrentsSearch(force = false) {
   let absoluteSearchEngine = searchEngineBase.trim();
   if (!absoluteSearchEngine) {
     streamsState.loading = false;
-    streamsState.error = "Адрес поисковика торрентов не настроен.";
+    streamsState.error = "Адрес поисковика SearchEngine не настроен.";
     applyBlockMutations();
     return;
   }
@@ -125,17 +125,19 @@ async function runTorrentsSearch(force = false) {
       title: t.title,
       url: t.link,
       magnet: t.magnetUri,
-      quality: t.sizeLabel || "",
-      size: typeof t.sizeBytes === "number" ? t.sizeBytes : undefined,
-      seeds: t.seeders || 0,
-      peers: t.leechers || 0,
-      provider: t.tracker || "Jackett",
-      hash: getHashFromMagnet(t.magnetUri || "") || getHashFromMagnet(t.link || "") || t.id,
+      sizeBytes: typeof t.sizeBytes === "number" ? t.sizeBytes : undefined,
+      sizeLabel: t.sizeLabel || "",
+      seeders: typeof t.seeders === "number" ? t.seeders : 0,
+      leechers: typeof t.leechers === "number" ? t.leechers : 0,
+      tracker: t.tracker || "SearchEngine",
+      tags: t.tags || [],
+      publishDate: t.publishDate || "",
+      hash: (t.id || "").toLowerCase(),
       kind: "torrent"
     }));
   } catch (err) {
-    console.error("[TorrentsPlugin] Jackett search failed:", err);
-    streamsState.error = "Не удалось выполнить поиск раздач.";
+    console.error("[TorrentsPlugin] SearchEngine search failed:", err);
+    streamsState.error = "Не удалось выполнить поиск раздач в SearchEngine.";
   } finally {
     streamsState.loading = false;
     applyBlockMutations();
@@ -155,10 +157,12 @@ async function handleSelectStream(stream) {
   const link = stream.url || "";
   
   let torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL");
-  if (torrUrl === null) torrUrl = PotokSDK.config.torrentGoURL || "";
+  if (torrUrl === null) {
+    torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+  }
   const cleanTorrUrl = torrUrl.trim();
   if (!cleanTorrUrl) {
-    PotokSDK.ui.showHUD("error", "Адрес торрент-плеера не настроен.");
+    PotokSDK.ui.showHUD("error", "Адрес торрент-плеера TorrentGo не настроен.");
     return;
   }
 
@@ -183,7 +187,7 @@ async function handleSelectStream(stream) {
     const filesProxyUrl = `/api/proxy?url=${encodeURIComponent(`${cleanTorrUrl.replace(/\/$/, "")}/api/torrent/files`)}`;
     const filesResponse = await PotokSDK.http.post(filesProxyUrl, requestBody);
     if (filesResponse.status !== 200) {
-      throw new Error(`Ошибка TorrServer (статус ${filesResponse.status})`);
+      throw new Error(`Ошибка TorrentGo (статус ${filesResponse.status})`);
     }
 
     const resJson = typeof filesResponse.data === 'string' ? JSON.parse(filesResponse.data) : filesResponse.data;
@@ -204,8 +208,7 @@ async function handleSelectStream(stream) {
     try {
       const overrideRes = await PotokSDK.http.get(`/api/media/override/${hash}`);
       if (overrideRes.status === 200) {
-        const oJson = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
-        override = oJson.override || null;
+        override = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
       }
     } catch (e) {
       console.warn("[TorrentsPlugin] Failed to load override:", e);
@@ -506,10 +509,14 @@ async function pingService(baseUrl, path = "/health") {
 
 async function checkPings() {
   let searchUrl = await PotokSDK.storage.local.getItem("searchEngineURL");
-  if (searchUrl === null) searchUrl = PotokSDK.config.searchEngineURL || "";
+  if (searchUrl === null) {
+    searchUrl = PotokSDK.config.searchEngineURL || "";
+  }
 
   let torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL");
-  if (torrUrl === null) torrUrl = PotokSDK.config.torrentGoURL || "";
+  if (torrUrl === null) {
+    torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+  }
 
   const [searchRes, torrRes] = await Promise.all([
     pingService(searchUrl, "/health"),
