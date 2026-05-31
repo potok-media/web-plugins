@@ -1,5 +1,6 @@
 import { parsePlayerJSFile } from './parser.js';
-import { PotokSDK } from '../sdk.js';
+import { PotokSDK } from 'potok-sdk';
+
 
 export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
   const parsedFiles = [];

@@ -1,4 +1,4 @@
-import { PotokSDK } from '../sdk.js';
+import { PotokSDK } from 'potok-sdk';
 
 export class LiftProvider {
   constructor() {

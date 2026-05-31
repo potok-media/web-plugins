@@ -1,4 +1,4 @@
-import { PotokSDK } from '../sdk.js';
+import { PotokSDK } from 'potok-sdk';
 import { VideoDBProvider } from './providers/videodb.js';
 import { LiftProvider } from './providers/lift.js';
 import { KinotochkaProvider } from './providers/kinotochka.js';
@@ -52,15 +52,15 @@ PotokSDK.registerSlotContribution({
   slotName: "media-actions",
   id: "online-balancer-media-actions",
   render: (props) => {
-    const url = `/media/${props.mediaType}/${props.mediaId}/watch?tab=online` + 
-      (props.season ? `&season=${props.season}&episode=${props.episode}` : "");
+    const url = `/media/${props.mediaType}/${props.mediaId}/watch` + 
+      (props.season ? `?season=${props.season}&episode=${props.episode}` : "");
 
     return {
       label: "Смотреть Онлайн",
       layout: Button("Смотреть Онлайн")
         .variant("watch-online")
         .onClick(() => {
-          PotokSDK.ui.navigateTo(url);
+          PotokSDK.ui.navigateTo(url, { tab: "online" });
         })
     };
   }

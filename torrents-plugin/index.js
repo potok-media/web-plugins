@@ -1,4 +1,4 @@
-import { PotokSDK } from '../sdk.js';
+import { PotokSDK } from 'potok-sdk';
 
 const { Button, StreamList, VStack, HStack, Text, Badge } = PotokSDK.ui.components;
 
@@ -18,15 +18,15 @@ PotokSDK.registerSlotContribution({
   slotName: "media-actions",
   id: "torrents-media-actions",
   render: (props) => {
-    const url = `/media/${props.mediaType}/${props.mediaId}/watch?tab=torrents` + 
-      (props.season ? `&season=${props.season}&episode=${props.episode}` : "");
+    const url = `/media/${props.mediaType}/${props.mediaId}/watch` + 
+      (props.season ? `?season=${props.season}&episode=${props.episode}` : "");
 
     return {
       label: "Смотреть",
       layout: Button("Смотреть")
         .variant("watch-primary")
         .onClick(() => {
-          PotokSDK.ui.navigateTo(url);
+          PotokSDK.ui.navigateTo(url, { tab: "torrents" });
         })
     };
   }
