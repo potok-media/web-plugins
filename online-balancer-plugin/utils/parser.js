@@ -77,6 +77,31 @@ export function sortVoices(voices) {
 }
 
 /**
+ * Expands PlayerJS bracketed quality masks like "s01e01_[480,720].mp4" to separate files, sorted highest-quality first.
+ * @param {string} url
+ * @returns {Array<{quality: string, url: string}>}
+ */
+export function expandBracketedUrl(url) {
+  if (!url) return [];
+  const trimmed = url.trim();
+  const match = trimmed.match(/_?\[([^\]]+)\]\.mp4$/i);
+  if (!match) {
+    return [{ quality: "1080p", url: trimmed }];
+  }
+  const qualities = match[1].split(",");
+  const base = trimmed.substring(0, trimmed.indexOf(match[0]));
+  const isUnderscore = match[0].startsWith("_");
+  
+  return qualities.map(q => {
+    const cleanQ = q.trim();
+    return {
+      quality: cleanQ + "p",
+      url: `${base}${isUnderscore ? "_" : ""}${cleanQ}.mp4`
+    };
+  }).sort((a, b) => parseInt(b.quality, 10) - parseInt(a.quality, 10));
+}
+
+/**
  * Parses a standard PlayerJS playlist format: "[1080p]{Dubbing}https://...;{Line}https://...;,[720p]..."
  * @param {string} raw - Raw playlist text
  * @returns {Record<string, Array<{quality: string, url: string}>>|null}
@@ -86,9 +111,12 @@ export function parsePlayerJSFile(raw) {
   
   const trimmed = raw.trim();
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("//")) {
-    return {
-      "default": [{ quality: "1080p", url: trimmed }]
-    };
+    const expanded = expandBracketedUrl(trimmed);
+    if (expanded.length > 0) {
+      return {
+        "default": expanded
+      };
+    }
   }
   
   const voiceStreams = {};
