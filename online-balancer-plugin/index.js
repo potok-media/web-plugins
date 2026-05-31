@@ -206,31 +206,8 @@ async function handleSelectStream(stream) {
 
 // Render dynamic UI slot mutations
 function applyBlockMutations() {
-  const headerBlock = PotokSDK.ui.block("media-streams-header");
   const filtersBlock = PotokSDK.ui.block("media-streams-filters");
   const resultsBlock = PotokSDK.ui.block("media-streams-results");
-
-  // Renders the tab switcher in the header slot
-  const tabsLayout = HStack()
-    .spacing(12)
-    .alignItems("center")
-    .child(
-      Button("Торренты")
-        .variant(streamsState.activeTab === "default" ? "primary" : "secondary")
-        .onClick(() => {
-          streamsState.activeTab = "default";
-        })
-    )
-    .child(
-      Button("Онлайн")
-        .variant(streamsState.activeTab === "external" ? "primary" : "secondary")
-        .onClick(() => {
-          streamsState.activeTab = "external";
-          runOnlineSearch();
-        })
-    );
-
-  headerBlock.append(tabsLayout).apply();
 
   // Manage UI mutations based on the active tab
   if (streamsState.activeTab === "external") {
@@ -245,6 +222,9 @@ function applyBlockMutations() {
       .onSelectStream(handleSelectStream);
 
     resultsBlock.append(resultsLayout);
+  } else {
+    filtersBlock.element("streams-filter-bar").show();
+    resultsBlock.element("streams-results-list").show();
   }
 
   filtersBlock.apply();
