@@ -29,8 +29,55 @@ export function normalizeQuality(q) {
 }
 
 /**
+ * Extracts the first numeric value from a string.
+ * @param {string} str
+ * @returns {number}
+ */
+export function extractNum(str) {
+  if (!str) return 1;
+  const m = String(str).match(/([0-9]+)/);
+  return m ? parseInt(m[1], 10) : 1;
+}
+
+/**
+ * Extracts a balanced bracket enclosed string from text.
+ * @param {string} text - The input text
+ * @param {string} [startChar] - Defaults to "["
+ * @param {string} [endChar] - Defaults to "]"
+ * @returns {string|null}
+ */
+export function extractBalancedBracket(text, startChar = "[", endChar = "]") {
+  const startIndex = text.indexOf(startChar);
+  if (startIndex === -1) return null;
+  let balance = 0;
+  let result = "";
+  for (let i = startIndex; i < text.length; i++) {
+    const char = text[i];
+    if (char === startChar) balance++;
+    else if (char === endChar) balance--;
+    result += char;
+    if (balance === 0) break;
+  }
+  return result;
+}
+
+/**
+ * Sorts voice/audio labels to prioritize Russian translations.
+ * @param {string[]} voices
+ * @returns {string[]}
+ */
+export function sortVoices(voices) {
+  return [...voices].sort((a, b) => {
+    const aRu = isRussian(a);
+    const bRu = isRussian(b);
+    if (aRu && !bRu) return -1;
+    if (!aRu && bRu) return 1;
+    return a.localeCompare(b);
+  });
+}
+
+/**
  * Parses a standard PlayerJS playlist format: "[1080p]{Dubbing}https://...;{Line}https://...;,[720p]..."
- * Full port from Go implementation to client-side ESM.
  * @param {string} raw - Raw playlist text
  * @returns {Record<string, Array<{quality: string, url: string}>>|null}
  */
