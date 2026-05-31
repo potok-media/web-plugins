@@ -183,7 +183,9 @@ async function handleSelectStream(stream) {
               season: file.season,
               episode: file.episode,
               audios: file.audios,
-              headers: file.headers
+              headers: file.headers,
+              providerId: stream.providerId,
+              voice: finalVoiceName
             });
           }
         }
@@ -199,7 +201,9 @@ async function handleSelectStream(stream) {
       mediaType: "movie",
       id: streamsState.mediaId,
       audios: stream.audios,
-      headers: stream.headers
+      headers: stream.headers,
+      providerId: stream.providerId,
+      voice: stream.voice
     });
   }
 }
@@ -233,3 +237,82 @@ streamsState.$subscribe(applyBlockMutations);
 
 // Initial bootstrap rendering
 applyBlockMutations();
+
+// Listen to stream refresh events from the host
+window.addEventListener('message', async (e) => {
+  const msg = e.data;
+  if (!msg || msg.source !== 'potok-host') return;
+
+  if (msg.action === 'REFRESH_STREAM_URL') {
+    const { providerId, mediaId, mediaType, season, episode, voice } = msg.payload;
+    try {
+      console.log(`[Plugin] Refreshing stream url for ${providerId}, media ${mediaId}, ${mediaType} S${season}E${episode}`);
+      if (mediaType === "tv") {
+        const refinedFiles = await fetchOnlineEpisodes(providerId, { id: mediaId });
+        if (refinedFiles && refinedFiles.length > 0) {
+          const file = refinedFiles.find(f => f.season === season && f.episode === episode);
+          if (file) {
+            let finalUrl = file.url;
+
+            // Try to match the translation/voice if voice name is specified
+            if (voice && file.audios && file.audios.length > 0) {
+              const matchedAudio = file.audios.find(a => a.name === voice);
+              if (matchedAudio) {
+                finalUrl = matchedAudio.url;
+              }
+            }
+
+            window.parent.postMessage({
+              source: 'potok-plugin-sdk',
+              action: 'REFRESH_STREAM_URL_RESPONSE',
+              payload: {
+                success: true,
+                streamUrl: finalUrl,
+                audios: file.audios,
+                headers: file.headers
+              }
+            }, '*');
+          } else {
+            throw new Error(`Episode S${season}E${episode} not found in balancer`);
+          }
+        } else {
+          throw new Error('No episodes resolved from balancer');
+        }
+      } else {
+        // For movies, we just run a search query
+        const query = {
+          type: "movie",
+          tmdbId: mediaId
+        };
+        const providerInstance = providers[providerId];
+        if (!providerInstance) throw new Error(`Provider ${providerId} not found`);
+        const searchResults = await providerInstance.search(query);
+        if (searchResults && searchResults.length > 0) {
+          const matched = searchResults[0];
+          window.parent.postMessage({
+            source: 'potok-plugin-sdk',
+            action: 'REFRESH_STREAM_URL_RESPONSE',
+            payload: {
+              success: true,
+              streamUrl: matched.url,
+              audios: matched.audios,
+              headers: matched.headers
+            }
+          }, '*');
+        } else {
+          throw new Error('No search results found');
+        }
+      }
+    } catch (err) {
+      console.error("[Plugin] Failed to refresh stream:", err);
+      window.parent.postMessage({
+        source: 'potok-plugin-sdk',
+        action: 'REFRESH_STREAM_URL_RESPONSE',
+        payload: {
+          success: false,
+          error: err.message || "Failed to resolve stream URL"
+        }
+      }, '*');
+    }
+  }
+});
