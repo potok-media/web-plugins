@@ -81,7 +81,6 @@ PotokSDK.media.searchProvider("potok-online-balancer", "Модульные Он�
 
 // Reactive state for the Streams Page Slot Sandbox
 const streamsState = PotokSDK.createState({
-  activeTab: "default", // "default" | "online"
   mediaId: null,
   mediaType: null,
   season: null,
@@ -111,19 +110,7 @@ PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
       streamsState.season = context.season;
       streamsState.episode = context.episode;
       streamsState.title = context.title || "";
-    }
 
-    const previousTab = streamsState.activeTab;
-    // Dynamic routing synchronization on query parameters
-    if (context.tab) {
-      streamsState.activeTab = context.tab;
-    } else {
-      streamsState.activeTab = "potok-online-balancer";
-    }
-
-    const tabChanged = previousTab !== streamsState.activeTab;
-
-    if ((isNewContext || tabChanged) && streamsState.activeTab === "potok-online-balancer") {
       runOnlineSearch();
     }
   }
@@ -220,21 +207,18 @@ function applyBlockMutations() {
   const filtersBlock = PotokSDK.ui.block("media-streams-filters");
   const resultsBlock = PotokSDK.ui.block("media-streams-results");
 
-  // Manage UI mutations based on the active tab
-  if (streamsState.activeTab === "potok-online-balancer") {
-    filtersBlock.element("streams-filter-bar").hide();
-    resultsBlock.element("streams-results-list").hide();
+  filtersBlock.element("streams-filter-bar").hide();
+  resultsBlock.element("streams-results-list").hide();
 
-    const resultsLayout = StreamList()
-      .streams(streamsState.streams)
-      .loading(streamsState.loading)
-      .showFilters(true)
-      .emptyText(streamsState.error || "Источники не найдены. Попробуйте обновить поиск.")
-      .nounPlurals(["источник", "источника", "источников"])
-      .onSelectStream(handleSelectStream);
+  const resultsLayout = StreamList()
+    .streams(streamsState.streams)
+    .loading(streamsState.loading)
+    .showFilters(true)
+    .emptyText(streamsState.error || "Источники не найдены. Попробуйте обновить поиск.")
+    .nounPlurals(["источник", "источника", "источников"])
+    .onSelectStream(handleSelectStream);
 
-    resultsBlock.append(resultsLayout);
-  }
+  resultsBlock.append(resultsLayout);
 
   filtersBlock.apply();
   resultsBlock.apply();
