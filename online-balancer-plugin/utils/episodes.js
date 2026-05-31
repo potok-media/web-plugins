@@ -390,9 +390,17 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
     let finalEpisode = file.episode;
 
     if (override && override.season !== undefined && override.season !== null) {
-      finalSeason = override.season;
+      const firstFile = autoMappedFiles[0];
+      const seasonShift = override.season - (firstFile ? firstFile.season : 1);
+      finalSeason = file.season + seasonShift;
+      
       const offset = override.episodeOffset ?? 0;
-      finalEpisode = offset + 1 + file.index;
+      if (firstFile && file.season === firstFile.season) {
+        finalEpisode = offset + (file.episode - firstFile.episode) + 1;
+      } else {
+        // Keep the relative episode number for other seasons
+        finalEpisode = file.episode;
+      }
     }
 
     return {

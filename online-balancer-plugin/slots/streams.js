@@ -195,13 +195,64 @@ export function registerStreamsSlot(videoDB, lift, kinotochka) {
           resultsList.child(StreamSkeletonList());
         } else if (filtered.length > 0) {
           filtered.forEach((s, idx) => {
+            // Extract voice names uniquely
+            const voiceNames = new Set();
+
+            if (s.audios && Array.isArray(s.audios)) {
+              s.audios.forEach(a => {
+                if (a && a.name) {
+                  voiceNames.add(a.name.trim());
+                }
+              });
+            }
+
+            if (s.voice && typeof s.voice === 'string') {
+              let voiceStr = s.voice.trim();
+              if (voiceStr.includes("Мультиаудио")) {
+                const parenMatch = voiceStr.match(/\(([^)]+)\)/);
+                if (parenMatch) {
+                  voiceStr = parenMatch[1];
+                } else {
+                  voiceStr = voiceStr.replace(/^Мультиаудио\s*/, "");
+                }
+              }
+              
+              voiceStr.split(/[,;]+/).forEach(part => {
+                const trimmed = part.trim();
+                if (trimmed && trimmed.toLowerCase() !== "мультиаудио") {
+                  voiceNames.add(trimmed);
+                }
+              });
+            }
+
+            // Fallback to "Русский" if no voice names could be extracted
+            if (voiceNames.size === 0) {
+              voiceNames.add("Русский");
+            }
+
+            const voiceTags = Array.from(voiceNames).map(name => {
+              const nameLower = name.toLowerCase();
+              let emoji = "🎙️"; // default voice/dub
+              if (nameLower.includes("original") || nameLower.includes("japan") || nameLower.includes("eng")) {
+                if (nameLower.includes("sub") || nameLower.includes("суб")) {
+                  emoji = "💬";
+                } else {
+                  emoji = "🌐";
+                }
+              } else if (nameLower.includes("sub") || nameLower.includes("суб")) {
+                emoji = "💬";
+              }
+              return { value: `${emoji} ${name}` };
+            });
+
             const torrentObj = {
               title: getProviderName(s.provider),
               sizeLabel: s.quality,
-              tracker: `${getProviderName(s.provider)} ${s.voice || "Русский"}`,
+              tracker: `${getProviderName(s.provider)} (Онлайн)`,
               tags: [
-                { value: s.kind.toUpperCase() },
-                s.label ? { value: s.label } : null
+                s.kind ? { value: `⚡ ${s.kind.toUpperCase()}` } : null,
+                (mediaType !== "tv" && s.label) ? { value: s.label } : null,
+                ...voiceTags
               ].filter(Boolean),
               publishDate: null,
               seeders: null,
