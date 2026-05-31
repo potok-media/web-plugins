@@ -120,11 +120,22 @@ export async function fetchKinotochkaEpisodes(mediaId, checkWatched) {
                     const voiceMatch = epItem.comment.match(/\[([^\]]+)\]/);
                     const commentVoiceName = voiceMatch ? voiceMatch[1] : "default";
 
-                    const audios = parsedData ? Object.keys(parsedData).map(voice => ({
-                      id: voice === "default" ? commentVoiceName : voice,
-                      name: voice === "default" ? commentVoiceName : voice,
-                      url: parsedData[voice][0]?.url || ""
-                    })) : [];
+                    const audios = [];
+                    if (parsedData) {
+                      Object.keys(parsedData).forEach(voice => {
+                        const options = parsedData[voice];
+                        options.forEach(opt => {
+                          const qName = opt.quality ? opt.quality.replace(/[\[\]]/g, "").trim() : "";
+                          const voiceName = voice === "default" ? commentVoiceName : voice;
+                          const trackName = qName ? `${voiceName} (${qName})` : voiceName;
+                          audios.push({
+                            id: trackName,
+                            name: trackName,
+                            url: opt.url || ""
+                          });
+                        });
+                      });
+                    }
 
                     parsedFiles.push({
                       id: epId,
@@ -215,12 +226,21 @@ export async function fetchKinotochkaEpisodes(mediaId, checkWatched) {
                           if (seenEpisodeIds.has(epId)) return;
                           seenEpisodeIds.add(epId);
 
-                          const parsedData = parsePlayerJSFile(epObj.file);
-                          const audios = parsedData ? Object.keys(parsedData).map(voice => ({
-                            id: voice,
-                            name: voice,
-                            url: parsedData[voice][0]?.url || ""
-                          })) : [];
+                          const audios = [];
+                          if (parsedData) {
+                            Object.keys(parsedData).forEach(voice => {
+                              const options = parsedData[voice];
+                              options.forEach(opt => {
+                                const qName = opt.quality ? opt.quality.replace(/[\[\]]/g, "").trim() : "";
+                                const trackName = qName ? `${voice} (${qName})` : voice;
+                                audios.push({
+                                  id: trackName,
+                                  name: trackName,
+                                  url: opt.url || ""
+                                });
+                              });
+                            });
+                          }
 
                           parsedFiles.push({
                             id: epId,

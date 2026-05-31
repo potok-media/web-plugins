@@ -35,7 +35,8 @@ function mapSearchResult(s, includeId = false) {
     providerId: s.provider,
     voice: voiceLabel,
     kind: displayKind === "hls" ? "m3u8" : displayKind,
-    headers: s.headers
+    headers: s.headers,
+    audios: s.audios
   };
 
   if (includeId) {

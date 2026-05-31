@@ -180,14 +180,18 @@ export class KinotochkaProvider {
 
                     for (const voice of voices) {
                       const options = parsedData[voice];
-                      if (options.length === 0) continue;
-                      const opt = options[0];
-                      if (!defaultUrl) {
-                        defaultUrl = opt.url;
-                        defaultKind = opt.url.includes(".m3u8") ? "hls" : "mp4";
-                        maxQuality = normalizeQuality(opt.quality);
+                      for (const opt of options) {
+                        const qName = opt.quality ? normalizeQuality(opt.quality) : "";
+                        const voiceName = voice === "default" ? commentVoiceName : voice;
+                        const trackName = qName ? `${voiceName} (${qName})` : voiceName;
+
+                        if (!defaultUrl) {
+                          defaultUrl = opt.url;
+                          defaultKind = opt.url.includes(".m3u8") ? "hls" : "mp4";
+                          maxQuality = qName || "1080p";
+                        }
+                        audios.push({ name: trackName, url: opt.url });
                       }
-                      audios.push({ name: voice === "default" ? commentVoiceName : voice, url: opt.url });
                     }
 
                     return [{
@@ -285,16 +289,17 @@ export class KinotochkaProvider {
 
       for (const voice of voices) {
         const options = parsedData[voice];
-        if (options.length === 0) continue;
+        for (const opt of options) {
+          const qName = opt.quality ? normalizeQuality(opt.quality) : "";
+          const trackName = qName ? `${voice} (${qName})` : voice;
 
-        const opt = options[0];
-        if (!defaultUrl) {
-          defaultUrl = opt.url;
-          defaultKind = opt.url.includes(".m3u8") ? "hls" : "mp4";
-          maxQuality = normalizeQuality(opt.quality);
+          if (!defaultUrl) {
+            defaultUrl = opt.url;
+            defaultKind = opt.url.includes(".m3u8") ? "hls" : "mp4";
+            maxQuality = qName || "1080p";
+          }
+          audios.push({ name: trackName, url: opt.url });
         }
-
-        audios.push({ name: voice, url: opt.url });
       }
 
       return [{

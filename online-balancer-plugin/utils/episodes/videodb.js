@@ -41,11 +41,21 @@ export async function fetchVideoDBEpisodes(mediaId, checkWatched) {
               
               // Parse playlist for voices
               const parsedData = parsePlayerJSFile(epObj.file);
-              const audios = parsedData ? Object.keys(parsedData).map(voice => ({
-                id: voice,
-                name: voice,
-                url: parsedData[voice][0]?.url || ""
-              })) : [];
+              const audios = [];
+              if (parsedData) {
+                Object.keys(parsedData).forEach(voice => {
+                  const options = parsedData[voice];
+                  options.forEach(opt => {
+                    const qName = opt.quality ? opt.quality.replace(/[\[\]]/g, "").trim() : "";
+                    const trackName = qName ? `${voice} (${qName})` : voice;
+                    audios.push({
+                      id: trackName,
+                      name: trackName,
+                      url: opt.url || ""
+                    });
+                  });
+                });
+              }
 
               parsedFiles.push({
                 id: `videodb:${sNum}:${epNum}`,
