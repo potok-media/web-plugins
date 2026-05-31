@@ -136,7 +136,7 @@ export async function fetchKinotochkaEpisodes(mediaId, checkWatched) {
                       provider: "kinotochka",
                       audios,
                       isWatched: checkWatched(sNum, epNum),
-                      headers: { "Referer": new URL(targetPageUrl).origin + "/" }
+                      headers: {"Referer": new URL(targetPageUrl).origin + "/"}
                     });
                   });
                   continue; // Successfully processed this page via direct playlist, skip iframe checks
@@ -161,22 +161,26 @@ export async function fetchKinotochkaEpisodes(mediaId, checkWatched) {
             if (playerUrl.startsWith("//")) {
               playerUrl = "https:" + playerUrl;
             }
-            
+
             let playerHtml = "";
             let usedDomain = "https://api.alloha.tv";
             const iframeRes = await PotokSDK.http.get(`/api/proxy?url=${encodeURIComponent(playerUrl)}`);
             if (iframeRes.status === 200) {
               playerHtml = iframeRes.data;
-              try { usedDomain = new URL(playerUrl).origin; } catch {}
+              try {
+                usedDomain = new URL(playerUrl).origin;
+              } catch {
+              }
             } else {
               try {
                 const urlObj = new URL(playerUrl);
                 const rewrittenUrl = `https://api.alloha.tv${urlObj.pathname}${urlObj.search}`;
                 const rewrittenRes = await PotokSDK.http.get(`/api/proxy?url=${encodeURIComponent(rewrittenUrl)}`);
                 if (rewrittenRes.status === 200) {
-                   playerHtml = rewrittenRes.data;
+                  playerHtml = rewrittenRes.data;
                 }
-              } catch {}
+              } catch {
+              }
             }
 
             if (playerHtml) {
@@ -228,7 +232,7 @@ export async function fetchKinotochkaEpisodes(mediaId, checkWatched) {
                             provider: "kinotochka",
                             audios,
                             isWatched: checkWatched(sNum, epNum),
-                            headers: { "Referer": usedDomain + "/" }
+                            headers: {"Referer": usedDomain + "/"}
                           });
                         });
                       }
@@ -238,10 +242,11 @@ export async function fetchKinotochkaEpisodes(mediaId, checkWatched) {
                   }
                 }
               }
-            }
           }
         }
       }
+    }
   }
   return parsedFiles;
+}
 }
