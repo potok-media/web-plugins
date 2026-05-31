@@ -184,8 +184,8 @@ async function handleSelectStream(stream) {
   };
 
   try {
-    const filesProxyUrl = `/api/proxy?url=${encodeURIComponent(`${cleanTorrUrl.replace(/\/$/, "")}/api/torrent/files`)}`;
-    const filesResponse = await PotokSDK.http.post(filesProxyUrl, requestBody);
+    const filesUrl = `${cleanTorrUrl.replace(/\/$/, "")}/api/torrent/files`;
+    const filesResponse = await PotokSDK.http.post(filesUrl, requestBody);
     if (filesResponse.status !== 200) {
       throw new Error(`Ошибка TorrentGo (статус ${filesResponse.status})`);
     }
