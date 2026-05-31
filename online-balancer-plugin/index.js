@@ -22,7 +22,7 @@ function mapSearchResult(s, includeId = false) {
   const providerName = providerInstance ? providerInstance.name : s.provider;
   const voiceLabel = s.voice || "";
   
-  const displayTitle = voiceLabel ? `${providerName} (${voiceLabel})` : providerName;
+  const displayTitle = providerName;
   const displayQuality = ["1080p", "2160p", "4K"].includes(s.quality) ? (s.quality === "1080p" ? "1080p" : "2160p") : s.quality === "720p" ? "720p" : "480p";
   const displayKind = s.kind || (s.url?.includes(".m3u8") ? "hls" : s.url?.includes(".mpd") ? "dash" : "mp4");
 
@@ -177,7 +177,7 @@ async function handleSelectStream(stream) {
             PotokSDK.ui.playVideo({
               streamUrl: finalUrl,
               streamType: finalUrl.includes(".m3u8") ? "m3u8" : finalUrl.includes(".mpd") ? "dash" : "mp4",
-              title: `${streamsState.title || "Серия"} - S${file.season}E${file.episode} (${finalVoiceName})`,
+              title: `${file.title || "Серия"} - S${file.season}E${file.episode}`,
               mediaType: "tv",
               id: streamsState.mediaId,
               season: file.season,
