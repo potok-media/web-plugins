@@ -277,12 +277,9 @@ export function registerStreamsSlot(videoDB, lift, kinotochka) {
                         onPlay: (episode, audioId) => {
                           const file = refinedFiles.find(f => f.season === episode.season && f.episode === episode.episode);
                           if (file) {
-                            const voiceTrack = file.audios && file.audios.length > 0 
-                              ? file.audios.find(a => a.id === audioId) || file.audios[0]
-                              : null;
-                            
-                            const finalUrl = voiceTrack ? voiceTrack.url : file.url;
-                            const finalVoiceName = voiceTrack ? voiceTrack.name : "Основной поток";
+                            const defaultAudio = file.audios && file.audios.length > 0 ? file.audios[0] : null;
+                            const finalUrl = defaultAudio ? defaultAudio.url : file.url;
+                            const finalVoiceName = defaultAudio ? defaultAudio.name : "Основной поток";
 
                             PotokSDK.ui.playVideo({
                               streamUrl: finalUrl,
@@ -292,6 +289,7 @@ export function registerStreamsSlot(videoDB, lift, kinotochka) {
                               id: mediaId,
                               season: file.season,
                               episode: file.episode,
+                              audios: file.audios, // Expose all voice tracks inside the player!
                               headers: file.headers
                             });
                             PotokSDK.ui.showHUD("success", `Запуск: ${finalVoiceName}`);

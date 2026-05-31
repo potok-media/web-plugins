@@ -384,6 +384,12 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
     };
   });
 
+  // Sort autoMappedFiles chronologically before applying overrides to make sure the relative firstFile logic is correct.
+  autoMappedFiles.sort((a, b) => {
+    if (a.season !== b.season) return a.season - b.season;
+    return a.episode - b.episode;
+  });
+
   // 6. Refine seasons/episodes offsets if local database override exists
   const refinedFiles = autoMappedFiles.map((file) => {
     let finalSeason = file.season;
@@ -448,6 +454,11 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
       }
     });
   }
+
+  refinedFiles.sort((a, b) => {
+    if (a.season !== b.season) return a.season - b.season;
+    return a.episode - b.episode;
+  });
 
   return refinedFiles;
 }
