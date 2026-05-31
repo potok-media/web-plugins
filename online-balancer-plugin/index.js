@@ -121,19 +121,47 @@ async function runOnlineSearch() {
     tmdbId: streamsState.mediaId
   };
 
-  try {
-    const results = await Promise.all([
-      videoDB.search(query).catch(err => { console.error(err); return []; }),
-      lift.search(query).catch(err => { console.error(err); return []; }),
-      kinotochka.search(query).catch(err => { console.error(err); return []; })
-    ]);
+  let activeSearches = 3;
+  
+  const onProviderFinished = (providerResults) => {
+    activeSearches--;
+    if (providerResults && providerResults.length > 0) {
+      const newMapped = providerResults.map(s => mapSearchResult(s, false));
+      // Deduplicate to avoid rendering identical stream rows
+      const combined = [...streamsState.streams];
+      newMapped.forEach(item => {
+        if (!combined.some(c => c.url === item.url)) {
+          combined.push(item);
+        }
+      });
+      streamsState.streams = combined;
+    }
+    
+    if (activeSearches <= 0) {
+      streamsState.loading = false;
+    }
+  };
 
-    streamsState.streams = results.flat().map(s => mapSearchResult(s, false));
-  } catch (err) {
-    streamsState.error = "Ошибка при поиске онлайн-источников.";
-  } finally {
-    streamsState.loading = false;
-  }
+  // Run searches in parallel, but handle each resolving immediately for instant UX!
+  videoDB.search(query)
+    .then(res => onProviderFinished(res))
+    .catch(err => { console.error("[Plugin] VideoDB failed:", err); onProviderFinished([]); });
+
+  lift.search(query)
+    .then(res => onProviderFinished(res))
+    .catch(err => { console.error("[Plugin] Lift failed:", err); onProviderFinished([]); });
+
+  kinotochka.search(query)
+    .then(res => onProviderFinished(res))
+    .catch(err => { console.error("[Plugin] Kinotochka failed:", err); onProviderFinished([]); });
+
+  // 4-second safety timeout to hide skeleton loader even if some balancers are slow/hanging
+  setTimeout(() => {
+    if (streamsState.loading) {
+      console.warn("[Plugin] Safety loading timeout reached (4s). Hiding skeletons.");
+      streamsState.loading = false;
+    }
+  }, 4000);
 }
 
 // Handle play selection
