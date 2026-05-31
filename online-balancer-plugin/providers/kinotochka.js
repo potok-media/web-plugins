@@ -13,21 +13,24 @@ export class KinotochkaProvider {
     return `/api/proxy?url=${encodeURIComponent(url)}`;
   }
 
-  /**
-   * Securely query local BFF API to map TMDB/IMDb IDs to Kinopoisk ID (id_kp)
-   */
-  async resolveKpId(tmdbId, imdbId, type) {
+  async resolveMediaDetails(tmdbId, type) {
     try {
       const typePath = type === "tv" ? "tv" : "movie";
-      const url = `/api/media/detail/${typePath}/${tmdbId}/external_ids`;
+      const url = `/api/media/detail/${typePath}/${tmdbId}`;
       const response = await PotokSDK.http.get(url).catch(() => null);
       
       if (response && response.status === 200 && response.data) {
         const json = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
-        if (json && json.kpId) return String(json.kpId);
+        if (json) {
+          return {
+            kpId: json.kpId ? String(json.kpId) : "",
+            imdbId: json.imdbId ? String(json.imdbId) : "",
+            title: json.title || ""
+          };
+        }
       }
     } catch (err) {
-      console.warn("[Kinotochka] Failed to resolve kpId via BFF:", err);
+      console.warn("[Kinotochka] Failed to resolve media details via BFF:", err);
     }
 
     // Direct browser lookup fallback
@@ -37,7 +40,13 @@ export class KinotochkaProvider {
       const response = await PotokSDK.http.get(directUrl).catch(() => null);
       if (response && response.status === 200 && response.data) {
         const json = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
-        if (json?.data?.id_kp) return String(json.data.id_kp);
+        if (json?.data) {
+          return {
+            kpId: json.data.id_kp ? String(json.data.id_kp) : "",
+            imdbId: json.data.imdb ? String(json.data.imdb) : "",
+            title: json.data.name || ""
+          };
+        }
       }
     } catch (err) {
       console.warn("[Kinotochka] Direct lookup failed:", err);
@@ -51,25 +60,48 @@ export class KinotochkaProvider {
    */
   async search(query) {
     try {
-      let kpId = query.kpId || await this.resolveKpId(query.tmdbId, query.imdbId, query.type);
-      if (!kpId) return [];
+      const details = await this.resolveMediaDetails(query.tmdbId, query.type);
+      if (!details) return [];
 
-      // 1. Query search on kinovibe.vip via CORS bypass proxy
-      const searchUrl = `${this.host}/index.php?do=search&subaction=search&story=${kpId}`;
-      const searchResponse = await PotokSDK.http.get(this.getProxyUrl(searchUrl)).catch(() => null);
-      if (!searchResponse || searchResponse.status !== 200) return [];
+      let kpId = details.kpId;
+      let title = details.title;
+      let matches = [];
 
-      // Extract links to movie pages ending in .html
-      const matches = [];
-      let regexMatch;
-      const regex = /href=["']([^"']+\.html)["']/gi;
-      while ((regexMatch = regex.exec(searchResponse.data)) !== null) {
-        const url = regexMatch[1];
-        if (!url.includes('/tags/') && !url.includes('/xfsearch/') && !url.includes('/user/') && !url.includes('/catalog/') && !url.includes('/lastnews/')) {
-          const fullUrl = url.startsWith('http') ? url : `${this.host}${url.startsWith('/') ? '' : '/'}${url}`;
-          if (!matches.includes(fullUrl)) matches.push(fullUrl);
+      // 1. First attempt: search by kpId (highly precise)
+      if (kpId) {
+        const searchUrl = `${this.host}/index.php?do=search&subaction=search&story=${kpId}`;
+        const searchResponse = await PotokSDK.http.get(this.getProxyUrl(searchUrl)).catch(() => null);
+        if (searchResponse && searchResponse.status === 200) {
+          let regexMatch;
+          const regex = /href=["']([^"']+\.html)["']/gi;
+          while ((regexMatch = regex.exec(searchResponse.data)) !== null) {
+            const url = regexMatch[1];
+            if (!url.includes('/tags/') && !url.includes('/xfsearch/') && !url.includes('/user/') && !url.includes('/catalog/') && !url.includes('/lastnews/')) {
+              const fullUrl = url.startsWith('http') ? url : `${this.host}${url.startsWith('/') ? '' : '/'}${url}`;
+              if (!matches.includes(fullUrl)) matches.push(fullUrl);
+            }
+          }
         }
       }
+
+      // 2. Second attempt: search by Russian title if kpId search failed or was empty
+      if (matches.length === 0 && title) {
+        console.log(`[Kinotochka] Searching by title fallback: ${title}`);
+        const searchUrl = `${this.host}/index.php?do=search&subaction=search&story=${encodeURIComponent(title)}`;
+        const searchResponse = await PotokSDK.http.get(this.getProxyUrl(searchUrl)).catch(() => null);
+        if (searchResponse && searchResponse.status === 200) {
+          let regexMatch;
+          const regex = /href=["']([^"']+\.html)["']/gi;
+          while ((regexMatch = regex.exec(searchResponse.data)) !== null) {
+            const url = regexMatch[1];
+            if (!url.includes('/tags/') && !url.includes('/xfsearch/') && !url.includes('/user/') && !url.includes('/catalog/') && !url.includes('/lastnews/')) {
+              const fullUrl = url.startsWith('http') ? url : `${this.host}${url.startsWith('/') ? '' : '/'}${url}`;
+              if (!matches.includes(fullUrl)) matches.push(fullUrl);
+            }
+          }
+        }
+      }
+
       if (matches.length === 0) return [];
 
       // Scrape player iframe src from target page

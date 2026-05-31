@@ -166,7 +166,7 @@ async function handleSelectStream(stream) {
       PotokSDK.ui.showEpisodeSelector({
         title: `Серии онлайн: ${stream.provider}`,
         episodes: refinedFiles,
-        tmdbSeasonsCount: 1,
+        tmdbSeasonsCount: Math.max(...refinedFiles.map(f => f.season), 1),
         onPlay: (episode) => {
           const file = refinedFiles.find(f => f.season === episode.season && f.episode === episode.episode);
           if (file) {

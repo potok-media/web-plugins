@@ -190,10 +190,12 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
   } 
   // 3. Fetch kinotochka provider files
   else if (activeProvider === "kinotochka") {
-    const idsRes = await PotokSDK.http.get(`/api/media/detail/tv/${mediaId}/external_ids`);
+    const idsRes = await PotokSDK.http.get(`/api/media/detail/tv/${mediaId}`);
     if (idsRes.status === 200) {
-      const ids = typeof idsRes.data === 'string' ? JSON.parse(idsRes.data) : idsRes.data;
-      let kpId = ids?.kpId;
+      const details = typeof idsRes.data === 'string' ? JSON.parse(idsRes.data) : idsRes.data;
+      let kpId = details?.kpId;
+      let title = details?.title || "";
+
       if (!kpId) {
         const token = "04941a9a3ca3ac16e2b4327347bbc1";
         const directUrl = `https://api.alloha.tv/?token=${token}&tmdb=${mediaId}`;
@@ -202,16 +204,17 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
           const directJson = typeof directRes.data === 'string' ? JSON.parse(directRes.data) : directRes.data;
           if (directJson?.data?.id_kp) {
             kpId = directJson.data.id_kp;
+            title = title || directJson.data.name || "";
           }
         }
       }
 
+      let matches = [];
       if (kpId) {
         const searchUrl = `https://kinovibe.vip/index.php?do=search&subaction=search&story=${kpId}`;
-        const searchRes = await PotokSDK.http.get(`/api/proxy?url=${encodeURIComponent(searchUrl)}`);
-        if (searchRes.status === 200) {
+        const searchRes = await PotokSDK.http.get(`/api/proxy?url=${encodeURIComponent(searchUrl)}`).catch(() => null);
+        if (searchRes && searchRes.status === 200) {
           const searchHtml = searchRes.data;
-          const matches = [];
           let regexMatch;
           const regex = /href=["']([^"']+\.html)["']/gi;
           while ((regexMatch = regex.exec(searchHtml)) !== null) {
@@ -223,8 +226,30 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
               }
             }
           }
+        }
+      }
 
-          if (matches.length > 0) {
+      if (matches.length === 0 && title) {
+        console.log(`[Kinotochka Episode] Searching by title fallback: ${title}`);
+        const searchUrl = `https://kinovibe.vip/index.php?do=search&subaction=search&story=${encodeURIComponent(title)}`;
+        const searchRes = await PotokSDK.http.get(`/api/proxy?url=${encodeURIComponent(searchUrl)}`).catch(() => null);
+        if (searchRes && searchRes.status === 200) {
+          const searchHtml = searchRes.data;
+          let regexMatch;
+          const regex = /href=["']([^"']+\.html)["']/gi;
+          while ((regexMatch = regex.exec(searchHtml)) !== null) {
+            const url = regexMatch[1];
+            if (!url.includes('/tags/') && !url.includes('/xfsearch/') && !url.includes('/user/') && !url.includes('/catalog/') && !url.includes('/lastnews/')) {
+              const fullUrl = url.startsWith('http') ? url : `https://kinovibe.vip${url.startsWith('/') ? '' : '/'}${url}`;
+              if (!matches.includes(fullUrl)) {
+                matches.push(fullUrl);
+              }
+            }
+          }
+        }
+      }
+
+      if (matches.length > 0) {
             const targetPageUrl = matches[0];
             const pageRes = await PotokSDK.http.get(`/api/proxy?url=${encodeURIComponent(targetPageUrl)}`);
             if (pageRes.status === 200) {
