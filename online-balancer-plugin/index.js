@@ -4,26 +4,27 @@ import { LiftProvider } from './providers/lift.js';
 import { KinotochkaProvider } from './providers/kinotochka.js';
 import { fetchOnlineEpisodes } from './utils/episodes.js';
 
-// Initialize search providers for online balancers
+// Initialize search providers
 const videoDB = new VideoDBProvider();
 const lift = new LiftProvider();
 const kinotochka = new KinotochkaProvider();
 
-// Dynamic providers registry to resolve names without hardcoding
 const providers = {
   [videoDB.id]: videoDB,
   [lift.id]: lift,
   [kinotochka.id]: kinotochka
 };
 
-// Helper to map raw search results into standardized stream schema
+// Helper to map search results to standard schema
 function mapSearchResult(s, includeId = false) {
   const providerInstance = providers[s.provider];
   const providerName = providerInstance ? providerInstance.name : s.provider;
   const voiceLabel = s.voice || "";
   
   const displayTitle = providerName;
-  const displayQuality = ["1080p", "2160p", "4K"].includes(s.quality) ? (s.quality === "1080p" ? "1080p" : "2160p") : s.quality === "720p" ? "720p" : "480p";
+  const displayQuality = ["1080p", "2160p", "4K"].includes(s.quality) 
+    ? (s.quality === "1080p" ? "1080p" : "2160p") 
+    : (s.quality === "720p" ? "720p" : "480p");
   const displayKind = s.kind || (s.url?.includes(".m3u8") ? "hls" : s.url?.includes(".mpd") ? "dash" : "mp4");
 
   const result = {
@@ -46,9 +47,9 @@ function mapSearchResult(s, includeId = false) {
   return result;
 }
 
-const { HStack, Button, StreamList } = PotokSDK.ui.components;
+const { Button, StreamList } = PotokSDK.ui.components;
 
-// Register slot contribution for the Details Page watch button
+// Register slot contribution for Details Page button
 PotokSDK.registerSlotContribution({
   slotName: "media-actions",
   id: "online-balancer-media-actions",
@@ -67,7 +68,7 @@ PotokSDK.registerSlotContribution({
   }
 });
 
-// Register headless search provider in the host for search query delegation
+// Headless search provider registration
 PotokSDK.media.searchProvider("potok-online-balancer", "Модульные Онлайн Источники")
   .onSearch(async (query) => {
     const results = await Promise.all([
@@ -83,32 +84,24 @@ PotokSDK.media.searchProvider("potok-online-balancer", "Модульные Он�
 const streamsState = PotokSDK.createState({
   mediaId: null,
   mediaType: null,
-  season: null,
-  episode: null,
   title: "",
   streams: [],
   loading: false,
   error: ""
 });
 
-// Subscribe streamsState changes to re-trigger layout rendering
+// Reactive subscription - ALWAYS at the top right after state creation!
 streamsState.$subscribe(applyBlockMutations);
 
-// React to host streams page mount & contextual details broadcast
+// Sync host streams page mount context
 PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
   const isStreamsBlock = ["media-streams-header", "media-streams-filters", "media-streams-results"].includes(blockName);
   if (isStreamsBlock && context) {
-    const isNewContext = 
-      streamsState.mediaId !== context.mediaId ||
-      streamsState.mediaType !== context.mediaType ||
-      streamsState.season !== context.season ||
-      streamsState.episode !== context.episode;
+    const isNewMedia = streamsState.mediaId !== context.mediaId;
 
-    if (isNewContext) {
+    if (isNewMedia) {
       streamsState.mediaId = context.mediaId;
       streamsState.mediaType = context.mediaType;
-      streamsState.season = context.season;
-      streamsState.episode = context.episode;
       streamsState.title = context.title || "";
 
       runOnlineSearch();
@@ -116,7 +109,7 @@ PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
   }
 });
 
-// Fetch search results from online providers dynamically
+// Search online balancers
 async function runOnlineSearch() {
   if (!streamsState.mediaId) return;
   streamsState.loading = true;
@@ -125,9 +118,7 @@ async function runOnlineSearch() {
 
   const query = {
     type: streamsState.mediaType === "tv" ? "tv" : "movie",
-    tmdbId: streamsState.mediaId,
-    season: streamsState.season,
-    episode: streamsState.episode
+    tmdbId: streamsState.mediaId
   };
 
   try {
@@ -145,7 +136,7 @@ async function runOnlineSearch() {
   }
 }
 
-// Handle playing/episode choosing on stream selection
+// Handle play selection
 async function handleSelectStream(stream) {
   if (streamsState.mediaType === "tv") {
     PotokSDK.ui.showHUD("info", "Загрузка серий с балансера...");
@@ -202,7 +193,7 @@ async function handleSelectStream(stream) {
   }
 }
 
-// Render dynamic UI slot mutations
+// Render dynamic UI mutations (Unconditional!)
 function applyBlockMutations() {
   const filtersBlock = PotokSDK.ui.block("media-streams-filters");
   const resultsBlock = PotokSDK.ui.block("media-streams-results");
@@ -227,7 +218,7 @@ function applyBlockMutations() {
 // Initial bootstrap rendering
 applyBlockMutations();
 
-// Listen to stream refresh events from the host
+// Stream refresh event listener
 window.addEventListener('message', async (e) => {
   const msg = e.data;
   if (!msg || msg.source !== 'potok-host') return;
@@ -235,7 +226,6 @@ window.addEventListener('message', async (e) => {
   if (msg.action === 'REFRESH_STREAM_URL') {
     const { providerId, mediaId, mediaType, season, episode, voice } = msg.payload;
     try {
-      console.log(`[Plugin] Refreshing stream url for ${providerId}, media ${mediaId}, ${mediaType} S${season}E${episode}`);
       if (mediaType === "tv") {
         const refinedFiles = await fetchOnlineEpisodes(providerId, { id: mediaId });
         if (refinedFiles && refinedFiles.length > 0) {
@@ -243,7 +233,6 @@ window.addEventListener('message', async (e) => {
           if (file) {
             let finalUrl = file.url;
 
-            // Try to match the translation/voice if voice name is specified
             if (voice && file.audios && file.audios.length > 0) {
               const matchedAudio = file.audios.find(a => a.name === voice);
               if (matchedAudio) {
@@ -268,11 +257,7 @@ window.addEventListener('message', async (e) => {
           throw new Error('No episodes resolved from balancer');
         }
       } else {
-        // For movies, we just run a search query
-        const query = {
-          type: "movie",
-          tmdbId: mediaId
-        };
+        const query = { type: "movie", tmdbId: mediaId };
         const providerInstance = providers[providerId];
         if (!providerInstance) throw new Error(`Provider ${providerId} not found`);
         const searchResults = await providerInstance.search(query);
@@ -293,7 +278,6 @@ window.addEventListener('message', async (e) => {
         }
       }
     } catch (err) {
-      console.error("[Plugin] Failed to refresh stream:", err);
       window.parent.postMessage({
         source: 'potok-plugin-sdk',
         action: 'REFRESH_STREAM_URL_RESPONSE',
