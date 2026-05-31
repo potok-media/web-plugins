@@ -185,7 +185,14 @@ async function handleSelectStream(stream) {
 
   try {
     const filesUrl = `${cleanTorrUrl.replace(/\/$/, "")}/api/torrent/files`;
-    const filesResponse = await PotokSDK.http.post(filesUrl, requestBody);
+    
+    // Fetch files, stored override, and actual TMDB media details in parallel
+    const [filesResponse, overrideRes, detailRes] = await Promise.all([
+      PotokSDK.http.post(filesUrl, requestBody),
+      PotokSDK.http.get(`/api/media/override/${hash}`).catch(() => ({ status: 404 })),
+      PotokSDK.http.get(`/api/media/detail/${streamsState.mediaType === "tv" ? "tv" : "movie"}/${streamsState.mediaId}`).catch(() => null)
+    ]);
+
     if (filesResponse.status !== 200) {
       throw new Error(`Ошибка TorrentGo (статус ${filesResponse.status})`);
     }
@@ -203,30 +210,41 @@ async function handleSelectStream(stream) {
       return;
     }
 
-    // Load override from BFF if available
     let override = null;
-    try {
-      const overrideRes = await PotokSDK.http.get(`/api/media/override/${hash}`);
-      if (overrideRes.status === 200) {
-        override = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
-      }
-    } catch (e) {
-      console.warn("[TorrentsPlugin] Failed to load override:", e);
+    if (overrideRes && overrideRes.status === 200) {
+      override = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
+      console.log("[TorrentsPlugin] Loaded override data from BFF:", override);
+    }
+
+    let loadedTotalSeasons = 1;
+    if (detailRes && detailRes.status === 200) {
+      const details = typeof detailRes.data === 'string' ? JSON.parse(detailRes.data) : detailRes.data;
+      loadedTotalSeasons = details.numberOfSeasons || 1;
     }
 
     // Parse and map files
     const parseAndMapFiles = (currentOverride) => {
+      console.log("[TorrentsPlugin] parseAndMapFiles active override:", currentOverride);
       const refinedFiles = rawFiles.map((file, fileIdx) => {
         let filePath = file.path || file.title || "";
         if (!filePath.includes("/")) {
           filePath = stream.title ? `${stream.title}/${filePath}` : filePath;
         }
+
+        // Support both lowercase and PascalCase property names robustly
+        const sOverride = currentOverride ? (currentOverride.season !== undefined ? currentOverride.season : currentOverride.Season) : undefined;
+        const oOverride = currentOverride ? (
+          currentOverride.episodeOffset !== undefined ? currentOverride.episodeOffset :
+          currentOverride.EpisodeOffset !== undefined ? currentOverride.EpisodeOffset :
+          currentOverride.episode_offset
+        ) : undefined;
+
         const parsed = TorrentParser.parseEpisode(
           filePath,
           streamsState.mediaType,
-          streamsState.mediaType === "tv" ? 99 : undefined,
-          currentOverride?.season,
-          currentOverride?.episodeOffset,
+          streamsState.mediaType === "tv" ? loadedTotalSeasons : undefined,
+          sOverride,
+          oOverride,
           fileIdx
         );
 
@@ -293,13 +311,15 @@ async function handleSelectStream(stream) {
         PotokSDK.ui.showEpisodeSelector({
           title: stream.title,
           episodes: mappedEpisodes,
-          seasonsLoading: true
+          seasonsLoading: true,
+          tmdbSeasonsCount: loadedTotalSeasons
         });
 
         // 1. Fetch media details to get number of seasons
         const detailRes = await PotokSDK.http.get(`/api/media/detail/${streamsState.mediaType === "tv" ? "tv" : "movie"}/${streamsState.mediaId}`);
         const details = typeof detailRes.data === 'string' ? JSON.parse(detailRes.data) : detailRes.data;
         const totalSeasons = details.numberOfSeasons || 1;
+        loadedTotalSeasons = totalSeasons;
 
         // 2. Fetch all seasons in parallel
         const promises = [];
@@ -318,7 +338,7 @@ async function handleSelectStream(stream) {
           episodes: mappedEpisodes,
           seasonsLoading: false,
           seasons: seasonsList,
-          tmdbSeasonsCount: totalSeasons
+          tmdbSeasonsCount: loadedTotalSeasons
         });
       } catch (err) {
         console.error("[TorrentsPlugin] Failed to load seasons metadata:", err);
@@ -326,7 +346,8 @@ async function handleSelectStream(stream) {
         PotokSDK.ui.showEpisodeSelector({
           title: stream.title,
           episodes: mappedEpisodes,
-          seasonsLoading: false
+          seasonsLoading: false,
+          tmdbSeasonsCount: loadedTotalSeasons
         });
       }
     };
@@ -336,7 +357,8 @@ async function handleSelectStream(stream) {
         PotokSDK.ui.showEpisodeSelector({
           title: stream.title,
           episodes: mappedEpisodes,
-          isSaving: true
+          isSaving: true,
+          tmdbSeasonsCount: loadedTotalSeasons
         });
 
         const episodeOffset = epNum - 1;
@@ -361,7 +383,8 @@ async function handleSelectStream(stream) {
         PotokSDK.ui.showEpisodeSelector({
           title: stream.title,
           episodes: mappedEpisodes,
-          isSaving: false
+          isSaving: false,
+          tmdbSeasonsCount: loadedTotalSeasons
         });
       } catch (err) {
         console.error("[TorrentsPlugin] Failed to save override:", err);
@@ -369,7 +392,8 @@ async function handleSelectStream(stream) {
         PotokSDK.ui.showEpisodeSelector({
           title: stream.title,
           episodes: mappedEpisodes,
-          isSaving: false
+          isSaving: false,
+          tmdbSeasonsCount: loadedTotalSeasons
         });
       }
     };
@@ -382,7 +406,7 @@ async function handleSelectStream(stream) {
       onPlay,
       onStartEditing,
       onApplyOverride,
-      tmdbSeasonsCount: streamsState.mediaType === "tv" ? 99 : 1
+      tmdbSeasonsCount: loadedTotalSeasons
     });
 
   } catch (err) {
