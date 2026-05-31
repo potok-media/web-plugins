@@ -371,7 +371,7 @@ export function registerStreamsSlot(videoDB, lift, kinotochka) {
                     PotokSDK.ui.playVideo({
                       streamUrl: s.url,
                       streamType: s.kind === "mp4" ? "mp4" : "m3u8",
-                      title: `${title || "Видео"} (${s.voice})`,
+                      title: title || "Видео",
                       mediaType: "movie",
                       id: mediaId,
                       audios: s.audios,
