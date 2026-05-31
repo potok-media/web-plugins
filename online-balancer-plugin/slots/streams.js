@@ -292,7 +292,6 @@ export function registerStreamsSlot(videoDB, lift, kinotochka) {
                               audios: file.audios, // Expose all voice tracks inside the player!
                               headers: file.headers
                             });
-                            PotokSDK.ui.showHUD("success", `Запуск: ${finalVoiceName}`);
                           }
                         },
                         onStartEditing: () => {
@@ -377,7 +376,6 @@ export function registerStreamsSlot(videoDB, lift, kinotochka) {
                       audios: s.audios,
                       headers: s.headers
                     });
-                    PotokSDK.ui.showHUD("success", `Запуск воспроизведения: ${s.voice}`);
                   }
                 })
             );
