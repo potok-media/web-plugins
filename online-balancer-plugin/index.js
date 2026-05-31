@@ -223,6 +223,7 @@ function applyBlockMutations() {
       .loading(streamsState.loading)
       .showFilters(true)
       .emptyText(streamsState.error || "Источники не найдены. Попробуйте обновить поиск.")
+      .nounPlurals(["источник", "источника", "источников"])
       .onSelectStream(handleSelectStream);
 
     resultsBlock.append(resultsLayout);

@@ -41,12 +41,14 @@
     "torrentGoAuthLogin": {
       "type": "string",
       "default": "",
-      "label": "Логин авторизации TorrServer"
+      "label": "Логин авторизации TorrServer",
+      "dependsOn": "torrentGoAuthEnabled"
     },
     "torrentGoAuthPassword": {
       "type": "string",
       "default": "",
-      "label": "Пароль авторизации TorrServer"
+      "label": "Пароль авторизации TorrServer",
+      "dependsOn": "torrentGoAuthEnabled"
     }
   }
 }

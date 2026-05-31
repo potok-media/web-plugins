@@ -183,6 +183,7 @@ function applyBlockMutations() {
       .loading(streamsState.loading)
       .showFilters(true)
       .emptyText(streamsState.error || "Раздач не найдено. Попробуйте обновить поиск.")
+      .nounPlurals(["торрент", "торрента", "торрентов"])
       .onSelectStream(handleSelectStream);
 
     resultsBlock.append(resultsLayout);
