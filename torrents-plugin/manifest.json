@@ -1,0 +1,52 @@
+{
+  "id": "potok-torrents",
+  "name": "Поиск Торрентов",
+  "version": "1.0.0",
+  "description": "Поиск торрент-раздач на трекерах (Jackett / TorrServer)",
+  "author": "author",
+  "entrypoint": "index.js",
+  "permissions": [
+    "storage",
+    "http-proxy",
+    "ui-notifications"
+  ],
+  "slots": [
+    {
+      "id": "torrents-media-actions",
+      "slotName": "media-actions",
+      "title": "Смотреть"
+    },
+    {
+      "id": "torrents-sidebar-status",
+      "slotName": "sidebar-status",
+      "title": "Статус Торрентов"
+    }
+  ],
+  "config": {
+    "torrentGoURL": {
+      "type": "string",
+      "default": "http://localhost:8090",
+      "label": "Адрес TorrServer / TorrentGo"
+    },
+    "searchEngineURL": {
+      "type": "string",
+      "default": "http://localhost:5001",
+      "label": "Адрес Поисковика (Jackett)"
+    },
+    "torrentGoAuthEnabled": {
+      "type": "boolean",
+      "default": false,
+      "label": "Включить авторизацию TorrServer"
+    },
+    "torrentGoAuthLogin": {
+      "type": "string",
+      "default": "",
+      "label": "Логин авторизации TorrServer"
+    },
+    "torrentGoAuthPassword": {
+      "type": "string",
+      "default": "",
+      "label": "Пароль авторизации TorrServer"
+    }
+  }
+}

@@ -52,7 +52,7 @@ PotokSDK.registerSlotContribution({
   slotName: "media-actions",
   id: "online-balancer-media-actions",
   render: (props) => {
-    const url = `/media/${props.mediaType}/${props.mediaId}/torrents?tab=external` + 
+    const url = `/media/${props.mediaType}/${props.mediaId}/watch?tab=online` + 
       (props.season ? `&season=${props.season}&episode=${props.episode}` : "");
 
     return {
@@ -80,7 +80,7 @@ PotokSDK.media.searchProvider("potok-online-balancer", "Модульные Он�
 
 // Reactive state for the Streams Page Slot Sandbox
 const streamsState = PotokSDK.createState({
-  activeTab: "default", // "default" | "external"
+  activeTab: "default", // "default" | "online"
   mediaId: null,
   mediaType: null,
   season: null,
@@ -110,13 +110,13 @@ PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
     }
 
     // Dynamic routing synchronization on query parameters
-    if (context.tab === "external") {
-      streamsState.activeTab = "external";
+    if (context.tab === "online") {
+      streamsState.activeTab = "online";
     } else if (context.tab === "default") {
       streamsState.activeTab = "default";
     }
 
-    if (isNewContext && streamsState.activeTab === "external") {
+    if (isNewContext && streamsState.activeTab === "online") {
       runOnlineSearch();
     }
   }
@@ -210,7 +210,7 @@ function applyBlockMutations() {
   const resultsBlock = PotokSDK.ui.block("media-streams-results");
 
   // Manage UI mutations based on the active tab
-  if (streamsState.activeTab === "external") {
+  if (streamsState.activeTab === "online") {
     filtersBlock.element("streams-filter-bar").hide();
     resultsBlock.element("streams-results-list").hide();
 
@@ -222,9 +222,6 @@ function applyBlockMutations() {
       .onSelectStream(handleSelectStream);
 
     resultsBlock.append(resultsLayout);
-  } else {
-    filtersBlock.element("streams-filter-bar").show();
-    resultsBlock.element("streams-results-list").show();
   }
 
   filtersBlock.apply();
