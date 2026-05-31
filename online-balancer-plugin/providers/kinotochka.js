@@ -1,4 +1,4 @@
-import { PotokSDK } from '../sdk.js';
+import { PotokSDK } from 'potok-sdk';
 import { parsePlayerJSFile, sortVoices, normalizeQuality, extractNum, extractBalancedBracket } from '../utils/parser.js';
 
 export class KinotochkaProvider {
