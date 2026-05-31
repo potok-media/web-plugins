@@ -1,4 +1,5 @@
 import { PotokSDK } from 'potok-sdk';
+import { TorrentParser } from './utils/parser.js';
 
 const { Button, StreamList, VStack, HStack, Text, Badge } = PotokSDK.ui.components;
 
@@ -141,32 +142,256 @@ async function runTorrentsSearch(force = false) {
   }
 }
 
+// Clean hash matching SDK
+function cleanHash(hash) {
+  if (!hash) return "";
+  return hash.replace(/^urn:btih:/i, "").split("&")[0].trim().toLowerCase();
+}
+
 // Handle select stream inside virtual list
 async function handleSelectStream(stream) {
-  const torrent = {
-    id: stream.hash || stream.url || stream.magnet || "torrent-id",
+  const hash = cleanHash(stream.hash || stream.url || stream.magnet || "torrent-id");
+  const magnetUri = stream.magnet || "";
+  const link = stream.url || "";
+  
+  let torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL");
+  if (torrUrl === null) torrUrl = PotokSDK.config.torrentGoURL || "";
+  const cleanTorrUrl = torrUrl.trim();
+  if (!cleanTorrUrl) {
+    PotokSDK.ui.showHUD("error", "Адрес торрент-плеера не настроен.");
+    return;
+  }
+
+  PotokSDK.ui.showHUD("info", "Загрузка списка файлов...");
+  
+  // Show episode selector popup initially in loading state!
+  PotokSDK.ui.showEpisodeSelector({
     title: stream.title,
-    link: stream.url || "",
-    magnetUri: stream.magnet || "",
-    tracker: stream.provider || "Torrent",
-    seeders: stream.seeds || 0,
-    leechers: stream.peers || 0,
-    sizeBytes: stream.size
-  };
-
-  const mediaItem = {
-    id: streamsState.mediaId,
-    title: streamsState.title,
-    mediaType: streamsState.mediaType,
-    numberOfSeasons: streamsState.mediaType === "tv" ? 99 : undefined
-  };
-
-  PotokSDK.ui.showTorrentFiles({
-    torrent,
-    mediaItem,
-    seasonNumber: streamsState.season,
-    episodeNumber: streamsState.episode
+    episodes: [],
+    seasonsLoading: true
   });
+
+  const requestBody = {
+    title: stream.title,
+    link: link,
+    magnetUri: magnetUri,
+    mediaType: streamsState.mediaType,
+    tmdbId: Number(streamsState.mediaId)
+  };
+
+  try {
+    const filesProxyUrl = `/api/proxy?url=${encodeURIComponent(`${cleanTorrUrl.replace(/\/$/, "")}/api/torrent/files`)}`;
+    const filesResponse = await PotokSDK.http.post(filesProxyUrl, requestBody);
+    if (filesResponse.status !== 200) {
+      throw new Error(`Ошибка TorrServer (статус ${filesResponse.status})`);
+    }
+
+    const resJson = typeof filesResponse.data === 'string' ? JSON.parse(filesResponse.data) : filesResponse.data;
+    const rawFiles = resJson.items || [];
+
+    if (rawFiles.length === 0) {
+      PotokSDK.ui.showEpisodeSelector({
+        title: stream.title,
+        episodes: [],
+        seasonsLoading: false
+      });
+      PotokSDK.ui.showHUD("error", "В раздаче не найдено поддерживаемых медиафайлов.");
+      return;
+    }
+
+    // Load override from BFF if available
+    let override = null;
+    try {
+      const overrideRes = await PotokSDK.http.get(`/api/media/override/${hash}`);
+      if (overrideRes.status === 200) {
+        const oJson = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
+        override = oJson.override || null;
+      }
+    } catch (e) {
+      console.warn("[TorrentsPlugin] Failed to load override:", e);
+    }
+
+    // Parse and map files
+    const parseAndMapFiles = (currentOverride) => {
+      const refinedFiles = rawFiles.map((file, fileIdx) => {
+        let filePath = file.path || file.title || "";
+        if (!filePath.includes("/")) {
+          filePath = stream.title ? `${stream.title}/${filePath}` : filePath;
+        }
+        const parsed = TorrentParser.parseEpisode(
+          filePath,
+          streamsState.mediaType,
+          streamsState.mediaType === "tv" ? 99 : undefined,
+          currentOverride?.season,
+          currentOverride?.episodeOffset,
+          fileIdx
+        );
+
+        return {
+          ...file,
+          season: parsed.season,
+          episode: parsed.episode,
+          isSerial: parsed.isSerial
+        };
+      });
+
+      const cleanedFiles = TorrentParser.cleanTitles(refinedFiles);
+
+      return cleanedFiles.map((f) => {
+        const streamUrlParams = {
+          baseUrl: cleanTorrUrl,
+          hash: hash,
+          index: String(f.id),
+          originalPath: f.path,
+          mediaType: streamsState.mediaType,
+          season: f.season,
+          episode: f.episode,
+          title: streamsState.title,
+          tmdbId: Number(streamsState.mediaId)
+        };
+
+        let streamUrl = TorrentParser.generateStreamUrl(streamUrlParams);
+        const ext = TorrentParser.getFileExtension(f.path);
+        if (ext.toLowerCase() === ".mkv") {
+          streamUrl += "?remux=true";
+        }
+
+        return {
+          id: String(f.id),
+          season: f.season !== undefined ? f.season : (streamsState.mediaType === "tv" ? 1 : 0),
+          episode: f.episode !== undefined ? f.episode : 1,
+          title: f.title || `Файл ${f.id}`,
+          isWatched: false,
+          audios: [{ id: "default", name: "Основной поток", url: streamUrl }],
+          url: streamUrl
+        };
+      });
+    };
+
+    let mappedEpisodes = parseAndMapFiles(override);
+
+    // Callbacks inside the plugin!
+    const onPlay = (episode) => {
+      PotokSDK.ui.playVideo({
+        streamUrl: episode.url,
+        title: `${streamsState.title} - ${episode.title}`,
+        mediaType: streamsState.mediaType,
+        id: streamsState.mediaId,
+        season: episode.season,
+        episode: episode.episode,
+        torrentHash: hash
+      });
+      PotokSDK.ui.showHUD("success", "Запускаем воспроизведение...");
+    };
+
+    const onStartEditing = async () => {
+      // Fetch seasons from TMDB via BFF proxy
+      try {
+        PotokSDK.ui.showEpisodeSelector({
+          title: stream.title,
+          episodes: mappedEpisodes,
+          seasonsLoading: true
+        });
+
+        // 1. Fetch media details to get number of seasons
+        const detailRes = await PotokSDK.http.get(`/api/media/detail/${streamsState.mediaType === "tv" ? "tv" : "movie"}/${streamsState.mediaId}`);
+        const details = typeof detailRes.data === 'string' ? JSON.parse(detailRes.data) : detailRes.data;
+        const totalSeasons = details.numberOfSeasons || 1;
+
+        // 2. Fetch all seasons in parallel
+        const promises = [];
+        for (let i = 1; i <= totalSeasons; i++) {
+          promises.push(
+            PotokSDK.http.get(`/api/media/detail/tv/${streamsState.mediaId}/season/${i}`)
+              .then(res => typeof res.data === 'string' ? JSON.parse(res.data) : res.data)
+              .catch(() => ({ seasonNumber: i, episodes: [] }))
+          );
+        }
+
+        const seasonsList = await Promise.all(promises);
+
+        PotokSDK.ui.showEpisodeSelector({
+          title: stream.title,
+          episodes: mappedEpisodes,
+          seasonsLoading: false,
+          seasons: seasonsList,
+          tmdbSeasonsCount: totalSeasons
+        });
+      } catch (err) {
+        console.error("[TorrentsPlugin] Failed to load seasons metadata:", err);
+        PotokSDK.ui.showHUD("error", "Не удалось загрузить данные сезонов с TMDB");
+        PotokSDK.ui.showEpisodeSelector({
+          title: stream.title,
+          episodes: mappedEpisodes,
+          seasonsLoading: false
+        });
+      }
+    };
+
+    const onApplyOverride = async (seasonNum, epNum) => {
+      try {
+        PotokSDK.ui.showEpisodeSelector({
+          title: stream.title,
+          episodes: mappedEpisodes,
+          isSaving: true
+        });
+
+        const episodeOffset = epNum - 1;
+        const saveRes = await PotokSDK.http.post(`/api/media/override`, {
+          hash: hash,
+          override: {
+            season: seasonNum,
+            episodeOffset: episodeOffset
+          }
+        });
+
+        if (saveRes.status !== 200) {
+          throw new Error(`BFF save override failed with status ${saveRes.status}`);
+        }
+
+        PotokSDK.ui.showHUD("success", "Смещение успешно сохранено!");
+        
+        // Re-read overrides and update list
+        override = { season: seasonNum, episodeOffset: episodeOffset };
+        mappedEpisodes = parseAndMapFiles(override);
+
+        PotokSDK.ui.showEpisodeSelector({
+          title: stream.title,
+          episodes: mappedEpisodes,
+          isSaving: false
+        });
+      } catch (err) {
+        console.error("[TorrentsPlugin] Failed to save override:", err);
+        PotokSDK.ui.showHUD("error", "Не удалось сохранить смещение");
+        PotokSDK.ui.showEpisodeSelector({
+          title: stream.title,
+          episodes: mappedEpisodes,
+          isSaving: false
+        });
+      }
+    };
+
+    // Update showEpisodeSelector with fully loaded episodes and operational callbacks!
+    PotokSDK.ui.showEpisodeSelector({
+      title: stream.title,
+      episodes: mappedEpisodes,
+      seasonsLoading: false,
+      onPlay,
+      onStartEditing,
+      onApplyOverride,
+      tmdbSeasonsCount: streamsState.mediaType === "tv" ? 99 : 1
+    });
+
+  } catch (err) {
+    console.error("[TorrentsPlugin] Failed to fetch/parse torrent files:", err);
+    PotokSDK.ui.showHUD("error", "Не удалось прочитать файлы торрента");
+    // Close episode selector
+    PotokSDK.ui.showEpisodeSelector({
+      title: stream.title,
+      episodes: [],
+      seasonsLoading: false
+    });
+  }
 }
 
 // Render dynamic UI slot mutations
