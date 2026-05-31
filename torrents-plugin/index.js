@@ -18,7 +18,7 @@ PotokSDK.registerSlotContribution({
   slotName: "media-actions",
   id: "torrents-media-actions",
   render: (props) => {
-    const url = `/media/${props.mediaType}/${props.mediaId}/watch` + 
+    const url = `/media/${props.mediaType}/${props.mediaId}/watch/potok-torrents` + 
       (props.season ? `?season=${props.season}&episode=${props.episode}` : "");
 
     return {
@@ -26,7 +26,7 @@ PotokSDK.registerSlotContribution({
       layout: Button("Смотреть")
         .variant("watch-primary")
         .onClick(() => {
-          PotokSDK.ui.navigateTo(url, { tab: "torrents" });
+          PotokSDK.ui.navigateTo(url);
         })
     };
   }
@@ -64,17 +64,15 @@ PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
     }
 
     const previousTab = streamsState.activeTab;
-    if (context.tab === "torrents") {
-      streamsState.activeTab = "torrents";
-    } else if (context.tab === "online") {
-      streamsState.activeTab = "online";
-    } else if (!context.tab) {
-      streamsState.activeTab = "torrents";
+    if (context.tab) {
+      streamsState.activeTab = context.tab;
+    } else {
+      streamsState.activeTab = "potok-torrents";
     }
 
     const tabChanged = previousTab !== streamsState.activeTab;
 
-    if ((isNewContext || tabChanged) && streamsState.activeTab === "torrents") {
+    if ((isNewContext || tabChanged) && streamsState.activeTab === "potok-torrents") {
       runTorrentsSearch();
     }
   }
@@ -176,7 +174,7 @@ function applyBlockMutations() {
   const filtersBlock = PotokSDK.ui.block("media-streams-filters");
   const resultsBlock = PotokSDK.ui.block("media-streams-results");
 
-  if (streamsState.activeTab === "torrents") {
+  if (streamsState.activeTab === "potok-torrents") {
     filtersBlock.element("streams-filter-bar").hide();
     resultsBlock.element("streams-results-list").hide();
 

@@ -52,7 +52,7 @@ PotokSDK.registerSlotContribution({
   slotName: "media-actions",
   id: "online-balancer-media-actions",
   render: (props) => {
-    const url = `/media/${props.mediaType}/${props.mediaId}/watch` + 
+    const url = `/media/${props.mediaType}/${props.mediaId}/watch/potok-online-balancer` + 
       (props.season ? `?season=${props.season}&episode=${props.episode}` : "");
 
     return {
@@ -60,7 +60,7 @@ PotokSDK.registerSlotContribution({
       layout: Button("Смотреть Онлайн")
         .variant("watch-online")
         .onClick(() => {
-          PotokSDK.ui.navigateTo(url, { tab: "online" });
+          PotokSDK.ui.navigateTo(url);
         })
     };
   }
@@ -110,13 +110,13 @@ PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
     }
 
     // Dynamic routing synchronization on query parameters
-    if (context.tab === "online") {
-      streamsState.activeTab = "online";
-    } else if (context.tab === "default") {
-      streamsState.activeTab = "default";
+    if (context.tab) {
+      streamsState.activeTab = context.tab;
+    } else {
+      streamsState.activeTab = "potok-online-balancer";
     }
 
-    if (isNewContext && streamsState.activeTab === "online") {
+    if (isNewContext && streamsState.activeTab === "potok-online-balancer") {
       runOnlineSearch();
     }
   }
@@ -210,7 +210,7 @@ function applyBlockMutations() {
   const resultsBlock = PotokSDK.ui.block("media-streams-results");
 
   // Manage UI mutations based on the active tab
-  if (streamsState.activeTab === "online") {
+  if (streamsState.activeTab === "potok-online-balancer") {
     filtersBlock.element("streams-filter-bar").hide();
     resultsBlock.element("streams-results-list").hide();
 
