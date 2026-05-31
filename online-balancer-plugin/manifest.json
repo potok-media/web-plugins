@@ -10,6 +10,13 @@
     "http-proxy",
     "ui-notifications"
   ],
+  "slots": [
+    {
+      "id": "online-balancer-media-actions",
+      "slotName": "media-actions",
+      "title": "Смотреть Онлайн"
+    }
+  ],
   "config": {
     "videodb_key": {
       "type": "string",

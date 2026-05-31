@@ -45,6 +45,27 @@ function mapSearchResult(s, includeId = false) {
   return result;
 }
 
+const { HStack, Button, StreamList } = PotokSDK.ui.components;
+
+// Register slot contribution for the Details Page watch button
+PotokSDK.ui.registerSlotContribution({
+  slotName: "media-actions",
+  id: "online-balancer-media-actions",
+  render: (props) => {
+    const url = `/media/${props.mediaType}/${props.mediaId}/torrents?tab=external` + 
+      (props.season ? `&season=${props.season}&episode=${props.episode}` : "");
+
+    return {
+      label: "Смотреть Онлайн",
+      layout: Button("Смотреть Онлайн")
+        .variant("watch-online")
+        .onClick(() => {
+          PotokSDK.ui.navigateTo(url);
+        })
+    };
+  }
+});
+
 // Register headless search provider in the host for search query delegation
 PotokSDK.media.searchProvider("potok-online-balancer", "Модульные Онлайн Источники")
   .onSearch(async (query) => {
@@ -86,10 +107,17 @@ PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
       streamsState.season = context.season;
       streamsState.episode = context.episode;
       streamsState.title = context.title || "";
-      
-      if (streamsState.activeTab === "external") {
-        runOnlineSearch();
-      }
+    }
+
+    // Dynamic routing synchronization on query parameters
+    if (context.tab === "external") {
+      streamsState.activeTab = "external";
+    } else if (context.tab === "default") {
+      streamsState.activeTab = "default";
+    }
+
+    if (isNewContext && streamsState.activeTab === "external") {
+      runOnlineSearch();
     }
   }
 });
@@ -122,8 +150,6 @@ async function runOnlineSearch() {
     streamsState.loading = false;
   }
 }
-
-const { HStack, Button, StreamList } = PotokSDK.ui.components;
 
 // Handle playing/episode choosing on stream selection
 async function handleSelectStream(stream) {
