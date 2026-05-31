@@ -92,6 +92,9 @@ const streamsState = PotokSDK.createState({
   error: ""
 });
 
+// Subscribe streamsState changes to re-trigger layout rendering
+streamsState.$subscribe(applyBlockMutations);
+
 // React to host streams page mount & contextual details broadcast
 PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
   const isStreamsBlock = ["media-streams-header", "media-streams-filters", "media-streams-results"].includes(blockName);
@@ -110,6 +113,7 @@ PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
       streamsState.title = context.title || "";
     }
 
+    const previousTab = streamsState.activeTab;
     // Dynamic routing synchronization on query parameters
     if (context.tab) {
       streamsState.activeTab = context.tab;
@@ -117,7 +121,9 @@ PotokSDK.ui.onBlockContextUpdate((blockName, context) => {
       streamsState.activeTab = "potok-online-balancer";
     }
 
-    if (isNewContext && streamsState.activeTab === "potok-online-balancer") {
+    const tabChanged = previousTab !== streamsState.activeTab;
+
+    if ((isNewContext || tabChanged) && streamsState.activeTab === "potok-online-balancer") {
       runOnlineSearch();
     }
   }
@@ -233,9 +239,6 @@ function applyBlockMutations() {
   filtersBlock.apply();
   resultsBlock.apply();
 }
-
-// Subscribe streamsState changes to re-trigger layout rendering
-streamsState.$subscribe(applyBlockMutations);
 
 // Initial bootstrap rendering
 applyBlockMutations();
