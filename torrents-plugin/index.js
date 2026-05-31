@@ -169,7 +169,6 @@ PotokSDK.streams.registerStreamSource({
         episode: f.episode !== undefined ? f.episode : 1,
         title: f.title || `Файл ${f.id}`,
         isWatched: false,
-        audios: [{ id: "default", name: "Основной поток", url: streamUrl }],
         url: streamUrl
       };
     });
