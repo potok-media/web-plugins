@@ -39,11 +39,51 @@ export class VideoDBProvider {
         if (!fileMatch) return [];
         rawPlaylist = fileMatch[1];
       } else {
-        const { fetchOnlineEpisodes } = await import('../utils/episodes.js');
-        const refinedFiles = await fetchOnlineEpisodes(this.id, { id: query.tmdbId }).catch(() => []);
-        const file = refinedFiles.find(f => f.season === query.season && f.episode === query.episode);
-        if (!file || !file.url) return [];
-        rawPlaylist = file.url;
+        const fileIndex = html.search(/"file"\s*:/i);
+        if (fileIndex === -1) return [];
+
+        const textFromFile = html.substring(fileIndex);
+        const bracketStart = textFromFile.indexOf("[");
+        if (bracketStart === -1) return [];
+
+        let balance = 0;
+        let jsonStr = "";
+        for (let i = bracketStart; i < textFromFile.length; i++) {
+          const char = textFromFile[i];
+          if (char === "[") balance++;
+          else if (char === "]") balance--;
+          
+          jsonStr += char;
+          if (balance === 0) {
+            break;
+          }
+        }
+
+        try {
+          const cleanJSON = jsonStr.replace(/,\s*([}\]])/g, "$1"); // Strip trailing commas
+          const seasons = JSON.parse(cleanJSON);
+          if (!seasons || seasons.length === 0) return [];
+
+          const extractNum = (str) => {
+            const m = str.match(/([0-9]+)/);
+            return m ? parseInt(m[1], 10) : 1;
+          };
+
+          // Find requested season
+          const targetSeason = query.season || 1;
+          const seasonFolder = seasons.find(s => extractNum(s.title) === targetSeason) || seasons[0];
+          if (!seasonFolder || !seasonFolder.folder) return [];
+
+          // Find requested episode
+          const targetEpisode = query.episode || 1;
+          const episodeFile = seasonFolder.folder.find(ep => extractNum(ep.title) === targetEpisode) || seasonFolder.folder[0];
+          if (!episodeFile || !episodeFile.file) return [];
+
+          rawPlaylist = episodeFile.file;
+        } catch (jsonErr) {
+          console.error("[VideoDB] JSON parsing of serial layout failed:", jsonErr);
+          return [];
+        }
       }
 
       const parsedData = parsePlayerJSFile(rawPlaylist);
@@ -75,7 +115,7 @@ export class VideoDBProvider {
         provider: this.id,
         quality: maxQuality,
         voice: voices.join(", "),
-        label: query.type === "tv" ? `S${query.season || 1}E${query.episode || 1}` : this.name,
+        label: (query.type === "tv" && query.season !== undefined) ? `S${query.season}E${query.episode}` : this.name,
         url: defaultUrl,
         kind: defaultKind,
         headers: { "Referer": `${this.host}/` },

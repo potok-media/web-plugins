@@ -93,42 +93,77 @@ export class LiftProvider {
       // Detect serial case: seasons:[...]
       const seasonsIndex = html.search(/seasons\s*:/i);
       if (seasonsIndex !== -1) {
-        // TV Show/Anime: Use unified episodes logic to fetch mapped/normalized episode file
-        const { fetchOnlineEpisodes } = await import('../utils/episodes.js');
-        const refinedFiles = await fetchOnlineEpisodes(this.id, { id: query.tmdbId }).catch(() => []);
-        const file = refinedFiles.find(f => f.season === query.season && f.episode === query.episode);
-        if (!file || !file.url) {
+        try {
+          const textFromSeasons = html.substring(seasonsIndex);
+          const bracketStart = textFromSeasons.indexOf("[");
+          if (bracketStart === -1) return [];
+
+          let balance = 0, jsonStr = "";
+          for (let i = bracketStart; i < textFromSeasons.length; i++) {
+            const char = textFromSeasons[i];
+            if (char === "[") balance++;
+            else if (char === "]") balance--;
+            jsonStr += char;
+            if (balance === 0) break;
+          }
+          const balSeasons = JSON.parse(jsonStr.replace(/,\s*([}\]])/g, "$1"));
+
+          // Find requested season/episode or default to first
+          const targetSeason = query.season || 1;
+          const targetEpisode = query.episode || 1;
+
+          const extractNum = (str) => {
+            const m = str.match(/([0-9]+)/);
+            return m ? parseInt(m[1], 10) : 1;
+          };
+
+          const seasonObj = balSeasons.find(s => s.season === targetSeason) || balSeasons[0];
+          if (!seasonObj || !seasonObj.episodes || seasonObj.episodes.length === 0) return [];
+
+          const epObj = seasonObj.episodes.find(ep => extractNum(ep.episode) === targetEpisode) || seasonObj.episodes[0];
+          if (!epObj) return [];
+
+          const rawUrl = epObj.hls || epObj.dasha || epObj.dash || "";
+          const streamUrl = this.normalizeUrl(rawUrl);
+          if (!streamUrl) return [];
+
+          const audioNames = epObj.audio?.names || [];
+          const streams = [];
+
+          if (audioNames.length > 0) {
+            const audios = audioNames.map((name, idx) => ({
+              name: name,
+              url: streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${idx}`
+            }));
+
+            streams.push({
+              provider: this.id,
+              quality: "1080p",
+              voice: audioNames.join(", "),
+              label: (query.season !== undefined && query.episode !== undefined) ? `S${query.season}E${query.episode}` : this.name,
+              url: streamUrl,
+              kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+              headers: streamHeaders,
+              audios: audios
+            });
+          } else {
+            streams.push({
+              provider: this.id,
+              quality: "1080p",
+              voice: "Original (Zenith)",
+              label: (query.season !== undefined && query.episode !== undefined) ? `S${query.season}E${query.episode}` : this.name,
+              url: streamUrl,
+              kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+              headers: streamHeaders,
+              audios: []
+            });
+          }
+
+          return streams;
+        } catch (jsonErr) {
+          console.error("[Lift] JSON parsing of serial layout failed:", jsonErr);
           return [];
         }
-
-        const streamUrl = this.normalizeUrl(file.url);
-        const streams = [];
-
-        if (file.audios && file.audios.length > 0) {
-          streams.push({
-            provider: this.id,
-            quality: "1080p",
-            voice: file.audios.map(a => a.name).join(", "),
-            label: `S${query.season}E${query.episode}`,
-            url: streamUrl,
-            kind: streamUrl.includes(".mpd") ? "dash" : "hls",
-            headers: streamHeaders,
-            audios: file.audios
-          });
-        } else {
-          streams.push({
-            provider: this.id,
-            quality: "1080p",
-            voice: "Original (Zenith)",
-            label: `S${query.season}E${query.episode}`,
-            url: streamUrl,
-            kind: streamUrl.includes(".mpd") ? "dash" : "hls",
-            headers: streamHeaders,
-            audios: []
-          });
-        }
-
-        return streams;
       }
 
       // Movie case: makePlayer({
