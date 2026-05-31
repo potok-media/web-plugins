@@ -93,78 +93,42 @@ export class LiftProvider {
       // Detect serial case: seasons:[...]
       const seasonsIndex = html.search(/seasons\s*:/i);
       if (seasonsIndex !== -1) {
-        const textFromSeasons = html.substring(seasonsIndex);
-        const bracketStart = textFromSeasons.indexOf("[");
-        if (bracketStart !== -1) {
-          let balance = 0;
-          let jsonStr = "";
-          for (let i = bracketStart; i < textFromSeasons.length; i++) {
-            const char = textFromSeasons[i];
-            if (char === "[") balance++;
-            else if (char === "]") balance--;
-            
-            jsonStr += char;
-            if (balance === 0) {
-              break;
-            }
-          }
-
-          let seasons = [];
-          try {
-            seasons = JSON.parse(jsonStr.replace(/,\s*([}\]])/g, "$1")); // strip trailing commas
-          } catch {
-            return [];
-          }
-
-          const targetSeason = query.season || 1;
-          const seasonData = seasons.find(s => s.season === targetSeason) || seasons[0];
-          if (!seasonData || !seasonData.episodes) return [];
-
-          const targetEpisode = query.episode || 1;
-          const episodeData = seasonData.episodes.find(ep => {
-            const match = ep.episode.match(/([0-9]+)/);
-            return match && parseInt(match[1], 10) === targetEpisode;
-          }) || seasonData.episodes[0];
-
-          if (!episodeData) return [];
-
-          const streamUrl = this.normalizeUrl(episodeData.hls || episodeData.dasha || episodeData.dash);
-          if (!streamUrl) return [];
-
-          const audioNames = episodeData.audio ? episodeData.audio.names : [];
-          const streams = [];
-
-          if (audioNames && audioNames.length > 0) {
-            const audios = audioNames.map((name, idx) => ({
-              name: name,
-              url: streamUrl + (streamUrl.includes("?") ? "&" : "?") + `audio=${idx}`
-            }));
-
-            streams.push({
-              provider: this.id,
-              quality: "1080p",
-              voice: `Мультиаудио (${audioNames.join(", ")})`,
-              label: `S${targetSeason}E${targetEpisode}`,
-              url: streamUrl,
-              kind: streamUrl.includes(".mpd") ? "dash" : "hls",
-              headers: streamHeaders,
-              audios: audios
-            });
-          } else {
-            streams.push({
-              provider: this.id,
-              quality: "1080p",
-              voice: "Original (Zenith)",
-              label: `S${targetSeason}E${targetEpisode}`,
-              url: streamUrl,
-              kind: streamUrl.includes(".mpd") ? "dash" : "hls",
-              headers: streamHeaders,
-              audios: []
-            });
-          }
-
-          return streams;
+        // TV Show/Anime: Use unified episodes logic to fetch mapped/normalized episode file
+        const { fetchOnlineEpisodes } = await import('../utils/episodes.js');
+        const refinedFiles = await fetchOnlineEpisodes(this.id, { id: query.tmdbId }).catch(() => []);
+        const file = refinedFiles.find(f => f.season === query.season && f.episode === query.episode);
+        if (!file || !file.url) {
+          return [];
         }
+
+        const streamUrl = this.normalizeUrl(file.url);
+        const streams = [];
+
+        if (file.audios && file.audios.length > 0) {
+          streams.push({
+            provider: this.id,
+            quality: "1080p",
+            voice: `Мультиаудио (${file.audios.map(a => a.name).join(", ")})`,
+            label: `S${query.season}E${query.episode}`,
+            url: streamUrl,
+            kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+            headers: streamHeaders,
+            audios: file.audios
+          });
+        } else {
+          streams.push({
+            provider: this.id,
+            quality: "1080p",
+            voice: "Original (Zenith)",
+            label: `S${query.season}E${query.episode}`,
+            url: streamUrl,
+            kind: streamUrl.includes(".mpd") ? "dash" : "hls",
+            headers: streamHeaders,
+            audios: []
+          });
+        }
+
+        return streams;
       }
 
       // Movie case: makePlayer({

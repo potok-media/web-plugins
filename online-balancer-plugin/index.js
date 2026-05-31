@@ -4,7 +4,7 @@ import { LiftProvider } from './providers/lift.js';
 import { KinotochkaProvider } from './providers/kinotochka.js';
 import { fetchOnlineEpisodes } from './utils/episodes.js';
 
-const { Card, VStack, HStack, Text, Input, Button, Spacer, Badge, Divider, Select } = PotokSDK.ui.components;
+const { Card, VStack, HStack, Text, Input, Button, Spacer, Badge, Divider, Select, StreamSkeletonList, StreamRowComponent } = PotokSDK.ui.components;
 const videoDB = new VideoDBProvider();
 const lift = new LiftProvider();
 const kinotochka = new KinotochkaProvider();
@@ -257,7 +257,6 @@ PotokSDK.registerSlotContribution({
         .alignItems("center")
         .child(
           Select("balancer_select")
-            .label("Балансер")
             .options(providerOptions)
             .selected(state.providerFilter)
             .onChange((val) => {
@@ -266,7 +265,6 @@ PotokSDK.registerSlotContribution({
         )
         .child(
           Select("quality_select")
-            .label("Качество")
             .options(qualityOptions)
             .selected(state.qualityFilter)
             .onChange((val) => {
@@ -285,7 +283,7 @@ PotokSDK.registerSlotContribution({
         .justifyContent("between")
         .alignItems("center")
         .child(
-          Text(`Потоков: ${filtered.length}`)
+          Text(`Онлайн-источники: ${filtered.length}`)
             .bold(true)
             .size("lg")
         )
@@ -294,157 +292,127 @@ PotokSDK.registerSlotContribution({
       const resultsList = VStack().spacing(12);
 
       if (state.loading) {
-        // Skeleton loaders using simple cards
-        resultsList.child(Card().subtitle("Поиск потоков... Загрузка..."));
+        resultsList.child(StreamSkeletonList());
       } else if (filtered.length > 0) {
         filtered.forEach((s, idx) => {
-          const cardLayout = HStack()
-            .justifyContent("between")
-            .alignItems("center")
-            .child(
-              VStack()
-                .spacing(4)
-                .child(
-                  Text(s.voice || "Оригинальная озвучка")
-                    .bold(true)
-                    .size("md")
-                )
-                .child(
-                  HStack()
-                    .spacing(8)
-                    .child(Badge(getProviderName(s.provider)).color("info"))
-                    .child(s.label ? Badge(s.label).color("warning") : Spacer())
-                    .child(Badge(s.kind.toUpperCase()).color("success"))
-                )
-            )
-            .child(
-              HStack()
-                .spacing(16)
-                .alignItems("center")
-                .child(Badge(s.quality).color("info"))
-                .child(
-                  Button("Смотреть")
-                    .variant("primary")
-                    .onClick(() => {
-                      if (mediaType === "tv") {
-                        PotokSDK.ui.showHUD("info", "Загрузка серий с балансера...");
-                        fetchOnlineEpisodes(s.provider, { id: mediaId, progress }).then((refinedFiles) => {
-                          if (!refinedFiles || refinedFiles.length === 0) {
-                            PotokSDK.ui.showHUD("error", "Не удалось найти серии для этого источника.");
-                            return;
-                          }
-                          PotokSDK.ui.showEpisodeSelector({
-                            title: `Серии онлайн: ${getProviderName(s.provider)}`,
-                            episodes: refinedFiles,
-                            tmdbSeasonsCount: numberOfSeasons,
-                            onPlay: (episode, audioId) => {
-                              const file = refinedFiles.find(f => f.season === episode.season && f.episode === episode.episode);
-                              if (file) {
-                                const voiceTrack = file.audios && file.audios.length > 0 
-                                  ? file.audios.find(a => a.id === audioId) || file.audios[0]
-                                  : null;
-                                
-                                const finalUrl = voiceTrack ? voiceTrack.url : file.url;
-                                const finalVoiceName = voiceTrack ? voiceTrack.name : "Основной поток";
+          const torrentObj = {
+            title: getProviderName(s.provider),
+            sizeLabel: s.quality,
+            tracker: `${getProviderName(s.provider)} ${s.voice || "Русский"}`,
+            tags: [
+              { value: s.kind.toUpperCase() },
+              s.label ? { value: s.label } : null
+            ].filter(Boolean),
+            publishDate: null,
+            seeders: null,
+            leechers: null
+          };
 
-                                PotokSDK.ui.playVideo({
-                                  streamUrl: finalUrl,
-                                  streamType: finalUrl.includes(".m3u8") ? "m3u8" : finalUrl.includes(".mpd") ? "dash" : "mp4",
-                                  title: `${title || "Серия"} - S${file.season}E${file.episode} (${finalVoiceName})`,
-                                  mediaType: "tv",
-                                  id: mediaId,
-                                  season: file.season,
-                                  episode: file.episode,
-                                  headers: file.headers
-                                });
-                                PotokSDK.ui.showHUD("success", `Запуск: ${finalVoiceName}`);
-                              }
-                            },
-                            onStartEditing: () => {
-                              PotokSDK.ui.showEpisodeSelector({ seasonsLoading: true });
-                              const loadSeasons = async () => {
-                                try {
-                                  const detailsRes = await PotokSDK.http.get(`/api/media/detail/tv/${mediaId}`);
-                                  if (detailsRes.status !== 200) return [];
-                                  const details = typeof detailsRes.data === 'string' ? JSON.parse(detailsRes.data) : detailsRes.data;
-                                  const totalSeasons = details.numberOfSeasons || 1;
-                                  const promises = [];
-                                  for (let i = 1; i <= totalSeasons; i++) {
-                                    promises.push(
-                                      PotokSDK.http.get(`/api/media/tmdb/tv/${mediaId}/season/${i}`)
-                                        .then(res => {
-                                          if (res.status === 200) {
-                                            return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-                                          }
-                                          return null;
-                                        })
-                                        .catch(() => null)
-                                    );
-                                  }
-                                  const results = await Promise.all(promises);
-                                  return results.filter(Boolean);
-                                } catch (e) {
-                                  console.error(e);
-                                  return [];
-                                }
-                              };
-                              loadSeasons().then(seasons => {
-                                PotokSDK.ui.showEpisodeSelector({ seasonsLoading: false, seasons });
-                              });
-                            },
-                            onApplyOverride: (seasonNum, epNum) => {
-                              PotokSDK.ui.showEpisodeSelector({ isSaving: true });
-                              const saveOverrideAndReload = async () => {
-                                try {
-                                  const deterministicHash = `online:${s.provider}:${mediaId}`;
-                                  const episodeOffset = epNum - 1;
-                                  const body = {
-                                    hash: deterministicHash,
-                                    override: {
-                                      season: seasonNum,
-                                      episodeOffset
-                                    }
-                                  };
-                                  const saveRes = await PotokSDK.http.post("/api/torrents/overrides", body);
-                                  if (saveRes.status === 200 || saveRes.status === 204 || saveRes.status === 201) {
-                                    PotokSDK.ui.showHUD("success", "Смещение серий успешно сохранено!");
-                                  } else {
-                                    PotokSDK.ui.showHUD("error", "Не удалось сохранить смещение.");
-                                  }
-                                  const newEpisodes = await fetchOnlineEpisodes(s.provider, { id: mediaId, progress });
-                                  return newEpisodes;
-                                } catch (err) {
-                                  console.error(err);
-                                  PotokSDK.ui.showHUD("error", "Не удалось применить смещение.");
-                                  return null;
-                                }
-                              };
-                              saveOverrideAndReload().then(newEpisodes => {
-                                const updatePayload = { isSaving: false };
-                                if (newEpisodes) {
-                                  updatePayload.episodes = newEpisodes;
-                                }
-                                PotokSDK.ui.showEpisodeSelector(updatePayload);
-                              });
-                            }
+          resultsList.child(
+            StreamRowComponent()
+              .torrent(torrentObj)
+              .onClick(() => {
+                if (mediaType === "tv") {
+                  PotokSDK.ui.showHUD("info", "Загрузка серий с балансера...");
+                  fetchOnlineEpisodes(s.provider, { id: mediaId, progress, numberOfSeasons }).then((refinedFiles) => {
+                    if (!refinedFiles || refinedFiles.length === 0) {
+                      PotokSDK.ui.showHUD("error", "Не удалось найти серии для этого источника.");
+                      return;
+                    }
+                    PotokSDK.ui.showEpisodeSelector({
+                      title: `Серии онлайн: ${getProviderName(s.provider)}`,
+                      episodes: refinedFiles,
+                      tmdbSeasonsCount: numberOfSeasons,
+                      onPlay: (episode, audioId) => {
+                        const file = refinedFiles.find(f => f.season === episode.season && f.episode === episode.episode);
+                        if (file) {
+                          const voiceTrack = file.audios && file.audios.length > 0 
+                            ? file.audios.find(a => a.id === audioId) || file.audios[0]
+                            : null;
+                          
+                          const finalUrl = voiceTrack ? voiceTrack.url : file.url;
+                          const finalVoiceName = voiceTrack ? voiceTrack.name : "Основной поток";
+
+                          PotokSDK.ui.playVideo({
+                            streamUrl: finalUrl,
+                            streamType: finalUrl.includes(".m3u8") ? "m3u8" : finalUrl.includes(".mpd") ? "dash" : "mp4",
+                            title: `${title || "Серия"} - S${file.season}E${file.episode} (${finalVoiceName})`,
+                            mediaType: "tv",
+                            id: mediaId,
+                            season: file.season,
+                            episode: file.episode,
+                            headers: file.headers
                           });
-                        }).catch((err) => {
-                          console.error("[Plugin] Episode loading failed:", err);
-                          PotokSDK.ui.showHUD("error", "Не удалось получить список серий.");
+                          PotokSDK.ui.showHUD("success", `Запуск: ${finalVoiceName}`);
+                        }
+                      },
+                      onStartEditing: () => {
+                        PotokSDK.ui.showEpisodeSelector({ seasonsLoading: true });
+                        const loadSeasons = async () => {
+                          try {
+                            const detailsRes = await PotokSDK.http.get(`/api/media/detail/tv/${mediaId}`);
+                            if (detailsRes.status !== 200) return [];
+                            const details = typeof detailsRes.data === 'string' ? JSON.parse(detailsRes.data) : detailsRes.data;
+                            const totalSeasons = details.numberOfSeasons || 1;
+                            const promises = [];
+                            for (let i = 1; i <= totalSeasons; i++) {
+                              promises.push(
+                                PotokSDK.http.get(`/api/media/tmdb/tv/${mediaId}/season/${i}`)
+                                  .then(res => {
+                                    if (res.status === 200) {
+                                      return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                                    }
+                                    return null;
+                                  })
+                                  .catch(() => null)
+                              );
+                            }
+                            const results = await Promise.all(promises);
+                            return results.filter(Boolean);
+                          } catch (e) {
+                            console.error(e);
+                            return [];
+                          }
+                        };
+                        loadSeasons().then(seasons => {
+                          PotokSDK.ui.showEpisodeSelector({ seasonsLoading: false, seasons });
                         });
-                      } else {
-                        PotokSDK.ui.playVideo({
-                          streamUrl: s.url,
-                          streamType: s.kind === "mp4" ? "mp4" : "m3u8",
-                          title: `${title || "Видео"} (${s.voice})`,
-                          mediaType: "movie",
-                          id: mediaId,
-                          audios: s.audios,
-                          headers: s.headers
+                      },
+                      onApplyOverride: (seasonNum, epNum) => {
+                        PotokSDK.ui.showEpisodeSelector({ isSaving: true });
+                        const saveOverrideAndReload = async () => {
+                          try {
+                            const deterministicHash = `online:${s.provider}:${mediaId}`;
+                            const episodeOffset = epNum - 1;
+                            const body = {
+                              hash: deterministicHash,
+                              override: {
+                                season: seasonNum,
+                                episodeOffset
+                              }
+                            };
+                            const saveRes = await PotokSDK.http.post("/api/media/override", body);
+                            if (saveRes.status === 200 || saveRes.status === 204 || saveRes.status === 201) {
+                              PotokSDK.ui.showHUD("success", "Смещение серий успешно сохранено!");
+                            } else {
+                              PotokSDK.ui.showHUD("error", "Не удалось сохранить смещение.");
+                            }
+                            const newEpisodes = await fetchOnlineEpisodes(s.provider, { id: mediaId, progress, numberOfSeasons });
+                            return newEpisodes;
+                          } catch (err) {
+                            console.error(err);
+                            PotokSDK.ui.showHUD("error", "Не удалось применить смещение.");
+                            return null;
+                          }
+                        };
+                        saveOverrideAndReload().then(newEpisodes => {
+                          const updatePayload = { isSaving: false };
+                          if (newEpisodes) {
+                            updatePayload.episodes = newEpisodes;
+                          }
+                          PotokSDK.ui.showEpisodeSelector(updatePayload);
                         });
-                        PotokSDK.ui.showHUD("success", `Запуск воспроизведения: ${s.voice}`);
                       }
-                    })
                 )
             );
 

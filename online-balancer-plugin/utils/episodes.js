@@ -17,15 +17,22 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
   const deterministicHash = `online:${activeProvider}:${mediaId}`;
   let override = null;
   try {
-    // Query local BFF API for overrides
+    // Query local BFF API for overrides using the correct controller endpoint
     const overrideRes = await PotokSDK.http.get(`/api/media/override/${encodeURIComponent(deterministicHash)}`).catch(() => null);
     if (overrideRes && overrideRes.status === 200) {
-      override = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
+      const data = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
+      if (data) {
+        override = {
+          season: data.season ?? data.Season,
+          episodeOffset: data.episodeOffset ?? data.EpisodeOffset ?? 0
+        };
+      }
     }
   } catch (err) {
     console.warn("[Plugin] Override retrieval failed:", err);
   }
 
+  // 1. Fetch videodb provider files
   if (activeProvider === "videodb") {
     const apiKey = await PotokSDK.storage.local.getItem("videodb_key") || "";
     const url = `https://videodb.cloud/embed/splayer.php?type=serial&id=${mediaId}${apiKey ? `&key=${apiKey}` : ""}`;
@@ -89,7 +96,9 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
         }
       }
     }
-  } else if (activeProvider === "lift") {
+  } 
+  // 2. Fetch lift provider files
+  else if (activeProvider === "lift") {
     // Resolve external ids from BFF
     const idsRes = await PotokSDK.http.get(`/api/media/detail/tv/${mediaId}/external_ids`);
     if (idsRes.status === 200) {
@@ -177,7 +186,9 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
         }
       }
     }
-  } else if (activeProvider === "kinotochka") {
+  } 
+  // 3. Fetch kinotochka provider files
+  else if (activeProvider === "kinotochka") {
     const idsRes = await PotokSDK.http.get(`/api/media/detail/tv/${mediaId}/external_ids`);
     if (idsRes.status === 200) {
       const ids = typeof idsRes.data === 'string' ? JSON.parse(idsRes.data) : idsRes.data;
@@ -241,7 +252,7 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
                     const rewrittenUrl = `https://api.alloha.tv${urlObj.pathname}${urlObj.search}`;
                     const rewrittenRes = await PotokSDK.http.get(`/api/proxy?url=${encodeURIComponent(rewrittenUrl)}`);
                     if (rewrittenRes.status === 200) {
-                      playerHtml = rewrittenRes.data;
+                       playerHtml = rewrittenRes.data;
                     }
                   } catch {}
                 }
@@ -307,8 +318,74 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
     }
   }
 
-  // Refine seasons/episodes offsets if local override exists
-  const refinedFiles = parsedFiles.map((file) => {
+  if (parsedFiles.length === 0) {
+    return [];
+  }
+
+  // 4. Dynamic TMDb Season count retrieval
+  let tmdbSeasonCount = mediaItem.numberOfSeasons;
+  if (!tmdbSeasonCount) {
+    try {
+      const detailsRes = await PotokSDK.http.get(`/api/media/detail/tv/${mediaId}`);
+      if (detailsRes && detailsRes.status === 200) {
+        const details = typeof detailsRes.data === 'string' ? JSON.parse(detailsRes.data) : detailsRes.data;
+        tmdbSeasonCount = details.numberOfSeasons || 1;
+      }
+    } catch (err) {
+      console.warn("[Plugin] Failed to fetch TMDb media details for season count:", err);
+      tmdbSeasonCount = 1;
+    }
+  }
+  const maxValidSeason = tmdbSeasonCount;
+
+  // 5. Automated dynamic season mapping & episode merging logic
+  const seasonEpisodeCounts = {};
+  parsedFiles.forEach((file) => {
+    const s = file.season;
+    seasonEpisodeCounts[s] = (seasonEpisodeCounts[s] || 0) + 1;
+  });
+
+  const balancerSeasons = Object.keys(seasonEpisodeCounts)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  // Group raw seasons by TMDb target season (caps at maxValidSeason)
+  const targetSeasonToBalancerSeasons = {};
+  balancerSeasons.forEach((s) => {
+    const targetSeason = s > maxValidSeason ? maxValidSeason : s;
+    if (!targetSeasonToBalancerSeasons[targetSeason]) {
+      targetSeasonToBalancerSeasons[targetSeason] = [];
+    }
+    targetSeasonToBalancerSeasons[targetSeason].push(s);
+  });
+
+  // Calculate episode offsets sequentially per target season
+  const balancerSeasonOffsets = {};
+  Object.keys(targetSeasonToBalancerSeasons).forEach((targetStr) => {
+    const targetSeason = Number(targetStr);
+    const rawSeasons = targetSeasonToBalancerSeasons[targetSeason];
+    let currentOffset = 0;
+    rawSeasons.forEach((s) => {
+      balancerSeasonOffsets[s] = currentOffset;
+      currentOffset += seasonEpisodeCounts[s];
+    });
+  });
+
+  // Apply automatic mapping offsets
+  const autoMappedFiles = parsedFiles.map((file) => {
+    const rawSeason = file.season;
+    const targetSeason = rawSeason > maxValidSeason ? maxValidSeason : rawSeason;
+    const offset = balancerSeasonOffsets[rawSeason] || 0;
+    
+    return {
+      ...file,
+      season: targetSeason,
+      episode: file.episode + offset
+    };
+  });
+
+  // 6. Refine seasons/episodes offsets if local database override exists
+  const refinedFiles = autoMappedFiles.map((file) => {
     let finalSeason = file.season;
     let finalEpisode = file.episode;
 
@@ -326,7 +403,7 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
     };
   });
 
-  // Pull TMDB metadata (titles, stillPaths, airDates) sequentially/parallelly for mapped seasons
+  // 7. Pull TMDb metadata (titles, stillPaths, airDates) only for existant TMDb seasons
   if (refinedFiles.length > 0) {
     const seasonsToFetch = Array.from(new Set(refinedFiles.map((f) => f.season))).filter(Boolean);
     const metadataMap = {};
@@ -353,7 +430,7 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
       }
     }));
 
-    // Attach metadata to refinedFiles
+    // Attach TMDB metadata to refinedFiles
     refinedFiles.forEach((file) => {
       const meta = metadataMap[`${file.season}:${file.episode}`];
       if (meta) {
