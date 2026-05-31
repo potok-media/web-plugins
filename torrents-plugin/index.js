@@ -302,7 +302,7 @@ async function handleSelectStream(stream) {
         const promises = [];
         for (let i = 1; i <= totalSeasons; i++) {
           promises.push(
-            PotokSDK.http.get(`/api/media/detail/tv/${streamsState.mediaId}/season/${i}`)
+            PotokSDK.http.get(`/api/media/tmdb/tv/${streamsState.mediaId}/season/${i}`)
               .then(res => typeof res.data === 'string' ? JSON.parse(res.data) : res.data)
               .catch(() => ({ seasonNumber: i, episodes: [] }))
           );
