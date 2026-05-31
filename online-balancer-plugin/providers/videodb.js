@@ -97,7 +97,7 @@ export class VideoDBProvider {
           });
         }
 
-        const voiceLabel = `Мультиаудио (${voices.join(", ")})`;
+        const voiceLabel = voices.join(", ");
 
         streams.push({
           provider: this.id,

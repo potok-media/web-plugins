@@ -108,7 +108,7 @@ export class LiftProvider {
           streams.push({
             provider: this.id,
             quality: "1080p",
-            voice: `Мультиаудио (${file.audios.map(a => a.name).join(", ")})`,
+            voice: file.audios.map(a => a.name).join(", "),
             label: `S${query.season}E${query.episode}`,
             url: streamUrl,
             kind: streamUrl.includes(".mpd") ? "dash" : "hls",
@@ -164,7 +164,7 @@ export class LiftProvider {
         streams.push({
           provider: this.id,
           quality: "1080p",
-          voice: `Мультиаудио (${audioNames.join(", ")})`,
+          voice: audioNames.join(", "),
           label: "Lift",
           url: streamUrl,
           kind: streamUrl.includes(".mpd") ? "dash" : "hls",
