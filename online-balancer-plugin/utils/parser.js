@@ -84,6 +84,13 @@ export function sortVoices(voices) {
 export function parsePlayerJSFile(raw) {
   if (!raw) return null;
   
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("//")) {
+    return {
+      "default": [{ quality: "1080p", url: trimmed }]
+    };
+  }
+  
   const voiceStreams = {};
   const segments = raw.split(/,(?=\[)/); 
   

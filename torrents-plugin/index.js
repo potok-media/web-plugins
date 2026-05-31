@@ -221,7 +221,7 @@ function getStatusBadgeColor(info) {
 
 function buildStatusLayout() {
   return VStack()
-    .spacing(4)
+    .spacing(8)
     .children([
       HStack()
         .children([
