@@ -48,7 +48,7 @@ function mapSearchResult(s, includeId = false) {
 const { HStack, Button, StreamList } = PotokSDK.ui.components;
 
 // Register slot contribution for the Details Page watch button
-PotokSDK.ui.registerSlotContribution({
+PotokSDK.registerSlotContribution({
   slotName: "media-actions",
   id: "online-balancer-media-actions",
   render: (props) => {
