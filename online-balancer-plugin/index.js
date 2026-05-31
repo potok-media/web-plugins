@@ -195,6 +195,8 @@ async function handleSelectStream(stream) {
 
 // Render dynamic UI mutations (Unconditional!)
 function applyBlockMutations() {
+  console.log("[Plugin] applyBlockMutations called. loading =", streamsState.loading, "streams =", streamsState.streams.length);
+
   const filtersBlock = PotokSDK.ui.block("media-streams-filters");
   const resultsBlock = PotokSDK.ui.block("media-streams-results");
 
