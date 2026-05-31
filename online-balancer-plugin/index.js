@@ -143,3 +143,26 @@ PotokSDK.streams.registerStreamSource({
     };
   }
 });
+
+// Register slot contribution for "Смотреть Онлайн" button
+PotokSDK.registerSlotContribution({
+  id: "online-balancer-media-actions",
+  slotName: "media-actions",
+  render(props) {
+    const isTv = props.mediaType === "tv";
+    const label = isTv && props.season && props.episode
+      ? `Смотреть Онлайн С${props.season}:Е${props.episode}`
+      : "Смотреть онлайн";
+    return {
+      label: "Смотреть Онлайн",
+      layout: PotokSDK.ui.components.Button(label)
+        .variant("watch-online")
+        .onClick(() => {
+          PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-online-balancer`, {
+            season: props.season,
+            episode: props.episode
+          });
+        })
+    };
+  }
+});
