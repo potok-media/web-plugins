@@ -1,7 +1,7 @@
 import { PotokSDK } from '../sdk.js';
 import { fetchOnlineEpisodes } from '../utils/episodes.js';
 
-const { Card, VStack, HStack, Text, Divider, Select, StreamSkeletonList, StreamRowComponent } = PotokSDK.ui.components;
+const { Card, VStack, HStack, Text, Divider, Select, StreamSkeletonList, StreamRowComponent, Button } = PotokSDK.ui.components;
 
 export function registerStreamsSlot(videoDB, lift, kinotochka) {
   PotokSDK.registerSlotContribution({
