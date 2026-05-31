@@ -226,6 +226,7 @@ export async function fetchKinotochkaEpisodes(mediaId, checkWatched) {
                           if (seenEpisodeIds.has(epId)) return;
                           seenEpisodeIds.add(epId);
 
+                          const parsedData = parsePlayerJSFile(epObj.file);
                           const audios = [];
                           if (parsedData) {
                             Object.keys(parsedData).forEach(voice => {

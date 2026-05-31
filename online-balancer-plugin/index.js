@@ -70,6 +70,8 @@ PotokSDK.streams.registerStreamSource({
         season: f.season,
         episode: f.episode,
         title: f.title || `Серия ${f.episode}`,
+        stillPath: f.stillPath,
+        airDate: f.airDate,
         url: f.url,
         audios: f.audios,
         headers: f.headers
