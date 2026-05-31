@@ -67,8 +67,31 @@ export class KinotochkaProvider {
       let title = details.title;
       let matches = [];
 
-      // 1. First attempt: search by kpId (highly precise)
+      // 1. Try find-by-kinopoisk.php API first (highly precise)
       if (kpId) {
+        const apiUrl = `${this.host}/api/find-by-kinopoisk.php?kinopoisk=${kpId}`;
+        const apiResponse = await PotokSDK.http.get(this.getProxyUrl(apiUrl)).catch(() => null);
+        if (apiResponse && apiResponse.status === 200 && apiResponse.data) {
+          try {
+            const json = typeof apiResponse.data === 'string' ? JSON.parse(apiResponse.data) : apiResponse.data;
+            if (Array.isArray(json)) {
+              for (const item of json) {
+                if (item.url) {
+                  const fullUrl = item.url.startsWith('http') ? item.url : `${this.host}${item.url.startsWith('/') ? '' : '/'}${item.url}`;
+                  if (/\/[0-9]+-[^\/]+\.html$/i.test(fullUrl) && !matches.includes(fullUrl)) {
+                    matches.push(fullUrl);
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("[Kinotochka] Failed to parse find-by-kinopoisk response:", e);
+          }
+        }
+      }
+
+      // 2. Second attempt: search by kpId in DLE search
+      if (matches.length === 0 && kpId) {
         const searchUrl = `${this.host}/index.php?do=search&subaction=search&story=${kpId}`;
         const searchResponse = await PotokSDK.http.get(this.getProxyUrl(searchUrl)).catch(() => null);
         if (searchResponse && searchResponse.status === 200) {
@@ -76,7 +99,7 @@ export class KinotochkaProvider {
           const regex = /href=["']([^"']+\.html)["']/gi;
           while ((regexMatch = regex.exec(searchResponse.data)) !== null) {
             const url = regexMatch[1];
-            if (!url.includes('/tags/') && !url.includes('/xfsearch/') && !url.includes('/user/') && !url.includes('/catalog/') && !url.includes('/lastnews/')) {
+            if (/\/[0-9]+-[^\/]+\.html$/i.test(url)) {
               const fullUrl = url.startsWith('http') ? url : `${this.host}${url.startsWith('/') ? '' : '/'}${url}`;
               if (!matches.includes(fullUrl)) matches.push(fullUrl);
             }
@@ -84,7 +107,7 @@ export class KinotochkaProvider {
         }
       }
 
-      // 2. Second attempt: search by Russian title if kpId search failed or was empty
+      // 3. Third attempt: search by Russian title if kpId search failed or was empty
       if (matches.length === 0 && title) {
         console.log(`[Kinotochka] Searching by title fallback: ${title}`);
         const searchUrl = `${this.host}/index.php?do=search&subaction=search&story=${encodeURIComponent(title)}`;
@@ -94,7 +117,7 @@ export class KinotochkaProvider {
           const regex = /href=["']([^"']+\.html)["']/gi;
           while ((regexMatch = regex.exec(searchResponse.data)) !== null) {
             const url = regexMatch[1];
-            if (!url.includes('/tags/') && !url.includes('/xfsearch/') && !url.includes('/user/') && !url.includes('/catalog/') && !url.includes('/lastnews/')) {
+            if (/\/[0-9]+-[^\/]+\.html$/i.test(url)) {
               const fullUrl = url.startsWith('http') ? url : `${this.host}${url.startsWith('/') ? '' : '/'}${url}`;
               if (!matches.includes(fullUrl)) matches.push(fullUrl);
             }
@@ -104,13 +127,92 @@ export class KinotochkaProvider {
 
       if (matches.length === 0) return [];
 
-      // Scrape player iframe src from target page
-      const targetPageUrl = matches[0];
+      // Scrape playlist or player iframe from target page
+      const targetPageUrl = matches.find(url => {
+        if (query.type === "tv" && query.season) {
+          const sMatch = url.match(/-([0-9]+)-sezon/i);
+          if (sMatch) {
+            return parseInt(sMatch[1], 10) === query.season;
+          }
+        }
+        return true;
+      }) || matches[0];
+
       const pageResponse = await PotokSDK.http.get(this.getProxyUrl(targetPageUrl)).catch(() => null);
       if (!pageResponse || pageResponse.status !== 200) return [];
 
-      const iframeSrcMatch = pageResponse.data.match(/iframe[^>]*src=["']([^"']*(?:alloha|allohacdn|player|iframe)[^"']*)["']/i);
-      let playerUrl = iframeSrcMatch ? iframeSrcMatch[1] : (pageResponse.data.match(/iframe[^>]*src=["']([^"']+)["']/i)?.[1] || null);
+      const pageHtml = pageResponse.data;
+
+      // A. Check if there's a direct .txt playlist file in the Playerjs configuration
+      const playlistTxtMatch = pageHtml.match(/file\s*:\s*["'](https?:\/\/[^"']+\.txt)["']/i);
+      if (playlistTxtMatch) {
+        const playlistUrl = playlistTxtMatch[1];
+        console.log(`[Kinotochka] Found direct .txt playlist URL: ${playlistUrl}`);
+        const playlistResponse = await PotokSDK.http.get(this.getProxyUrl(playlistUrl)).catch(() => null);
+        if (playlistResponse && playlistResponse.status === 200 && playlistResponse.data) {
+          try {
+            const playlistData = typeof playlistResponse.data === 'string' ? JSON.parse(playlistResponse.data) : playlistResponse.data;
+            if (playlistData?.playlist) {
+              const targetEpisode = query.episode || 1;
+              
+              const extractNum = (str) => {
+                const m = str.match(/([0-9]+)/);
+                return m ? parseInt(m[1], 10) : 1;
+              };
+
+              const episodeItem = playlistData.playlist.find((ep, idx) => {
+                const epNum = extractNum(ep.comment) || (idx + 1);
+                return epNum === targetEpisode;
+              }) || playlistData.playlist[0];
+
+              if (episodeItem && episodeItem.file) {
+                const parsedData = parsePlayerJSFile(episodeItem.file);
+                if (parsedData) {
+                  const voices = sortVoices(Object.keys(parsedData));
+                  if (voices.length > 0) {
+                    const audios = [];
+                    let maxQuality = "1080p";
+                    let defaultUrl = "";
+                    let defaultKind = "mp4";
+
+                    const voiceMatch = episodeItem.comment.match(/\[([^\]]+)\]/);
+                    const commentVoiceName = voiceMatch ? voiceMatch[1] : "default";
+
+                    for (const voice of voices) {
+                      const options = parsedData[voice];
+                      if (options.length === 0) continue;
+                      const opt = options[0];
+                      if (!defaultUrl) {
+                        defaultUrl = opt.url;
+                        defaultKind = opt.url.includes(".m3u8") ? "hls" : "mp4";
+                        maxQuality = normalizeQuality(opt.quality);
+                      }
+                      audios.push({ name: voice === "default" ? commentVoiceName : voice, url: opt.url });
+                    }
+
+                    return [{
+                      provider: this.id,
+                      quality: maxQuality,
+                      voice: voices.map(v => v === "default" ? commentVoiceName : v).join(", "),
+                      label: query.type === "tv" ? `S${query.season || 1}E${query.episode || 1}` : this.name,
+                      url: defaultUrl,
+                      kind: defaultKind,
+                      headers: { "Referer": new URL(targetPageUrl).origin + "/" },
+                      audios
+                    }];
+                  }
+                }
+              }
+            }
+          } catch (jsonErr) {
+            console.error("[Kinotochka] Failed to parse .txt playlist JSON:", jsonErr);
+          }
+        }
+      }
+
+      // B. Fallback to iframe parser if direct .txt playlist wasn't found or failed
+      const iframeSrcMatch = pageHtml.match(/iframe[^>]*src=["']([^"']*(?:alloha|allohacdn|player|iframe)[^"']*)["']/i);
+      let playerUrl = iframeSrcMatch ? iframeSrcMatch[1] : (pageHtml.match(/iframe[^>]*src=["']([^"']+)["']/i)?.[1] || null);
       if (!playerUrl) return [];
 
       if (playerUrl.startsWith("//")) playerUrl = "https:" + playerUrl;
