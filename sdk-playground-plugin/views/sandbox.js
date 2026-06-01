@@ -291,7 +291,7 @@ export function buildSandboxCard() {
               Select()
                 .id("sandbox-component-select")
                 .options(selectOptions)
-                .value(activeType)
+                .selected(activeType)
                 .onChange((val) => setSandboxSelectedComponent(val)),
               Spacer(),
               Button("</>")
