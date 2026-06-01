@@ -8,18 +8,20 @@ export function buildFormsCard(state, setSearchQuery) {
   let searchResults;
 
   if (state.searchLoading) {
-    // Отображаем красивый системный лоадер во время сетевого запроса
+    // Отображаем лоадер с фиксированным ID
     searchResults = LoadingSpinner()
+      .id("stable-search-loading-spinner")
       .message("Выполняется поиск по базе данных TMDB...")
       .height("120px");
   } else if (query) {
     if (state.searchResults && state.searchResults.length > 0) {
       searchResults = HStack()
+        .id("stable-search-results-hstack") // Стабильный ID для контейнера результатов
         .spacing(16)
         .children(
           state.searchResults.map(movie => 
             MediaCard()
-              .id(`search-result-card-${movie.id}`) // Стабильный ID для предотвращения пересоздания DOM
+              .id(`search-result-card-${movie.id}`) // Стабильный ID для карточки фильма
               .item({
                 id: movie.id,
                 title: movie.title,
@@ -36,25 +38,29 @@ export function buildFormsCard(state, setSearchQuery) {
         );
     } else {
       searchResults = Text("По вашему запросу ничего не найдено.")
+        .id("stable-search-empty-text")
         .variant("secondary")
         .size("sm");
     }
   } else {
     searchResults = Text("Введите название фильма или сериала (например, 'начало', 'интер' или 'марс')...")
+      .id("stable-search-prompt-text")
       .variant("secondary")
       .size("sm");
   }
 
   return Card()
+    .id("stable-forms-card") // Стабильный ID карточки гарантирует отсутствие пересоздания DOM родителя!
     .title("3. Интерактивный поиск фильмов (SearchBar & TMDB Network Search)")
     .subtitle("Живой сетевой поиск релизов по базе данных TMDB с выдачей нативных карточек")
     .child(
       VStack()
+        .id("stable-forms-card-vstack") // Стабильный ID контейнера контента
         .spacing(16)
         .children([
           Text("Поисковая строка (SearchBar):").bold(true).variant("primary").size("sm"),
           SearchBar()
-            .id("stable-search-bar-demo") // Стабильный ID гарантирует фокус при наборе
+            .id("stable-search-bar-demo") // Стабильный ID строки поиска
             .placeholder("Начните вводить название фильма для мгновенного сетевого поиска...")
             .value(state.searchQuery)
             .onChange((val) => {

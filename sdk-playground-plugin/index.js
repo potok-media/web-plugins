@@ -24,8 +24,10 @@ const { VStack, HStack, Card, Button, EpisodeSelectorPopup } = PotokSDK.ui.compo
 function buildShowcaseLayout() {
   // Горизонтальный таб-бар меню вверху страницы (занимает минимум места по вертикали)
   const tabsHeader = Card()
+    .id("stable-tabs-header") // Стабильный ID шапки
     .child(
       HStack()
+        .id("stable-tabs-hstack") // Стабильный ID стэка табов
         .spacing(8)
         .children([
           Button("Типографика")
@@ -62,6 +64,7 @@ function buildShowcaseLayout() {
   let activePopup = null;
   if (state.isPopupOpen) {
     activePopup = EpisodeSelectorPopup()
+      .id("stable-episode-selector-popup") // Стабильный ID модального окна
       .isOpen(true)
       .title("Выбор озвучки и эпизода")
       .subtitle("Интерстеллар / Interstellar (2014)")
@@ -123,6 +126,7 @@ function buildShowcaseLayout() {
   }
 
   const pageLayout = VStack()
+    .id("stable-page-layout") // Стабильный ID страницы
     .spacing(16)
     .children([
       tabsHeader,
@@ -132,6 +136,7 @@ function buildShowcaseLayout() {
   // Если открыт поповер, рендерим его рядом с основным макетом
   if (activePopup) {
     return VStack()
+      .id("stable-root-popup-wrapper") // Стабильный ID обертки модального окна
       .children([
         activePopup,
         pageLayout
