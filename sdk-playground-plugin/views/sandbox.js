@@ -189,10 +189,10 @@ export function buildSandboxCard() {
       break;
     case 'MediaPlayer':
       liveElement = MediaPlayer()
-        .playback({ streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4", title: "Тестовый плеер" });
+        .playback({ streamUrl: "https://media.w3.org/2010/05/sintel/trailer_hd.mp4", title: "Тестовый плеер" });
       break;
     case 'SeasonEpisodes':
-      liveElement = SeasonEpisodes().mediaId(1).numberOfSeasons(3);
+      liveElement = SeasonEpisodes().mediaId(1399).numberOfSeasons(3); // Game of Thrones (ID: 1399) fetches real series grids
       break;
     case 'MediaCast':
       liveElement = MediaCast().cast([
@@ -201,12 +201,20 @@ export function buildSandboxCard() {
       ]);
       break;
     case 'MediaOverview':
-      liveElement = MediaOverview().media({ title: "Тестовое медиа", rating: 9.0, year: 2026, summary: "Это детальный обзор выбранного контента..." });
+      liveElement = MediaOverview().media({
+        originalTitle: "Interstellar / Интерстеллар (2014)",
+        genres: "Фантастика, Драма, Приключения",
+        ageRating: "12+",
+        numberOfSeasons: 1,
+        overview: "Захватывающее космическое путешествие группы исследователей через кротовую нору...",
+        imdbRating: 8.6,
+        kpRating: 8.6
+      });
       break;
     case 'MediaRow':
       liveElement = MediaRow().title("Горизонтальный ряд фильмов").items([
-        { id: 1, title: "Фильм 1", posterPath: "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=200" },
-        { id: 2, title: "Фильм 2", posterPath: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=200" }
+        { id: "row-item-1", title: "Интерстеллар", mediaType: "movie", posterSrc: "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=200", tmdbRating: 8.6 },
+        { id: "row-item-2", title: "Марсианин", mediaType: "movie", posterSrc: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=200", tmdbRating: 8.0 }
       ]);
       break;
     case 'EpisodeSelectorPopup':
