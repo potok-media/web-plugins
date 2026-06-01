@@ -9,7 +9,8 @@ import {
   setSearchQuery,
   setMediaPlayerPlayback,
   setActiveFilterTracker,
-  setActiveFilterQuality
+  setActiveFilterQuality,
+  initializeCodes
 } from './state.js';
 import { buildTypographyCard } from './views/typography.js';
 import { buildControlsCard } from './views/controls.js';
@@ -179,3 +180,6 @@ PotokSDK.registerSlotContribution({
 state.$subscribe(() => {
   PotokSDK.ui.render(buildShowcaseLayout(), 'potok-sdk-playground');
 });
+
+// Инициализируем загрузку реальных исходных кодов с сервера
+initializeCodes();

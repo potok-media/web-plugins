@@ -18,7 +18,14 @@ export const state = PotokSDK.createState({
   showMediaCode: false,
   showCardsCode: false,
   showPopupsCode: false,
-  showStateCode: false
+  showStateCode: false,
+  typographyCode: '',
+  controlsCode: '',
+  formsCode: '',
+  mediaCode: '',
+  cardsCode: '',
+  popupsCode: '',
+  stateCode: ''
 });
 
 export function setInputValue(val) {
@@ -129,4 +136,28 @@ export function togglePopupsCode() {
 
 export function toggleStateCode() {
   state.showStateCode = !state.showStateCode;
+}
+
+export async function initializeCodes() {
+  const views = [
+    { key: 'typographyCode', path: './views/typography.js' },
+    { key: 'controlsCode', path: './views/controls.js' },
+    { key: 'formsCode', path: './views/forms.js' },
+    { key: 'mediaCode', path: './views/stream.js' },
+    { key: 'cardsCode', path: './views/cards.js' },
+    { key: 'popupsCode', path: './views/popups.js' },
+    { key: 'stateCode', path: './views/stateMirror.js' }
+  ];
+
+  for (const item of views) {
+    try {
+      const res = await fetch(item.path);
+      if (res.ok) {
+        const text = await res.text();
+        state[item.key] = text;
+      }
+    } catch (err) {
+      console.warn(`[SDK Playground] Failed to fetch live code for ${item.key}:`, err);
+    }
+  }
 }
