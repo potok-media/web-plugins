@@ -1,7 +1,7 @@
 {
   "id": "potok-online-balancer",
   "name": "Модульные Онлайн Источники",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Онлайн источники",
   "author": "author",
   "entrypoint": "index.js",

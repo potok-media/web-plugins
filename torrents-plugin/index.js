@@ -248,19 +248,12 @@ PotokSDK.registerSlotContribution({
   id: "torrents-media-actions",
   slotName: "media-actions",
   render(props) {
-    const isTv = props.mediaType === "tv";
-    const label = isTv && props.season && props.episode
-      ? `Смотреть С${props.season}:Е${props.episode}`
-      : "Смотреть";
     return {
       label: "Смотреть",
-      layout: PotokSDK.ui.components.Button(label)
+      layout: PotokSDK.ui.components.Button("Смотреть")
         .variant("watch-primary")
         .onClick(() => {
-          PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-torrents`, {
-            season: props.season,
-            episode: props.episode
-          });
+          PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-torrents`);
         })
     };
   }
