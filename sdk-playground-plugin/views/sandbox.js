@@ -1,7 +1,29 @@
 import { PotokSDK } from 'potok-sdk';
 import { state, setSandboxSelectedComponent, toggleSandboxCode } from '../state.js';
 
-const { VStack, HStack, Card, Button, Select, Text, Heading, Divider, Spacer, Markdown, Badge } = PotokSDK.ui.components;
+const {
+  VStack,
+  HStack,
+  Card,
+  Button,
+  Select,
+  Text,
+  Heading,
+  Divider,
+  Spacer,
+  Markdown,
+  Badge,
+  Input,
+  Toggle,
+  LoadingSpinner,
+  SearchBar,
+  StreamFilterBar,
+  MediaPlayer,
+  SeasonEpisodes,
+  MediaCast,
+  MediaOverview,
+  MediaRow
+} = PotokSDK.ui.components;
 
 const COMPONENT_DETAILS = {
   Button: {
