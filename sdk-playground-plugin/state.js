@@ -1,35 +1,19 @@
 import { PotokSDK } from 'potok-sdk';
 
 export const state = PotokSDK.createState({
-  selectedComponent: 'Badge',
-  componentProps: {
-    text: 'Бейдж',
-    color: 'success',
-    label: 'Поле ввода',
-    placeholder: 'Введите...',
-    value: '',
-    checked: true,
-    disabled: false,
-    spacing: 8,
-    variant: 'primary',
-    level: 2
-  }
+  inputValue: 'Демо-текст',
+  toggleChecked: true,
+  selectValue: 'A'
 });
 
-export function setSelectedComponent(component) {
-  state.selectedComponent = component;
+export function setInputValue(val) {
+  state.inputValue = val;
 }
 
-export function updateComponentProps(props) {
-  state.componentProps = {
-    ...state.componentProps,
-    ...props
-  };
+export function setToggleChecked(val) {
+  state.toggleChecked = val;
 }
 
-export function updateSingleProp(key, value) {
-  state.componentProps = {
-    ...state.componentProps,
-    [key]: value
-  };
+export function setSelectValue(val) {
+  state.selectValue = val;
 }
