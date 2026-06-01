@@ -165,7 +165,7 @@ PotokSDK.registerSlotContribution({
   slotName: 'extension-page',
   render() {
     return {
-      label: 'Конструктор SDK',
+      label: 'Песочница SDK',
       layout: buildShowcaseLayout()
     };
   }
@@ -177,8 +177,8 @@ PotokSDK.registerSlotContribution({
   slotName: 'sidebar-menu',
   render() {
     return {
-      label: 'Конструктор SDK',
-      layout: PotokSDK.ui.components.Button('Конструктор SDK')
+      label: 'Песочница SDK',
+      layout: PotokSDK.ui.components.Button('Песочница SDK')
         .variant('sidebar-item')
         .icon('terminal')
         .onClick(() => {

@@ -1,6 +1,6 @@
 {
   "id": "potok-sdk-playground",
-  "name": "Конструктор SDK",
+  "name": "Песочница SDK",
   "version": "1.3.5",
   "description": "Интерактивная среда визуального проектирования и демонстрации возможностей SDK Potok",
   "author": "author",
@@ -14,12 +14,12 @@
     {
       "id": "potok-sdk-playground",
       "slotName": "extension-page",
-      "title": "Конструктор SDK"
+      "title": "Песочница SDK"
     },
     {
       "id": "potok-sdk-playground-sidebar",
       "slotName": "sidebar-menu",
-      "title": "Конструктор SDK"
+      "title": "Песочница SDK"
     }
   ]
 }
