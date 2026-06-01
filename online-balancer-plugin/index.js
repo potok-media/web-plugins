@@ -84,12 +84,19 @@ PotokSDK.streams.registerStreamSource({
     if (context.type === "tv") {
       const defaultAudio = episode.audios && episode.audios.length > 0 ? episode.audios[0] : null;
       const finalUrl = defaultAudio ? defaultAudio.url : episode.url;
+
+      const showTitle = context.title || stream.title || "Сериал";
+      const seasonNum = episode.season !== undefined ? episode.season : 1;
+      const episodeNum = episode.episode !== undefined ? episode.episode : 1;
+      const episodeTitle = episode.title || `Серия ${episodeNum}`;
+      const cleanEpisodeTitle = episodeTitle.replace(/^\d+[\s.\-_]+/, "").trim();
+
       return {
         streamUrl: finalUrl,
         streamType: finalUrl.includes(".m3u8") ? "m3u8" : finalUrl.includes(".mpd") ? "dash" : "mp4",
-        title: `${episode.title || "Серия"} - S${episode.season}E${episode.episode}`,
-        season: episode.season,
-        episode: episode.episode,
+        title: `${showTitle} - S${seasonNum}E${episodeNum} - ${cleanEpisodeTitle}`,
+        season: seasonNum,
+        episode: episodeNum,
         audios: episode.audios,
         headers: episode.headers,
         providerId: stream.providerId,
@@ -100,7 +107,7 @@ PotokSDK.streams.registerStreamSource({
     return {
       streamUrl: finalUrl,
       streamType: finalUrl.includes(".m3u8") ? "m3u8" : finalUrl.includes(".mpd") ? "dash" : "mp4",
-      title: stream.title || "Видео",
+      title: context.title || stream.title || "Видео",
       audios: stream.audios,
       headers: stream.headers,
       providerId: stream.providerId,

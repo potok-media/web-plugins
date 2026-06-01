@@ -214,19 +214,25 @@ PotokSDK.streams.registerStreamSource({
   async getPlaybackInfo(stream, episode, context) {
     const hash = cleanHash(stream.hash || stream.url || stream.magnet || "torrent-id");
     if (context.type === "tv") {
+      const showTitle = context.title || stream.title || "Сериал";
+      const seasonNum = episode.season !== undefined ? episode.season : 1;
+      const episodeNum = episode.episode !== undefined ? episode.episode : 1;
+      const episodeTitle = episode.title || `Серия ${episodeNum}`;
+      const cleanEpisodeTitle = episodeTitle.replace(/^\d+[\s.\-_]+/, "").trim();
+
       return {
         streamUrl: episode.url,
-        title: `${context.title || stream.title} - ${episode.title}`,
+        title: `${showTitle} - S${seasonNum}E${episodeNum} - ${cleanEpisodeTitle}`,
         mediaType: context.type,
         id: context.tmdbId,
-        season: episode.season,
-        episode: episode.episode,
+        season: seasonNum,
+        episode: episodeNum,
         torrentHash: hash
       };
     }
     return {
       streamUrl: stream.url || stream.streamUrl || "",
-      title: stream.title || "Видео",
+      title: context.title || stream.title || "Видео",
       mediaType: context.type,
       id: context.tmdbId,
       torrentHash: hash
