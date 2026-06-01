@@ -1,9 +1,20 @@
 import { PotokSDK } from 'potok-sdk';
 
-const { VStack, HStack, Card, Text, StreamRowComponent, MediaCard, HeroSpotlight, Divider } = PotokSDK.ui.components;
+const { VStack, HStack, Card, Text, Button, StreamRowComponent, MediaCard, HeroSpotlight, Divider, MediaRow, StreamFilterBar, MediaPlayer } = PotokSDK.ui.components;
 
-export function buildStreamCard() {
-  // 1. Промо-баннер фильма (HeroSpotlight)
+export function buildStreamCard(state, setMediaPlayerPlayback, setActiveFilterTracker, setActiveFilterQuality) {
+  // 1. Плеер (если запущен)
+  let activePlayer = null;
+  if (state.mediaPlayerPlayback) {
+    activePlayer = MediaPlayer()
+      .playback(state.mediaPlayerPlayback)
+      .isNetworkOffline(false)
+      .onClose(() => {
+        setMediaPlayerPlayback(null);
+      });
+  }
+
+  // 2. Демо-данные для промо-баннера фильма (HeroSpotlight)
   const spotlightBanner = HeroSpotlight()
     .items([
       {
@@ -22,79 +33,135 @@ export function buildStreamCard() {
         }
       }
     ])
-    .onPlay((item) => {})
-    .onDetails((item) => {});
+    .onPlay((item) => {
+      // Запускаем видеоплеер для Интерстеллар
+      setMediaPlayerPlayback({
+        streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        title: item.card.title,
+        mediaType: "movie"
+      });
+    })
+    .onDetails((item) => {
+      PotokSDK.ui.showHUD("info", `Описание фильма: ${item.card.title}`);
+    });
 
-  // 2. Карточки фильмов с постерами (MediaCard)
-  const moviePosterCard1 = MediaCard()
-    .item({
-      id: 102,
-      title: "Начало",
-      subtitle: "Inception (2010)",
-      mediaType: "movie",
-      posterSrc: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=260&h=380&q=80",
-      tmdbRating: 8.8,
-      kpRating: 8.7,
-      progress: {
-        percentage: 65
+  // 3. Демо-данные для карусели фильмов (MediaRow)
+  const mediaRowCarousel = MediaRow()
+    .id("playground-media-row")
+    .title("Популярно сейчас")
+    .items([
+      {
+        id: 102,
+        title: "Начало",
+        subtitle: "Inception (2010)",
+        mediaType: "movie",
+        posterSrc: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=260&h=380&q=80",
+        tmdbRating: 8.8,
+        kpRating: 8.7,
+        progress: { percentage: 65 }
+      },
+      {
+        id: 103,
+        title: "Бегущий по лезвию 2049",
+        subtitle: "Blade Runner 2049 (2017)",
+        mediaType: "movie",
+        posterSrc: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=260&h=380&q=80",
+        tmdbRating: 8.0,
+        kpRating: 7.8,
+        progress: null
       }
+    ])
+    .onCardClick((item) => {
+      // Запускаем видеоплеер для выбранной карточки
+      setMediaPlayerPlayback({
+        streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+        title: item.title,
+        mediaType: "movie"
+      });
     })
-    .onClick((item) => {});
+    .onSeeAllClick((row) => {
+      PotokSDK.ui.showHUD("info", `Переход в категорию: ${row.title}`);
+    });
 
-  const moviePosterCard2 = MediaCard()
-    .item({
-      id: 103,
-      title: "Бегущий по лезвию 2049",
-      subtitle: "Blade Runner 2049 (2017)",
-      mediaType: "movie",
-      posterSrc: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=260&h=380&q=80",
-      tmdbRating: 8.0,
-      kpRating: 7.8,
-      progress: null
+  // 4. Панель фильтров списка раздач (StreamFilterBar)
+  const filterBar = StreamFilterBar()
+    .countLabel("Найдено 3 раздачи")
+    .qualityFilter(state.activeFilterQuality)
+    .activeTracker(state.activeFilterTracker)
+    .trackers([
+      { id: "all", name: "Все трекеры" },
+      { id: "rutracker", name: "Rutracker" },
+      { id: "rutor", name: "Rutor" }
+    ])
+    .showSort(true)
+    .sortOption("seedersDesc")
+    .onQualityChange((q) => {
+      setActiveFilterQuality(q);
     })
-    .onClick((item) => {});
+    .onTrackerChange((t) => {
+      setActiveFilterTracker(t);
+    })
+    .onRefresh(() => {
+      PotokSDK.ui.showHUD("info", "Список раздач обновлен!");
+    });
+
+  // 5. Контейнер разметки
+  const mainVStack = VStack()
+    .spacing(16)
+    .children([
+      // А. Промо-баннер фильма
+      Text("Cinematic Spotlight (Промо-баннер с кнопкой запуска плеера):").bold(true).variant("primary").size("sm"),
+      spotlightBanner,
+      
+      Divider(),
+
+      // Б. Горизонтальная карусель релизов
+      Text("Media Row (Карусель карточек релизов):").bold(true).variant("primary").size("sm"),
+      mediaRowCarousel,
+
+      Divider(),
+
+      // В. Панель фильтрации стримов
+      Text("Stream Filter Bar (Панель сортировки и фильтрации):").bold(true).variant("primary").size("sm"),
+      filterBar,
+
+      // Г. Элемент списка раздач
+      Text("Torrent Stream Row (Раздача):").bold(true).variant("primary").size("sm"),
+      StreamRowComponent()
+        .stream({
+          title: "Люди Икс: Начало. Росомаха / X-Men Origins: Wolverine (2009) BDRip 1080p | Лицензия",
+          tracker: "Rutracker",
+          sizeLabel: "7.9 GB",
+          seeders: 245,
+          leechers: 12,
+          publishDate: "2026-05-15T12:00:00Z",
+          tags: [
+            { kind: "quality", value: "1080p" },
+            { kind: "audio", value: "Дубляж" },
+            { kind: "source", value: "BDRip" }
+          ]
+        })
+        .onClick((stream) => {
+          setMediaPlayerPlayback({
+            streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+            title: stream.title,
+            mediaType: "movie"
+          });
+        })
+    ]);
+
+  // Если плеер активен, добавляем его поверх всего макета
+  if (activePlayer) {
+    return VStack()
+      .spacing(16)
+      .children([
+        activePlayer,
+        mainVStack
+      ]);
+  }
 
   return Card()
-    .title("4. Медиа-компоненты фильмов (Spotlight Banner, Media Card & Stream Row)")
-    .subtitle("Нативные элементы контента, баннеров и результатов раздач")
-    .child(
-      VStack()
-        .spacing(16)
-        .children([
-          // А. Промо-баннер фильма
-          Text("Cinematic Spotlight (Промо-баннер с главной страницы):").bold(true).variant("primary").size("sm"),
-          spotlightBanner,
-          
-          Divider(),
-
-          // Б. Сетка карточек фильмов с постерами
-          Text("Media Cards (Карточки фильмов с постерами, рейтингом и прогрессом):").bold(true).variant("primary").size("sm"),
-          HStack()
-            .spacing(16)
-            .children([
-              moviePosterCard1,
-              moviePosterCard2
-            ]),
-
-          Divider(),
-
-          // В. Торрент-раздача
-          Text("Torrent Stream Row (Элемент списка раздач):").bold(true).variant("primary").size("sm"),
-          StreamRowComponent()
-            .stream({
-              title: "Люди Икс: Начало. Росомаха / X-Men Origins: Wolverine (2009) BDRip 1080p | Лицензия",
-              tracker: "Rutracker",
-              sizeLabel: "7.9 GB",
-              seeders: 245,
-              leechers: 12,
-              publishDate: "2026-05-15T12:00:00Z",
-              tags: [
-                { kind: "quality", value: "1080p" },
-                { kind: "audio", value: "Дубляж" },
-                { kind: "source", value: "BDRip" }
-              ]
-            })
-            .onClick((stream) => {})
-        ])
-    );
+    .title("4. Медиа-компоненты фильмов (Spotlight Banner, Media Row, Filters & Player)")
+    .subtitle("Полноценные разделы контента, каруселей, системных плееров и списков")
+    .child(mainVStack);
 }

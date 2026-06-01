@@ -1,57 +1,100 @@
 import { PotokSDK } from 'potok-sdk';
-import { state, setInputValue, setToggleChecked, setSelectValue, setActiveCategory } from './state.js';
+import { 
+  state, 
+  setInputValue, 
+  setToggleChecked, 
+  setSelectValue, 
+  setActiveCategory,
+  setPopupOpen,
+  setSearchQuery,
+  setMediaPlayerPlayback,
+  setActiveFilterTracker,
+  setActiveFilterQuality
+} from './state.js';
 import { buildTypographyCard } from './views/typography.js';
 import { buildControlsCard } from './views/controls.js';
 import { buildFormsCard } from './views/forms.js';
 import { buildStreamCard } from './views/stream.js';
 import { buildCardsCard } from './views/cards.js';
+import { buildPopupsCard } from './views/popups.js';
 import { buildStateMirrorCard } from './views/stateMirror.js';
 
-const { VStack, HStack, Card, Button } = PotokSDK.ui.components;
+const { VStack, HStack, Card, Button, EpisodeSelectorPopup } = PotokSDK.ui.components;
 
 function buildShowcaseLayout() {
-  // Левое меню навигации категорий
-  const categoriesMenu = Card()
-    .title("Компоненты SDK")
-    .subtitle("Выберите нужный раздел")
-    .width("260px")
+  // Горизонтальный таб-бар меню вверху страницы (занимает минимум места по вертикали)
+  const tabsHeader = Card()
     .child(
-      VStack()
+      HStack()
         .spacing(8)
         .children([
-          Button("1. Типографика и текст")
+          Button("Типографика")
             .variant(state.activeCategory === 'typography' ? 'primary' : 'ghost')
-            .width("100%")
             .onClick(() => setActiveCategory('typography')),
           
-          Button("2. Кнопки и бейджи")
+          Button("Кнопки и лоадеры")
             .variant(state.activeCategory === 'controls' ? 'primary' : 'ghost')
-            .width("100%")
             .onClick(() => setActiveCategory('controls')),
           
-          Button("3. Управление и формы")
+          Button("Формы и поиск")
             .variant(state.activeCategory === 'forms' ? 'primary' : 'ghost')
-            .width("100%")
             .onClick(() => setActiveCategory('forms')),
           
-          Button("4. Медиа и раздачи")
+          Button("Медиа и плеер")
             .variant(state.activeCategory === 'media' ? 'primary' : 'ghost')
-            .width("100%")
             .onClick(() => setActiveCategory('media')),
           
-          Button("5. Карточки (Card)")
+          Button("Карточки")
             .variant(state.activeCategory === 'cards' ? 'primary' : 'ghost')
-            .width("100%")
             .onClick(() => setActiveCategory('cards')),
+
+          Button("Диалоги и поповеры")
+            .variant(state.activeCategory === 'popups' ? 'primary' : 'ghost')
+            .onClick(() => setActiveCategory('popups')),
           
-          Button("6. Состояние плагина")
+          Button("Состояние")
             .variant(state.activeCategory === 'state' ? 'primary' : 'ghost')
-            .width("100%")
             .onClick(() => setActiveCategory('state'))
         ])
     );
 
-  // Правая контентная область для активной категории
+  // Модальный селектор эпизодов (EpisodeSelectorPopup)
+  let activePopup = null;
+  if (state.isPopupOpen) {
+    activePopup = EpisodeSelectorPopup()
+      .isOpen(true)
+      .title("Выбор озвучки и эпизода")
+      .subtitle("Интерстеллар / Interstellar (2014)")
+      .backdropSrc("https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&h=500&q=80")
+      .seasonsLoading(false)
+      .seasons([
+        { seasonNumber: 1, name: "Сезон 1", episodesCount: 1 }
+      ])
+      .episodes([
+        {
+          id: "ep-1",
+          season: 1,
+          episode: 1,
+          title: "Главная миссия человечества",
+          stillPath: "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?auto=format&fit=crop&w=320&h=180&q=80",
+          airDate: "2014-11-06"
+        }
+      ])
+      .onClose(() => {
+        setPopupOpen(false);
+      })
+      .onPlay((payload) => {
+        setPopupOpen(false);
+        // Бесшовный запуск встроенного плеера при выборе серии
+        setMediaPlayerPlayback({
+          streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+          title: `Эпизод ${payload.episode.episode}: ${payload.episode.title}`,
+          mediaType: "tv"
+        });
+      });
+  }
+
+  // Правая контентная область для активной категории (занимает 100% ширины)
   let activeView;
   switch (state.activeCategory) {
     case 'typography':
@@ -61,13 +104,16 @@ function buildShowcaseLayout() {
       activeView = buildControlsCard();
       break;
     case 'forms':
-      activeView = buildFormsCard(state, setInputValue, setToggleChecked, setSelectValue);
+      activeView = buildFormsCard(state, setInputValue, setToggleChecked, setSelectValue, setSearchQuery);
       break;
     case 'media':
-      activeView = buildStreamCard();
+      activeView = buildStreamCard(state, setMediaPlayerPlayback, setActiveFilterTracker, setActiveFilterQuality);
       break;
     case 'cards':
       activeView = buildCardsCard();
+      break;
+    case 'popups':
+      activeView = buildPopupsCard(setPopupOpen);
       break;
     case 'state':
       activeView = buildStateMirrorCard(state);
@@ -76,18 +122,23 @@ function buildShowcaseLayout() {
       activeView = buildTypographyCard();
   }
 
-  const contentArea = VStack()
-    .flex(1)
-    .child(activeView);
-
-  // Возвращаем двухколоночную разметку
-  return HStack()
-    .spacing(20)
-    .alignItems("start")
+  const pageLayout = VStack()
+    .spacing(16)
     .children([
-      categoriesMenu,
-      contentArea
+      tabsHeader,
+      activeView
     ]);
+
+  // Если открыт поповер, рендерим его рядом с основным макетом
+  if (activePopup) {
+    return VStack()
+      .children([
+        activePopup,
+        pageLayout
+      ]);
+  }
+
+  return pageLayout;
 }
 
 // Регистрируем вкладку в слот страниц расширений extension-page

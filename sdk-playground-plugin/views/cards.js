@@ -1,6 +1,6 @@
 import { PotokSDK } from 'potok-sdk';
 
-const { VStack, Card, Text } = PotokSDK.ui.components;
+const { VStack, Card, Text, MediaCard } = PotokSDK.ui.components;
 
 export function buildCardsCard() {
   // 1. Карточка с заголовком и подзаголовком
@@ -24,15 +24,35 @@ export function buildCardsCard() {
         ])
     );
 
+  // 3. Нативная карточка фильма (MediaCard)
+  const moviePosterCard = MediaCard()
+    .item({
+      id: 104,
+      title: "Марсианин",
+      subtitle: "The Martian (2015)",
+      mediaType: "movie",
+      posterSrc: "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?auto=format&fit=crop&w=260&h=380&q=80",
+      tmdbRating: 8.0,
+      kpRating: 7.9,
+      progress: {
+        percentage: 45 // Показывает прогресс просмотра
+      }
+    })
+    .onClick((item) => {
+      PotokSDK.ui.showHUD("success", `Нажата карточка фильма: ${item.title}`);
+    });
+
   return Card()
-    .title("6. Карточки (Card)")
-    .subtitle("Нативные контейнеры с эффектом матового стекла")
+    .title("5. Нативные контейнеры и карточки (Card & MediaCard)")
+    .subtitle("Базовые контейнеры матового стекла и премиальные карточки фильмов")
     .child(
       VStack()
         .spacing(16)
         .children([
           cardWithHeader,
-          ordinaryCard
+          ordinaryCard,
+          Text("MediaCard (Нативная карточка фильма с постером и прогрессом):").bold(true).variant("primary").size("sm"),
+          moviePosterCard
         ])
     );
 }
