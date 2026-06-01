@@ -1,0 +1,24 @@
+{
+  "id": "potok-sdk-playground",
+  "name": "Конструктор SDK",
+  "version": "1.0.0",
+  "description": "Интерактивная среда визуального проектирования и демонстрации возможностей SDK Potok",
+  "author": "author",
+  "entrypoint": "index.js",
+  "permissions": [
+    "storage",
+    "ui-notifications"
+  ],
+  "slots": [
+    {
+      "id": "potok-sdk-playground",
+      "slotName": "extension-page",
+      "title": "Конструктор SDK"
+    },
+    {
+      "id": "potok-sdk-playground-sidebar",
+      "slotName": "sidebar-menu",
+      "title": "Конструктор SDK"
+    }
+  ]
+}

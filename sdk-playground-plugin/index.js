@@ -136,10 +136,10 @@ function buildShowcaseLayout() {
     ]);
 }
 
-// Регистрируем вкладку в слот настроек settings-tabs
+// Регистрируем вкладку в слот страниц расширений extension-page
 PotokSDK.registerSlotContribution({
   id: 'potok-sdk-playground',
-  slotName: 'settings-tabs',
+  slotName: 'extension-page',
   render() {
     return {
       label: 'Конструктор SDK',
@@ -148,23 +148,23 @@ PotokSDK.registerSlotContribution({
   }
 });
 
-// Регистрируем кнопку быстрого перехода в левом меню боковой панели
+// Регистрируем кнопку быстрого перехода в левом меню боковой панели (сразу после Настроек)
 PotokSDK.registerSlotContribution({
   id: 'potok-sdk-playground-sidebar',
-  slotName: 'sidebar-status',
+  slotName: 'sidebar-menu',
   render() {
     return {
       label: 'Конструктор SDK',
       layout: PotokSDK.ui.components.Button('Конструктор SDK')
-        .variant('secondary')
-        .width('100%')
+        .variant('sidebar-item')
+        .icon('terminal')
         .onClick(() => {
-          PotokSDK.ui.navigateTo('/settings');
-          PotokSDK.ui.showHUD('info', 'Вкладка "Конструктор SDK" открыта в Настройках ⚙️');
+          PotokSDK.ui.navigateTo('/extensions/potok-sdk-playground');
         })
     };
   }
 });
+
 
 // Перерисовываем весь макет при изменении реактивного состояния
 state.$subscribe(() => {
