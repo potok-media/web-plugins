@@ -41,6 +41,23 @@ function mapSearchResult(s, includeId = false) {
   return result;
 }
 
+function withTimeout(promise, ms, name) {
+  let timeoutId;
+  const timeoutPromise = new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      console.warn(`[OnlineBalancer] ${name} search timed out after ${ms}ms`);
+      resolve([]);
+    }, ms);
+  });
+  return Promise.race([
+    promise.then((val) => {
+      clearTimeout(timeoutId);
+      return val;
+    }),
+    timeoutPromise
+  ]);
+}
+
 PotokSDK.streams.registerStreamSource({
   id: "potok-online-balancer",
   name: "Модульные Онлайн Источники",
@@ -54,9 +71,9 @@ PotokSDK.streams.registerStreamSource({
       episode: query.episode
     };
     const results = await Promise.all([
-      videoDB.search(providerQuery).catch(err => { console.error(err); return []; }),
-      lift.search(providerQuery).catch(err => { console.error(err); return []; }),
-      kinotochka.search(providerQuery).catch(err => { console.error(err); return []; })
+      withTimeout(videoDB.search(providerQuery).catch(err => { console.error(err); return []; }), 4000, "VideoDB"),
+      withTimeout(lift.search(providerQuery).catch(err => { console.error(err); return []; }), 4000, "Lift"),
+      withTimeout(kinotochka.search(providerQuery).catch(err => { console.error(err); return []; }), 4000, "Kinotochka")
     ]);
     return results.flat().map(s => mapSearchResult(s, true));
   },
