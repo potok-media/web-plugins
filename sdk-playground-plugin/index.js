@@ -67,11 +67,6 @@ function buildShowcaseLayout() {
             .variant(state.activeCategory === 'sandbox' ? 'primary' : 'ghost')
             .onClick(() => setActiveCategory('sandbox')),
 
-          Spacer(),
-
-          Button("</>")
-            .variant(state.showOrchestratorCode ? 'primary' : 'ghost')
-            .onClick(() => toggleOrchestratorCode())
         ])
     );
 
