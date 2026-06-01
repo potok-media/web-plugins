@@ -106,7 +106,7 @@ function buildShowcaseLayout() {
         // Бесшовный запуск встроенного плеера при выборе серии
         setMediaPlayerPlayback({
           streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-          title: `Эпизод ${payload.episode.episode}: ${payload.episode.title}`,
+          title: `Эпизод ${payload.episode.episode}: ${payload.episode.title}.`,
           mediaType: "tv"
         });
       });
