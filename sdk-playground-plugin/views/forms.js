@@ -1,6 +1,46 @@
 import { PotokSDK } from 'potok-sdk';
+import { toggleFormsCode } from '../state.js';
 
-const { VStack, HStack, Card, Text, Divider, SearchBar, MediaCard, LoadingSpinner } = PotokSDK.ui.components;
+const { VStack, HStack, Card, Heading, Text, Divider, SearchBar, MediaCard, LoadingSpinner, Spacer, Button, Markdown } = PotokSDK.ui.components;
+
+const docString = `### 📝 Компоненты Форм и Поиска
+
+В Potok SDK встроена развитая экосистема полей ввода, селекторов и живых поисковых полей, интегрируемых с сетевым API.
+
+#### Использование в коде:
+
+\`\`\`js
+// Живая поисковая строка (SearchBar)
+SearchBar()
+  .placeholder("Поиск по названию фильма...")
+  .value(state.searchQuery)
+  .onChange((val) => setSearchQuery(val))
+  .onClear(() => setSearchQuery(""))
+
+// Текстовое поле (Input)
+Input("username")
+  .label("Логин")
+  .placeholder("Введите логин...")
+  .value(state.username)
+  .onChange((val) => { state.username = val; })
+
+// Переключатель / Свитч (Toggle)
+Toggle("notifications")
+  .label("Включить уведомления")
+  .checked(state.notifications)
+  .onChange((checked) => { state.notifications = checked; })
+
+// Выпадающий список / Селектор (Select)
+Select("theme")
+  .label("Тема оформления")
+  .options([
+    { label: "Темная", value: "dark" },
+    { label: "Светлая", value: "light" }
+  ])
+  .selected(state.theme)
+  .onChange((val) => { state.theme = val; })
+\`\`\`
+`;
 
 export function buildFormsCard(state, setSearchQuery) {
   const query = (state.searchQuery || "").trim();
@@ -8,7 +48,6 @@ export function buildFormsCard(state, setSearchQuery) {
   let searchResults;
 
   if (state.searchLoading) {
-    // Отображаем лоадер с фиксированным ID
     searchResults = LoadingSpinner()
       .id("stable-search-loading-spinner")
       .message("Выполняется поиск по базе данных TMDB...")
@@ -16,12 +55,12 @@ export function buildFormsCard(state, setSearchQuery) {
   } else if (query) {
     if (state.searchResults && state.searchResults.length > 0) {
       searchResults = HStack()
-        .id("stable-search-results-hstack") // Стабильный ID для контейнера результатов
+        .id("stable-search-results-hstack")
         .spacing(16)
         .children(
           state.searchResults.map(movie => 
             MediaCard()
-              .id(`search-result-card-${movie.id}`) // Стабильный ID для карточки фильма
+              .id(`search-result-card-${movie.id}`)
               .item({
                 id: movie.id,
                 title: movie.title,
@@ -49,31 +88,49 @@ export function buildFormsCard(state, setSearchQuery) {
       .size("sm");
   }
 
+  const childrenList = [
+    HStack()
+      .id("stable-forms-card-header-hstack")
+      .spacing(8)
+      .alignItems("center")
+      .children([
+        Heading("3. Интерактивный поиск фильмов (SearchBar & TMDB Network Search)").level(3),
+        Spacer(),
+        Button("</>").variant("ghost").onClick(() => { toggleFormsCode(); })
+      ])
+  ];
+
+  if (state.showFormsCode) {
+    childrenList.push(Markdown(docString));
+    childrenList.push(Divider());
+  }
+
+  childrenList.push(
+    Text("Поисковая строка (SearchBar):").bold(true).variant("primary").size("sm"),
+    SearchBar()
+      .id("stable-search-bar-demo")
+      .placeholder("Начните вводить название фильма для мгновенного сетевого поиска...")
+      .value(state.searchQuery)
+      .onChange((val) => {
+        setSearchQuery(val);
+      })
+      .onClear(() => {
+        setSearchQuery("");
+      }),
+
+    Divider(),
+
+    Text("Результаты поиска TMDB (Лимит 7 карточек):").bold(true).variant("primary").size("sm"),
+    searchResults
+  );
+
   return Card()
-    .id("stable-forms-card") // Стабильный ID карточки гарантирует отсутствие пересоздания DOM родителя!
-    .title("3. Интерактивный поиск фильмов (SearchBar & TMDB Network Search)")
+    .id("stable-forms-card")
     .subtitle("Живой сетевой поиск релизов по базе данных TMDB с выдачей нативных карточек")
     .child(
       VStack()
-        .id("stable-forms-card-vstack") // Стабильный ID контейнера контента
+        .id("stable-forms-card-vstack")
         .spacing(16)
-        .children([
-          Text("Поисковая строка (SearchBar):").bold(true).variant("primary").size("sm"),
-          SearchBar()
-            .id("stable-search-bar-demo") // Стабильный ID строки поиска
-            .placeholder("Начните вводить название фильма для мгновенного сетевого поиска...")
-            .value(state.searchQuery)
-            .onChange((val) => {
-              setSearchQuery(val);
-            })
-            .onClear(() => {
-              setSearchQuery("");
-            }),
-
-          Divider(),
-
-          Text("Результаты поиска TMDB (Лимит 7 карточек):").bold(true).variant("primary").size("sm"),
-          searchResults
-        ])
+        .children(childrenList)
     );
 }

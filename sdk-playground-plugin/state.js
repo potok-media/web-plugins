@@ -11,7 +11,14 @@ export const state = PotokSDK.createState({
   searchLoading: false,         // Статус загрузки из сети
   mediaPlayerPlayback: null,    // Активный поток для воспроизведения плеере
   activeFilterTracker: 'all',   // Выбранный трекер в StreamFilterBar
-  activeFilterQuality: 'all'    // Выбранное качество в StreamFilterBar
+  activeFilterQuality: 'all',    // Выбранное качество в StreamFilterBar
+  showTypographyCode: false,
+  showControlsCode: false,
+  showFormsCode: false,
+  showMediaCode: false,
+  showCardsCode: false,
+  showPopupsCode: false,
+  showStateCode: false
 });
 
 export function setInputValue(val) {
@@ -94,4 +101,32 @@ export function setActiveFilterTracker(val) {
 
 export function setActiveFilterQuality(val) {
   state.activeFilterQuality = val;
+}
+
+export function toggleTypographyCode() {
+  state.showTypographyCode = !state.showTypographyCode;
+}
+
+export function toggleControlsCode() {
+  state.showControlsCode = !state.showControlsCode;
+}
+
+export function toggleFormsCode() {
+  state.showFormsCode = !state.showFormsCode;
+}
+
+export function toggleMediaCode() {
+  state.showMediaCode = !state.showMediaCode;
+}
+
+export function toggleCardsCode() {
+  state.showCardsCode = !state.showCardsCode;
+}
+
+export function togglePopupsCode() {
+  state.showPopupsCode = !state.showPopupsCode;
+}
+
+export function toggleStateCode() {
+  state.showStateCode = !state.showStateCode;
 }

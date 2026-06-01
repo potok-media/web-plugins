@@ -1,6 +1,43 @@
 import { PotokSDK } from 'potok-sdk';
+import { state, toggleMediaCode } from '../state.js';
 
-const { VStack, HStack, Card, Text, Button, StreamRowComponent, MediaCard, HeroSpotlight, Divider, MediaRow, StreamFilterBar, MediaPlayer } = PotokSDK.ui.components;
+const { VStack, HStack, Card, Heading, Text, Button, StreamRowComponent, MediaCard, HeroSpotlight, Divider, MediaRow, StreamFilterBar, MediaPlayer, Spacer, Markdown } = PotokSDK.ui.components;
+
+const docString = `### 🎬 Медиа-компоненты и Видеоплеер
+
+Potok SDK предлагает богатый набор высокоуровневых медиа-компонентов для построения стриминговых приложений.
+
+#### Использование в коде:
+
+\`\`\`js
+// Промо-баннер фильма (HeroSpotlight)
+HeroSpotlight()
+  .items([ { card: { title: "Интерстеллар", overview: "..." } } ])
+  .onPlay((item) => { /* запустить видеоплеер */ })
+  .onDetails((item) => { /* показать подробности */ })
+
+// Горизонтальная карусель (MediaRow)
+MediaRow()
+  .title("Популярное")
+  .items([ { id: 101, title: "Начало", posterSrc: "..." } ])
+  .onCardClick((movie) => { /* открыть карточку */ })
+
+// Встроенный видеоплеер (MediaPlayer)
+MediaPlayer()
+  .playback({
+    streamUrl: "https://example.com/movie.mp4",
+    title: "Интерстеллар"
+  })
+  .onClose(() => { /* закрыть плеер */ })
+
+// Панель фильтрации (StreamFilterBar)
+StreamFilterBar()
+  .countLabel("3 раздачи")
+  .qualityFilter(state.quality)
+  .trackers([ { id: "rutracker", name: "Rutracker" } ])
+  .onQualityChange((q) => { state.quality = q; })
+\`\`\`
+`;
 
 export function buildStreamCard(state, setMediaPlayerPlayback, setActiveFilterTracker, setActiveFilterQuality) {
   // 1. Плеер (если запущен)
@@ -106,49 +143,67 @@ export function buildStreamCard(state, setMediaPlayerPlayback, setActiveFilterTr
     });
 
   // 5. Контейнер разметки
+  const childrenList = [
+    HStack()
+      .spacing(8)
+      .alignItems("center")
+      .children([
+        Heading("4. Медиа-компоненты фильмов (Spotlight Banner, Media Row, Filters & Player)").level(3),
+        Spacer(),
+        Button("</>").variant("ghost").onClick(() => { toggleMediaCode(); })
+      ])
+  ];
+
+  if (state.showMediaCode) {
+    childrenList.push(Markdown(docString));
+    childrenList.push(Divider());
+  }
+
+  childrenList.push(
+    // А. Промо-баннер фильма
+    Text("Cinematic Spotlight (Промо-баннер с кнопкой запуска плеера):").bold(true).variant("primary").size("sm"),
+    spotlightBanner,
+    
+    Divider(),
+
+    // Б. Горизонтальная карусель релизов
+    Text("Media Row (Карусель карточек релизов):").bold(true).variant("primary").size("sm"),
+    mediaRowCarousel,
+
+    Divider(),
+
+    // В. Панель фильтрации стримов
+    Text("Stream Filter Bar (Панель сортировки и фильтрации):").bold(true).variant("primary").size("sm"),
+    filterBar,
+
+    // Г. Элемент списка раздач
+    Text("Torrent Stream Row (Раздача):").bold(true).variant("primary").size("sm"),
+    StreamRowComponent()
+      .stream({
+        title: "Люди Икс: Начало. Росомаха / X-Men Origins: Wolverine (2009) BDRip 1080p | Лицензия",
+        tracker: "Rutracker",
+        sizeLabel: "7.9 GB",
+        seeders: 245,
+        leechers: 12,
+        publishDate: "2026-05-15T12:00:00Z",
+        tags: [
+          { kind: "quality", value: "1080p" },
+          { kind: "audio", value: "Дубляж" },
+          { kind: "source", value: "BDRip" }
+        ]
+      })
+      .onClick((stream) => {
+        setMediaPlayerPlayback({
+          streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+          title: stream.title,
+          mediaType: "movie"
+        });
+      })
+  );
+
   const mainVStack = VStack()
     .spacing(16)
-    .children([
-      // А. Промо-баннер фильма
-      Text("Cinematic Spotlight (Промо-баннер с кнопкой запуска плеера):").bold(true).variant("primary").size("sm"),
-      spotlightBanner,
-      
-      Divider(),
-
-      // Б. Горизонтальная карусель релизов
-      Text("Media Row (Карусель карточек релизов):").bold(true).variant("primary").size("sm"),
-      mediaRowCarousel,
-
-      Divider(),
-
-      // В. Панель фильтрации стримов
-      Text("Stream Filter Bar (Панель сортировки и фильтрации):").bold(true).variant("primary").size("sm"),
-      filterBar,
-
-      // Г. Элемент списка раздач
-      Text("Torrent Stream Row (Раздача):").bold(true).variant("primary").size("sm"),
-      StreamRowComponent()
-        .stream({
-          title: "Люди Икс: Начало. Росомаха / X-Men Origins: Wolverine (2009) BDRip 1080p | Лицензия",
-          tracker: "Rutracker",
-          sizeLabel: "7.9 GB",
-          seeders: 245,
-          leechers: 12,
-          publishDate: "2026-05-15T12:00:00Z",
-          tags: [
-            { kind: "quality", value: "1080p" },
-            { kind: "audio", value: "Дубляж" },
-            { kind: "source", value: "BDRip" }
-          ]
-        })
-        .onClick((stream) => {
-          setMediaPlayerPlayback({
-            streamUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            title: stream.title,
-            mediaType: "movie"
-          });
-        })
-    ]);
+    .children(childrenList);
 
   // Если плеер активен, добавляем его поверх всего макета
   if (activePlayer) {
@@ -161,7 +216,6 @@ export function buildStreamCard(state, setMediaPlayerPlayback, setActiveFilterTr
   }
 
   return Card()
-    .title("4. Медиа-компоненты фильмов (Spotlight Banner, Media Row, Filters & Player)")
     .subtitle("Полноценные разделы контента, каруселей, системных плееров и списков")
     .child(mainVStack);
 }
