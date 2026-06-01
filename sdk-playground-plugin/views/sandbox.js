@@ -1,6 +1,17 @@
+/**
+ * Модуль Песочницы (Sandbox) для визуальной среды Potok SDK.
+ * 
+ * Данный файл является эталонным примером чистой и модульной верстки плагина:
+ * 1. Компоненты разметки (VStack, HStack, Spacer) используются для организации потока элементов.
+ * 2. Для демонстрации «голого» рендеринга элементы помещаются прямо на фоновый слой страницы без рамок Card().
+ * 3. Логика метаданных и документации полностью вынесена во вспомогательный реестр utils/registry.js.
+ */
+
 import { PotokSDK } from 'potok-sdk';
 import { state, setSandboxSelectedComponent, toggleSandboxCode } from '../state.js';
+import { COMPONENT_DETAILS } from '../utils/registry.js';
 
+// Деструктурируем все необходимые компоненты из ядра Potok UI
 const {
   VStack,
   HStack,
@@ -25,134 +36,15 @@ const {
   MediaRow
 } = PotokSDK.ui.components;
 
-const COMPONENT_DETAILS = {
-  Button: {
-    title: 'Кнопка (Button)',
-    desc: 'Интерактивный элемент интерфейса для запуска действий. Поддерживает различные цветовые варианты, блокировку кликов и иконки.',
-    code: 'PotokSDK.ui.components.Button("Смотреть")\n  .variant("primary")\n  .onClick(() => console.log("Клик!"))',
-    illustration: null
-  },
-  Input: {
-    title: 'Поле ввода (Input)',
-    desc: 'Текстовое или числовое поле для ввода информации пользователем. Поддерживает метки (labels), плейсхолдеры и реактивное отслеживание набора.',
-    code: 'PotokSDK.ui.components.Input("username")\n  .label("Имя пользователя")\n  .placeholder("Введите ник...")\n  .onChange((val) => console.log("Ввод:", val))',
-    illustration: null
-  },
-  Toggle: {
-    title: 'Переключатель (Toggle)',
-    desc: 'Двухпозиционный чекбокс-переключатель (свитч) для активации/деактивации параметров.',
-    code: 'PotokSDK.ui.components.Toggle("offline")\n  .label("Автономный режим")\n  .checked(true)\n  .onChange((checked) => console.log("Автономно:", checked))',
-    illustration: null
-  },
-  Select: {
-    title: 'Выпадающий список (Select)',
-    desc: 'Дропдаун-меню для выбора одной опции из предопределенного списка.',
-    code: 'PotokSDK.ui.components.Select("quality")\n  .label("Качество видео")\n  .options([\n    { value: "1080p", label: "Full HD (1080p)" },\n    { value: "720p", label: "HD (720p)" }\n  ])\n  .onChange((val) => console.log("Качество:", val))',
-    illustration: null
-  },
-  Badge: {
-    title: 'Бейдж (Badge)',
-    desc: 'Компактная текстовая метка статуса или категории. Поддерживает различные цвета заливки.',
-    code: 'PotokSDK.ui.components.Badge("Успешно")\n  .color("success")',
-    illustration: null
-  },
-  LoadingSpinner: {
-    title: 'Индикатор загрузки (LoadingSpinner)',
-    desc: 'Анимированный спиннер, отображающий процесс ожидания сети. Может быть плоским или полноэкранным.',
-    code: 'PotokSDK.ui.components.LoadingSpinner()\n  .message("Синхронизация раздач...")',
-    illustration: null
-  },
-  SearchBar: {
-    title: 'Поисковая строка (SearchBar)',
-    desc: 'Специализированное поисковое поле с иконкой лупы и кнопкой быстрой очистки.',
-    code: 'PotokSDK.ui.components.SearchBar("search")\n  .placeholder("Искать в Potok...")\n  .onChange((val) => handleSearch(val))',
-    illustration: null
-  },
-  StreamFilterBar: {
-    title: 'Панель фильтров (StreamFilterBar)',
-    desc: 'Комплексная панель для сортировки и фильтрации раздач по качеству, трекерам и статусу.',
-    code: 'PotokSDK.ui.components.StreamFilterBar()\n  .countLabel("Найдено: 12 раздач")\n  .trackers(["Rutor", "NNMClub"])\n  .onRefresh(() => updateList())',
-    illustration: null
-  },
-  MediaPlayer: {
-    title: 'Видеоплеер (MediaPlayer)',
-    desc: 'Встроенный видеоплеер для прямого воспроизведения HLS (m3u8) или MP4 ссылок с поддержкой отслеживания сети.',
-    code: 'PotokSDK.ui.components.MediaPlayer()\n  .playback({ streamUrl: "https://example.com/movie.mp4", title: "Демо-видео" })',
-    illustration: null
-  },
-  SeasonEpisodes: {
-    title: 'Сезоны и серии (SeasonEpisodes)',
-    desc: 'Комплексная сетка сезонов и серий для быстрого переключения серий сериала.',
-    code: 'PotokSDK.ui.components.SeasonEpisodes()\n  .numberOfSeasons(4)\n  .onEpisodeClick((ep) => play(ep))',
-    illustration: null
-  },
-  MediaCast: {
-    title: 'Актерский состав (MediaCast)',
-    desc: 'Горизонтальная карусель аватарок и имен актеров/создателей медиафайла.',
-    code: 'PotokSDK.ui.components.MediaCast()\n  .cast([\n    { name: "Мэттью Макконахи", role: "Купер" },\n    { name: "Энн Хэтэуэй", role: "Амелия" }\n  ])',
-    illustration: null
-  },
-  MediaOverview: {
-    title: 'Описание медиа (MediaOverview)',
-    desc: 'Информационная панель с годом, рейтингом, описанием и метаданными выбранного фильма/сериала.',
-    code: 'PotokSDK.ui.components.MediaOverview()\n  .media({ title: "Интерстеллар", rating: 8.6, year: 2014 })',
-    illustration: null
-  },
-  MediaRow: {
-    title: 'Карусель фильмов (MediaRow)',
-    desc: 'Горизонтальная плиточная карусель медиакарточек с поддержкой кнопки перехода «Посмотреть все».',
-    code: 'PotokSDK.ui.components.MediaRow()\n  .title("Популярные фильмы")\n  .items(moviesList)',
-    illustration: null
-  },
-  EpisodeSelectorPopup: {
-    title: 'Попап выбора серий (EpisodeSelectorPopup)',
-    desc: 'Всплывающее модальное окно выбора серий с размытым задним бэкдропом (поповер).',
-    code: 'PotokSDK.ui.components.EpisodeSelectorPopup()\n  .isOpen(true)\n  .title("Интерстеллар")\n  .backdropSrc("/backdrop.jpg")',
-    illustration: null
-  },
-  Markdown: {
-    title: 'Рендерер Markdown (Markdown)',
-    desc: 'Компонент для вывода форматированного текста, списков, таблиц и PrismJS подсветки блоков кода в macOS окнах.',
-    code: 'PotokSDK.ui.components.Markdown("# Заголовок\\n* Список элементов\\n* И синтаксис!")',
-    illustration: null
-  },
-  Card: {
-    title: 'Карточка (Card)',
-    desc: 'Графический стеклянный блок с фоном rgba(255,255,255,0.03), рамкой и скруглениями для группировки информации.',
-    code: 'PotokSDK.ui.components.Card()\n  .title("Карточка")\n  .child(PotokSDK.ui.components.Text("Контент"))',
-    illustration: '```text\n+------------------------------------------------+\n| Card Container (Серый стеклянный фон)          |\n|                                                |\n|  [Заголовок карточки]                          |\n|  [Дочерние элементы...]                        |\n|                                                |\n+------------------------------------------------+\n```'
-  },
-  VStack: {
-    title: 'Вертикальный стек (VStack)',
-    desc: 'Прозрачный Flexbox-контейнер разметки. Выстраивает дочерние элементы по вертикальной оси (сверху вниз). spacing задает отступы между всеми детьми.',
-    code: 'PotokSDK.ui.components.VStack()\n  .spacing(16)\n  .children([\n    PotokSDK.ui.components.Text("Сверху"),\n    PotokSDK.ui.components.Text("Снизу")\n  ])',
-    illustration: '```text\n+------------------------------------------------+\n| VStack Container (Полностью прозрачный)        |\n|                                                |\n|  +------------------------------------------+  |\n|  | Дочерний элемент 1                       |  |\n|  +------------------------------------------+  |\n|  ::::::::::::::: Spacing (Отступ) ::::::::::::  |\n|  +------------------------------------------+  |\n|  | Дочерний элемент 2                       |  |\n|  +------------------------------------------+  |\n|                                                |\n+------------------------------------------------+\n```'
-  },
-  HStack: {
-    title: 'Горизонтальный стек (HStack)',
-    desc: 'Прозрачный Flexbox-контейнер разметки. Размещает дочерние элементы по горизонтальной оси (в одну строку, слева направо).',
-    code: 'PotokSDK.ui.components.HStack()\n  .spacing(8)\n  .children([\n    PotokSDK.ui.components.Button("Ок"),\n    PotokSDK.ui.components.Button("Отмена")\n  ])',
-    illustration: '```text\n+----------------------------------------------------------------------+\n| HStack Container (Полностью прозрачный)                              |\n|                                                                      |\n|  +-------------+  :::::::::  +-------------+  :::::::::  +---------+ |\n|  | Дочерний 1  |  | Spacing |  | Дочерний 2  |  | Spacing |  |Дочерний3| |\n|  +-------------+  :::::::::  +-------------+  :::::::::  +---------+ |\n|                                                                      |\n+----------------------------------------------------------------------+\n```'
-  },
-  Spacer: {
-    title: 'Разделитель-распорка (Spacer)',
-    desc: 'Невидимая эластичная пружина-распорка. Занимает все свободное пространство внутри VStack или HStack (flex-grow: 1), расталкивая соседние блоки по краям.',
-    code: 'PotokSDK.ui.components.HStack()\n  .children([\n    PotokSDK.ui.components.Text("Логотип"),\n    PotokSDK.ui.components.Spacer(),\n    PotokSDK.ui.components.Button("Выход")\n  ])',
-    illustration: '```text\n+----------------------------------------------------------------------+\n| HStack Container                                                     |\n|                                                                      |\n|  +-------------+  ===================================  +-----------+ |\n|  | Элемент слева|  <----- Эластичный Spacer() ----->  |Эл-т справа| |\n|  +-------------+  ===================================  +-----------+ |\n|                                                                      |\n+----------------------------------------------------------------------+\n```'
-  },
-  Divider: {
-    title: 'Разделитель (Divider)',
-    desc: 'Тонкая горизонтальная линия для разграничения логических блоков контента.',
-    code: 'PotokSDK.ui.components.Divider()',
-    illustration: '```text\n+------------------------------------------------+\n| Элемент сверху                                 |\n| ---------------------------------------------- | <-- Divider() (Линия в 1px)\n| Элемент снизу                                  |\n+------------------------------------------------+\n```'
-  }
-};
-
+/**
+ * Строит и экспортирует макет вкладки Песочницы.
+ * Вызывается реактивно из главного оркестратора index.js при смене вкладок.
+ */
 export function buildSandboxCard() {
   const activeType = state.sandboxSelectedComponent || 'Button';
   const meta = COMPONENT_DETAILS[activeType] || COMPONENT_DETAILS.Button;
 
-  // Создаем живой компонент для рендеринга
+  // Инициализируем живой экземпляр выбранного UI-компонента
   let liveElement;
   switch (activeType) {
     case 'Button':
@@ -170,7 +62,8 @@ export function buildSandboxCard() {
         .options([
           { value: '1', label: 'Опция 1' },
           { value: '2', label: 'Опция 2' }
-        ]);
+        ])
+        .selected("1");
       break;
     case 'Badge':
       liveElement = Badge("VIP Статус").color("warning");
@@ -192,7 +85,7 @@ export function buildSandboxCard() {
         .playback({ streamUrl: "https://media.w3.org/2010/05/sintel/trailer_hd.mp4", title: "Тестовый плеер" });
       break;
     case 'SeasonEpisodes':
-      liveElement = SeasonEpisodes().mediaId(1399).numberOfSeasons(3); // Game of Thrones (ID: 1399) fetches real series grids
+      liveElement = SeasonEpisodes().mediaId(1399).numberOfSeasons(3); // Запрос реальных сезонов Игры Престолов (ID: 1399)
       break;
     case 'MediaCast':
       liveElement = MediaCast().cast([
@@ -218,7 +111,6 @@ export function buildSandboxCard() {
       ]);
       break;
     case 'EpisodeSelectorPopup':
-      // Не рендерим попап прямо во флэт листе, показываем кнопку открытия
       liveElement = Button("Показать попап").onClick(() => {
         PotokSDK.ui.showHUD('info', 'В реальном плагине вызовет открытие EpisodeSelectorPopup!');
       });
@@ -226,7 +118,6 @@ export function buildSandboxCard() {
     case 'Markdown':
       liveElement = Markdown("### Привет из Markdown!\n* Поддержка списков\n* Жирный **текст**\n* И разметка!");
       break;
-    // Разметка/Невидимые компоненты рендерятся схематично
     case 'Card':
       liveElement = Card().title("Карточка").child(Text("Внутри карточки"));
       break;
@@ -260,7 +151,7 @@ export function buildSandboxCard() {
       liveElement = Text("Неизвестный компонент");
   }
 
-  // Строим блок описания/документации
+  // Подготавливаем текст описания из реестра
   const descriptionContent = [
     `## ${meta.title}`,
     `> **Назначение:** ${meta.desc}`,
@@ -273,22 +164,24 @@ export function buildSandboxCard() {
     descriptionContent.push('');
   }
 
+  // Формируем список вариантов для Select переключателя
   const selectOptions = Object.keys(COMPONENT_DETAILS).map(key => ({
     value: key,
     label: COMPONENT_DETAILS[key].title
   }));
 
-  // Панель кода
+  // Если флаг активен, выводим блок с примером JS кода
   let codeSnippetView = null;
   if (state.showSandboxCode) {
     codeSnippetView = Markdown("### Пример использования в JavaScript\n```javascript\n" + meta.code + "\n```");
   }
 
+  // Возвращаем итоговую разметку
   return VStack()
     .id("sandbox-root-layout")
     .spacing(20)
     .children([
-      // Шапка выбора компонента
+      // Тулбар управления (внутри Card для логической зоны настроек)
       Card()
         .id("sandbox-controls-card")
         .child(
@@ -308,10 +201,10 @@ export function buildSandboxCard() {
             ])
         ),
 
-      // Код примера
+      // Блок кода примера (если открыт)
       codeSnippetView,
 
-      // Свободный чистый стенд рендеринга (без Card, чисто на бэкграунде страницы!)
+      // Свободная чистая зона рендеринга (без Card, абсолютно прозрачная, прямо на фоне!)
       VStack()
         .id("sandbox-free-zone")
         .spacing(10)
@@ -322,7 +215,7 @@ export function buildSandboxCard() {
 
       Divider(),
 
-      // Документация под компонентом (в Card для аккуратности)
+      // Блок документации и схем внизу страницы
       Card()
         .id("sandbox-documentation-card")
         .child(
