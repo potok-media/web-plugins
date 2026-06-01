@@ -104,7 +104,7 @@ function buildShowcaseLayout() {
       activeView = buildControlsCard();
       break;
     case 'forms':
-      activeView = buildFormsCard(state, setInputValue, setToggleChecked, setSelectValue, setSearchQuery);
+      activeView = buildFormsCard(state, setSearchQuery);
       break;
     case 'media':
       activeView = buildStreamCard(state, setMediaPlayerPlayback, setActiveFilterTracker, setActiveFilterQuality);

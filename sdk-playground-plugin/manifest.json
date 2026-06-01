@@ -7,7 +7,8 @@
   "entrypoint": "index.js",
   "permissions": [
     "storage",
-    "ui-notifications"
+    "ui-notifications",
+    "http-proxy"
   ],
   "slots": [
     {

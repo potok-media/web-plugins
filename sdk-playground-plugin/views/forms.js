@@ -1,55 +1,73 @@
 import { PotokSDK } from 'potok-sdk';
 
-const { VStack, Card, Text, Input, Toggle, Select, Divider, SearchBar } = PotokSDK.ui.components;
+const { VStack, HStack, Card, Text, Divider, SearchBar, MediaCard, LoadingSpinner } = PotokSDK.ui.components;
 
-export function buildFormsCard(state, setInputValue, setToggleChecked, setSelectValue, setSearchQuery) {
+export function buildFormsCard(state, setSearchQuery) {
+  const query = (state.searchQuery || "").trim();
+
+  let searchResults;
+
+  if (state.searchLoading) {
+    // Отображаем красивый системный лоадер во время сетевого запроса
+    searchResults = LoadingSpinner()
+      .message("Выполняется поиск по базе данных TMDB...")
+      .height("120px");
+  } else if (query) {
+    if (state.searchResults && state.searchResults.length > 0) {
+      searchResults = HStack()
+        .spacing(16)
+        .children(
+          state.searchResults.map(movie => 
+            MediaCard()
+              .id(`search-result-card-${movie.id}`) // Стабильный ID для предотвращения пересоздания DOM
+              .item({
+                id: movie.id,
+                title: movie.title,
+                subtitle: movie.subtitle || movie.originalTitle || "",
+                mediaType: movie.mediaType || "movie",
+                posterSrc: movie.posterSrc,
+                tmdbRating: movie.tmdbRating || movie.kpRating || movie.imdbRating || null,
+                kpRating: movie.kpRating || null
+              })
+              .onClick((item) => {
+                PotokSDK.ui.showHUD("success", `Выбран фильм: ${item.title}`);
+              })
+          )
+        );
+    } else {
+      searchResults = Text("По вашему запросу ничего не найдено.")
+        .variant("secondary")
+        .size("sm");
+    }
+  } else {
+    searchResults = Text("Введите название фильма или сериала (например, 'начало', 'интер' или 'марс')...")
+      .variant("secondary")
+      .size("sm");
+  }
+
   return Card()
-    .title("3. Формы, Управление и Поиск (Input, Toggle, Select & SearchBar)")
-    .subtitle("Инпуты, интерактивные свитчи, меню выбора и премиальный поиск")
+    .title("3. Интерактивный поиск фильмов (SearchBar & TMDB Network Search)")
+    .subtitle("Живой сетевой поиск релизов по базе данных TMDB с выдачей нативных карточек")
     .child(
       VStack()
-        .spacing(14)
+        .spacing(16)
         .children([
-          Input("input-demo")
-            .label("Текстовое поле ввода (Input)")
-            .placeholder("Введите текст...")
-            .value(state.inputValue)
-            .onChange((val) => {
-              setInputValue(val);
-            }),
-          
-          Toggle("toggle-demo")
-            .label("Интерактивный свитч (Toggle)")
-            .description("Измените состояние переключателя")
-            .checked(state.toggleChecked)
-            .onChange((checked) => {
-              setToggleChecked(checked);
-            }),
-
-          Select("select-demo")
-            .label("Выпадающий список (Select)")
-            .options([
-              { label: "Вариант А", value: "A" },
-              { label: "Вариант Б", value: "B" },
-              { label: "Вариант В", value: "C" }
-            ])
-            .selected(state.selectValue)
-            .onChange((val) => {
-              setSelectValue(val);
-            }),
-
-          Divider(),
-
-          Text("Системная строка поиска (SearchBar):").bold(true).variant("primary").size("sm"),
+          Text("Поисковая строка (SearchBar):").bold(true).variant("primary").size("sm"),
           SearchBar()
-            .placeholder("Быстрый поиск по названию фильма или сериала...")
+            .id("stable-search-bar-demo") // Стабильный ID гарантирует фокус при наборе
+            .placeholder("Начните вводить название фильма для мгновенного сетевого поиска...")
             .value(state.searchQuery)
             .onChange((val) => {
               setSearchQuery(val);
             })
             .onClear(() => {
               setSearchQuery("");
-            })
+            }),
+
+          Divider(),
+
+          Text("Результаты поиска TMDB (Лимит 7 карточек):").bold(true).variant("primary").size("sm"),
+          searchResults
         ])
     );
 }
