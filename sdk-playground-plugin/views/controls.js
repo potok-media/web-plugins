@@ -12,10 +12,10 @@ export function buildControlsCard() {
         .children([
           Text("Варианты кнопок (Button):").bold(true).variant("primary").size("sm"),
           HStack().spacing(8).children([
-            Button("Primary").variant("primary").onClick(() => PotokSDK.ui.showHUD("success", "Нажата кнопка Primary!")),
-            Button("Secondary").variant("secondary").onClick(() => PotokSDK.ui.showHUD("info", "Нажата кнопка Secondary!")),
-            Button("Ghost").variant("ghost").onClick(() => PotokSDK.ui.showHUD("warning", "Нажата кнопка Ghost!")),
-            Button("Danger").variant("danger").onClick(() => PotokSDK.ui.showHUD("error", "Нажата кнопка Danger!"))
+            Button("Primary").variant("primary").onClick(() => {}),
+            Button("Secondary").variant("secondary").onClick(() => {}),
+            Button("Ghost").variant("ghost").onClick(() => {}),
+            Button("Danger").variant("danger").onClick(() => {})
           ]),
           HStack().spacing(8).children([
             Button("Заблокировано").variant("primary").disabled(true)

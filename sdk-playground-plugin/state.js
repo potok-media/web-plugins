@@ -3,7 +3,8 @@ import { PotokSDK } from 'potok-sdk';
 export const state = PotokSDK.createState({
   inputValue: 'Демо-текст',
   toggleChecked: true,
-  selectValue: 'A'
+  selectValue: 'A',
+  activeCategory: 'typography' // Дефолтная категория
 });
 
 export function setInputValue(val) {
@@ -16,4 +17,8 @@ export function setToggleChecked(val) {
 
 export function setSelectValue(val) {
   state.selectValue = val;
+}
+
+export function setActiveCategory(val) {
+  state.activeCategory = val;
 }

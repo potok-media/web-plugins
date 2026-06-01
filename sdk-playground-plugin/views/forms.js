@@ -16,7 +16,6 @@ export function buildFormsCard(state, setInputValue, setToggleChecked, setSelect
             .value(state.inputValue)
             .onChange((val) => {
               setInputValue(val);
-              PotokSDK.ui.showHUD("info", `Значение изменено: ${val}`);
             }),
           
           Toggle("toggle-demo")
@@ -25,7 +24,6 @@ export function buildFormsCard(state, setInputValue, setToggleChecked, setSelect
             .checked(state.toggleChecked)
             .onChange((checked) => {
               setToggleChecked(checked);
-              PotokSDK.ui.showHUD(checked ? "success" : "warning", `Состояние свитча: ${checked ? "ВКЛ" : "ВЫКЛ"}`);
             }),
 
           Select("select-demo")
@@ -38,7 +36,6 @@ export function buildFormsCard(state, setInputValue, setToggleChecked, setSelect
             .selected(state.selectValue)
             .onChange((val) => {
               setSelectValue(val);
-              PotokSDK.ui.showHUD("info", `Выбран: ${val}`);
             })
         ])
     );

@@ -3,7 +3,7 @@ import { PotokSDK } from 'potok-sdk';
 const { VStack, HStack, Card, Text, StreamRowComponent, MediaCard, HeroSpotlight, Divider } = PotokSDK.ui.components;
 
 export function buildStreamCard() {
-  // 1. Демо-данные для промо-баннера фильма (HeroSpotlight)
+  // 1. Промо-баннер фильма (HeroSpotlight)
   const spotlightBanner = HeroSpotlight()
     .items([
       {
@@ -12,7 +12,6 @@ export function buildStreamCard() {
           title: "Интерстеллар",
           subtitle: "Interstellar (2014)",
           mediaType: "movie",
-          // Красивый кинематографичный бэкдроп космоса
           backdropSrc: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&h=500&q=80",
           overview: "Когда наше время на Земле подходит к концу, группа исследователей отправляется в самую важную экспедицию в истории человечества: путешествие за пределы нашей галактики, чтобы выяснить, есть ли у человечества будущее среди звезд.",
           imdbRating: 8.7,
@@ -23,31 +22,24 @@ export function buildStreamCard() {
         }
       }
     ])
-    .onPlay((item) => {
-      PotokSDK.ui.showHUD("success", `Запуск воспроизведения: ${item.card.title}`);
-    })
-    .onDetails((item) => {
-      PotokSDK.ui.showHUD("info", `Открытие деталей фильма: ${item.card.title}`);
-    });
+    .onPlay((item) => {})
+    .onDetails((item) => {});
 
-  // 2. Демо-данные для постера фильма (MediaCard)
+  // 2. Карточки фильмов с постерами (MediaCard)
   const moviePosterCard1 = MediaCard()
     .item({
       id: 102,
       title: "Начало",
       subtitle: "Inception (2010)",
       mediaType: "movie",
-      // Высококачественный постер кино
       posterSrc: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=260&h=380&q=80",
       tmdbRating: 8.8,
       kpRating: 8.7,
       progress: {
-        percentage: 65 // Линия прогресса просмотра
+        percentage: 65
       }
     })
-    .onClick((item) => {
-      PotokSDK.ui.showHUD("success", `Нажата карточка фильма: ${item.title}`);
-    });
+    .onClick((item) => {});
 
   const moviePosterCard2 = MediaCard()
     .item({
@@ -60,9 +52,7 @@ export function buildStreamCard() {
       kpRating: 7.8,
       progress: null
     })
-    .onClick((item) => {
-      PotokSDK.ui.showHUD("success", `Нажата карточка фильма: ${item.title}`);
-    });
+    .onClick((item) => {});
 
   return Card()
     .title("4. Медиа-компоненты фильмов (Spotlight Banner, Media Card & Stream Row)")
@@ -104,9 +94,7 @@ export function buildStreamCard() {
                 { kind: "source", value: "BDRip" }
               ]
             })
-            .onClick((stream) => {
-              PotokSDK.ui.showHUD("success", `Выбран видеопоток: ${stream.title} (${stream.sizeLabel})`);
-            })
+            .onClick((stream) => {})
         ])
     );
 }
