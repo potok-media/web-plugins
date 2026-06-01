@@ -20,6 +20,8 @@ export const state = PotokSDK.createState({
   showPopupsCode: false,
   showStateCode: false,
   showOrchestratorCode: false,
+  sandboxSelectedComponent: 'Button',
+  showSandboxCode: false,
   typographyCode: '',
   controlsCode: '',
   formsCode: '',
@@ -143,6 +145,14 @@ export function toggleStateCode() {
 
 export function toggleOrchestratorCode() {
   state.showOrchestratorCode = !state.showOrchestratorCode;
+}
+
+export function setSandboxSelectedComponent(val) {
+  state.sandboxSelectedComponent = val;
+}
+
+export function toggleSandboxCode() {
+  state.showSandboxCode = !state.showSandboxCode;
 }
 
 export async function initializeCodes() {

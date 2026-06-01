@@ -11,6 +11,8 @@ import {
   setActiveFilterTracker,
   setActiveFilterQuality,
   toggleOrchestratorCode,
+  setSandboxSelectedComponent,
+  toggleSandboxCode,
   initializeCodes
 } from './state.js';
 import { buildTypographyCard } from './views/typography.js';
@@ -20,6 +22,7 @@ import { buildStreamCard } from './views/stream.js';
 import { buildCardsCard } from './views/cards.js';
 import { buildPopupsCard } from './views/popups.js';
 import { buildStateMirrorCard } from './views/stateMirror.js';
+import { buildSandboxCard } from './views/sandbox.js';
 
 const { VStack, HStack, Card, Button, EpisodeSelectorPopup, Spacer, Markdown } = PotokSDK.ui.components;
 
@@ -59,6 +62,10 @@ function buildShowcaseLayout() {
           Button("Состояние")
             .variant(state.activeCategory === 'state' ? 'primary' : 'ghost')
             .onClick(() => setActiveCategory('state')),
+
+          Button("Песочница")
+            .variant(state.activeCategory === 'sandbox' ? 'primary' : 'ghost')
+            .onClick(() => setActiveCategory('sandbox')),
 
           Spacer(),
 
@@ -128,6 +135,9 @@ function buildShowcaseLayout() {
       break;
     case 'state':
       activeView = buildStateMirrorCard(state);
+      break;
+    case 'sandbox':
+      activeView = buildSandboxCard();
       break;
     default:
       activeView = buildTypographyCard();
