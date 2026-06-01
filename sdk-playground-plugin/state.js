@@ -19,13 +19,16 @@ export const state = PotokSDK.createState({
   showCardsCode: false,
   showPopupsCode: false,
   showStateCode: false,
+  showOrchestratorCode: false,
   typographyCode: '',
   controlsCode: '',
   formsCode: '',
   mediaCode: '',
   cardsCode: '',
   popupsCode: '',
-  stateCode: ''
+  stateCode: '',
+  orchestratorIndexCode: '',
+  orchestratorStateCode: ''
 });
 
 export function setInputValue(val) {
@@ -138,6 +141,10 @@ export function toggleStateCode() {
   state.showStateCode = !state.showStateCode;
 }
 
+export function toggleOrchestratorCode() {
+  state.showOrchestratorCode = !state.showOrchestratorCode;
+}
+
 export async function initializeCodes() {
   const views = [
     { key: 'typographyCode', path: './views/typography.js' },
@@ -146,7 +153,9 @@ export async function initializeCodes() {
     { key: 'mediaCode', path: './views/stream.js' },
     { key: 'cardsCode', path: './views/cards.js' },
     { key: 'popupsCode', path: './views/popups.js' },
-    { key: 'stateCode', path: './views/stateMirror.js' }
+    { key: 'stateCode', path: './views/stateMirror.js' },
+    { key: 'orchestratorIndexCode', path: './index.js' },
+    { key: 'orchestratorStateCode', path: './state.js' }
   ];
 
   for (const item of views) {

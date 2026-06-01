@@ -10,6 +10,7 @@ import {
   setMediaPlayerPlayback,
   setActiveFilterTracker,
   setActiveFilterQuality,
+  toggleOrchestratorCode,
   initializeCodes
 } from './state.js';
 import { buildTypographyCard } from './views/typography.js';
@@ -20,7 +21,7 @@ import { buildCardsCard } from './views/cards.js';
 import { buildPopupsCard } from './views/popups.js';
 import { buildStateMirrorCard } from './views/stateMirror.js';
 
-const { VStack, HStack, Card, Button, EpisodeSelectorPopup } = PotokSDK.ui.components;
+const { VStack, HStack, Card, Button, EpisodeSelectorPopup, Spacer, Markdown } = PotokSDK.ui.components;
 
 function buildShowcaseLayout() {
   // Горизонтальный таб-бар меню вверху страницы (занимает минимум места по вертикали)
@@ -57,7 +58,13 @@ function buildShowcaseLayout() {
           
           Button("Состояние")
             .variant(state.activeCategory === 'state' ? 'primary' : 'ghost')
-            .onClick(() => setActiveCategory('state'))
+            .onClick(() => setActiveCategory('state')),
+
+          Spacer(),
+
+          Button("</>")
+            .variant(state.showOrchestratorCode ? 'primary' : 'ghost')
+            .onClick(() => toggleOrchestratorCode())
         ])
     );
 
@@ -126,13 +133,37 @@ function buildShowcaseLayout() {
       activeView = buildTypographyCard();
   }
 
+  let orchestratorCodeView = null;
+  if (state.showOrchestratorCode) {
+    const indexMd = "### index.js (Точка входа и сборка интерфейса)\n```js\n" + (state.orchestratorIndexCode || "// Загрузка кода...") + "\n```";
+    const stateMd = "### state.js (Реактивное состояние и экшены)\n```js\n" + (state.orchestratorStateCode || "// Загрузка кода...") + "\n```";
+
+    orchestratorCodeView = Card()
+      .id("stable-orchestrator-code-card")
+      .child(
+        HStack()
+          .spacing(16)
+          .children([
+            VStack().flex(1).children([
+              Markdown(indexMd).id("orchestrator-index-md")
+            ]),
+            VStack().flex(1).children([
+              Markdown(stateMd).id("orchestrator-state-md")
+            ])
+          ])
+      );
+  }
+
+  const pageLayoutChildren = [tabsHeader];
+  if (orchestratorCodeView) {
+    pageLayoutChildren.push(orchestratorCodeView);
+  }
+  pageLayoutChildren.push(activeView);
+
   const pageLayout = VStack()
     .id("stable-page-layout") // Стабильный ID страницы
     .spacing(16)
-    .children([
-      tabsHeader,
-      activeView
-    ]);
+    .children(pageLayoutChildren);
 
   // Если открыт поповер, рендерим его рядом с основным макетом
   if (activePopup) {
