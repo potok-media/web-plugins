@@ -231,7 +231,7 @@ PotokSDK.streams.registerStreamSource({
       };
     }
     return {
-      streamUrl: stream.url || stream.streamUrl || "",
+      streamUrl: (episode && episode.url) ? episode.url : (stream.url || stream.streamUrl || ""),
       title: context.title || stream.title || "Видео",
       mediaType: context.type,
       id: context.tmdbId,
