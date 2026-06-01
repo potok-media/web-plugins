@@ -136,22 +136,19 @@ function buildShowcaseLayout() {
   let orchestratorCodeView = null;
   if (state.showOrchestratorCode) {
     const indexMd = "### index.js (Точка входа и сборка интерфейса)\n```js\n" + (state.orchestratorIndexCode || "// Загрузка кода...") + "\n```";
-    const stateMd = "### state.js (Реактивное состояние и экшены)\n```js\n" + (state.orchestratorStateCode || "// Загрузка кода...") + "\n```";
+    const stateMd = "### state.js (Реактивное состояние и бизнес-логика)\n```js\n" + (state.orchestratorStateCode || "// Загрузка кода...") + "\n```";
 
-    orchestratorCodeView = Card()
-      .id("stable-orchestrator-code-card")
-      .child(
-        HStack()
-          .spacing(16)
-          .children([
-            VStack().flex(1).children([
-              Markdown(indexMd).id("orchestrator-index-md")
-            ]),
-            VStack().flex(1).children([
-              Markdown(stateMd).id("orchestrator-state-md")
-            ])
-          ])
-      );
+    orchestratorCodeView = HStack()
+      .id("stable-orchestrator-code-hstack")
+      .spacing(16)
+      .children([
+        VStack().flex(1).children([
+          Markdown(indexMd).id("orchestrator-index-md")
+        ]),
+        VStack().flex(1).children([
+          Markdown(stateMd).id("orchestrator-state-md")
+        ])
+      ]);
   }
 
   const pageLayoutChildren = [tabsHeader];
