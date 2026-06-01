@@ -7,12 +7,27 @@ export function buildStreamCard(state, setMediaPlayerPlayback, setActiveFilterTr
   // 1. Плеер (если запущен)
   let activePlayer = null;
   if (state.mediaPlayerPlayback) {
-    activePlayer = MediaPlayer()
-      .playback(state.mediaPlayerPlayback)
-      .isNetworkOffline(false)
-      .onClose(() => {
-        setMediaPlayerPlayback(null);
-      });
+    activePlayer = Card()
+      .child(
+        VStack()
+          .spacing(12)
+          .children([
+            HStack()
+              .alignItems("center")
+              .children([
+                Text("Живое воспроизведение:").bold(true),
+                Spacer(),
+                Button("Закрыть плеер")
+                  .variant("danger")
+                  .onClick(() => {
+                    setMediaPlayerPlayback(null);
+                  })
+              ]),
+            MediaPlayer()
+              .playback(state.mediaPlayerPlayback)
+              .isNetworkOffline(false)
+          ])
+      );
   }
 
   // 2. Демо-данные для промо-баннера фильма (HeroSpotlight)
