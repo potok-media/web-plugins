@@ -98,14 +98,15 @@ PotokSDK.streams.registerStreamSource({
   },
 
   async getPlaybackInfo(stream, episode, context) {
+    const ep = episode || stream || {};
     if (context.type === "tv") {
-      const defaultAudio = episode.audios && episode.audios.length > 0 ? episode.audios[0] : null;
-      const finalUrl = defaultAudio ? defaultAudio.url : episode.url;
+      const defaultAudio = ep.audios && ep.audios.length > 0 ? ep.audios[0] : null;
+      const finalUrl = defaultAudio ? defaultAudio.url : (ep.url || ep.streamUrl || "");
 
       const showTitle = context.title || stream.title || "Сериал";
-      const seasonNum = episode.season !== undefined ? episode.season : 1;
-      const episodeNum = episode.episode !== undefined ? episode.episode : 1;
-      const episodeTitle = episode.title || `Серия ${episodeNum}`;
+      const seasonNum = ep.season !== undefined ? ep.season : (context.season !== undefined ? context.season : 1);
+      const episodeNum = ep.episode !== undefined ? ep.episode : (context.episode !== undefined ? context.episode : 1);
+      const episodeTitle = ep.title && ep.title !== stream.title ? ep.title : `Серия ${episodeNum}`;
       const cleanEpisodeTitle = episodeTitle.replace(/^\d+[\s.\-_]+/, "").trim();
 
       return {
@@ -114,8 +115,8 @@ PotokSDK.streams.registerStreamSource({
         title: `${showTitle} - S${seasonNum}E${episodeNum} - ${cleanEpisodeTitle}`,
         season: seasonNum,
         episode: episodeNum,
-        audios: episode.audios,
-        headers: episode.headers,
+        audios: ep.audios,
+        headers: ep.headers,
         providerId: stream.providerId,
         voice: defaultAudio ? defaultAudio.name : "Основной поток"
       };
