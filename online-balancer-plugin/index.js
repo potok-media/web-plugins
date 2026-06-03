@@ -33,7 +33,7 @@ function mapSearchResult(s, includeId = false) {
     voice: s.voice || "",
     kind: displayKind === "hls" ? "m3u8" : displayKind,
     headers: s.headers,
-    audios: s.audios
+    audios: s?.audios
   };
   if (includeId) {
     result.id = `${s.provider}:${s.id || Math.random()}`;
@@ -90,7 +90,7 @@ PotokSDK.streams.registerStreamSource({
         stillPath: f.stillPath,
         airDate: f.airDate,
         url: f.url,
-        audios: f.audios,
+        audios: f?.audios,
         headers: f.headers
       })),
       tmdbSeasonsCount: maxSeason
@@ -126,7 +126,7 @@ PotokSDK.streams.registerStreamSource({
       streamUrl: finalUrl,
       streamType: finalUrl.includes(".m3u8") ? "m3u8" : finalUrl.includes(".mpd") ? "dash" : "mp4",
       title: context.title || stream.title || "Видео",
-      audios: stream.audios,
+      audios: stream?.audios,
       headers: stream.headers,
       providerId: stream.providerId,
       voice: stream.voice || "Основной поток"
