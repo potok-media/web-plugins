@@ -9,7 +9,7 @@ export function buildPopupsCard(setPopupOpen) {
       .spacing(8)
       .alignItems("center")
       .children([
-        Heading("6. Интерактивные диалоги и поповеры (EpisodeSelectorPopup)").level(3),
+        Heading("6. Интерактивные диалоги и поповеры (EpisodeSelector)").level(3),
         Spacer(),
         Button("</>").variant("ghost").onClick(() => { togglePopupsCode(); })
       ])

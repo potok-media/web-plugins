@@ -1,11 +1,12 @@
 import { PotokSDK } from 'potok-sdk';
+import { COMPONENT_DETAILS } from './utils/registry.js';
 
 export const state = PotokSDK.createState({
   inputValue: 'Демо-текст',
   toggleChecked: true,
   selectValue: 'A',
   activeCategory: 'typography', // Дефолтная категория
-  isPopupOpen: false,           // Состояние открытия EpisodeSelectorPopup
+  isPopupOpen: false,           // Состояние открытия EpisodeSelector
   searchQuery: '',              // Запрос в SafeSearchBar
   searchResults: [],            // Настоящие результаты с TMDB
   searchLoading: false,         // Статус загрузки из сети
@@ -30,7 +31,9 @@ export const state = PotokSDK.createState({
   popupsCode: '',
   stateCode: '',
   orchestratorIndexCode: '',
-  orchestratorStateCode: ''
+  orchestratorStateCode: '',
+  sandboxCustomCode: COMPONENT_DETAILS.Button.code,
+  isMonacoLoaded: false
 });
 
 export function setInputValue(val) {
@@ -149,10 +152,26 @@ export function toggleOrchestratorCode() {
 
 export function setSandboxSelectedComponent(val) {
   state.sandboxSelectedComponent = val;
+  const meta = COMPONENT_DETAILS[val] || COMPONENT_DETAILS.Button;
+  state.sandboxCustomCode = meta.code;
 }
 
 export function toggleSandboxCode() {
   state.showSandboxCode = !state.showSandboxCode;
+}
+
+export function updateSandboxCode(code) {
+  state.sandboxCustomCode = code;
+}
+
+export function resetSandboxCode() {
+  const activeType = state.sandboxSelectedComponent || 'Button';
+  const meta = COMPONENT_DETAILS[activeType] || COMPONENT_DETAILS.Button;
+  state.sandboxCustomCode = meta.code;
+}
+
+export function setMonacoLoaded(status) {
+  state.isMonacoLoaded = status;
 }
 
 export async function initializeCodes() {

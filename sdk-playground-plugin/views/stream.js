@@ -1,7 +1,7 @@
 import { PotokSDK } from 'potok-sdk';
 import { state, toggleMediaCode } from '../state.js';
 
-const { VStack, HStack, Card, Heading, Text, Button, StreamRowComponent, MediaCard, HeroSpotlight, Divider, MediaRow, StreamFilterBar, MediaPlayer, Spacer, Markdown } = PotokSDK.ui.components;
+const { VStack, HStack, Card, Heading, Text, Button, StreamRow, MediaCard, HeroSpotlight, Divider, MediaRow, StreamFilterBar, MediaPlayer, Spacer, Markdown } = PotokSDK.ui.components;
 
 export function buildStreamCard(state, setMediaPlayerPlayback, setActiveFilterTracker, setActiveFilterQuality) {
   // 1. Плеер (если запущен)
@@ -148,7 +148,7 @@ ${state.mediaCode || '// Загрузка исходного кода...'}
 
     // Г. Элемент списка раздач
     Text("Torrent Stream Row (Раздача):").bold(true).variant("primary").size("sm"),
-    StreamRowComponent()
+    StreamRow()
       .stream({
         title: "Люди Икс: Начало. Росомаха / X-Men Origins: Wolverine (2009) BDRip 1080p | Лицензия",
         tracker: "Rutracker",

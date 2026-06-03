@@ -24,7 +24,7 @@ import { buildPopupsCard } from './views/popups.js';
 import { buildStateMirrorCard } from './views/stateMirror.js';
 import { buildSandboxCard } from './views/sandbox.js';
 
-const { VStack, HStack, Card, Button, EpisodeSelectorPopup, Spacer, Markdown } = PotokSDK.ui.components;
+const { VStack, HStack, Card, Button, EpisodeSelector, Spacer, Markdown } = PotokSDK.ui.components;
 
 function buildShowcaseLayout() {
   // Горизонтальный таб-бар меню вверху страницы (занимает минимум места по вертикали)
@@ -70,10 +70,10 @@ function buildShowcaseLayout() {
         ])
     );
 
-  // Модальный селектор эпизодов (EpisodeSelectorPopup)
+  // Модальный селектор эпизодов (EpisodeSelector)
   let activePopup = null;
   if (state.isPopupOpen) {
-    activePopup = EpisodeSelectorPopup()
+    activePopup = EpisodeSelector()
       .id("stable-episode-selector-popup") // Стабильный ID модального окна
       .isOpen(true)
       .title("Выбор озвучки и эпизода")
