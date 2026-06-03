@@ -33,6 +33,8 @@ export const state = PotokSDK.createState({
   orchestratorIndexCode: '',
   orchestratorStateCode: '',
   sandboxCustomCode: COMPONENT_DETAILS.Button.code,
+  autoRun: true,
+  sandboxEvaluatedCode: COMPONENT_DETAILS.Button.code,
   isMonacoLoaded: false
 });
 
@@ -150,10 +152,24 @@ export function toggleOrchestratorCode() {
   state.showOrchestratorCode = !state.showOrchestratorCode;
 }
 
+let sandboxCompileTimeout = null;
+
+export function setAutoRun(val) {
+  state.autoRun = val;
+}
+
+export function triggerCompile() {
+  state.sandboxEvaluatedCode = state.sandboxCustomCode;
+}
+
 export function setSandboxSelectedComponent(val) {
+  if (sandboxCompileTimeout) {
+    clearTimeout(sandboxCompileTimeout);
+  }
   state.sandboxSelectedComponent = val;
   const meta = COMPONENT_DETAILS[val] || COMPONENT_DETAILS.Button;
   state.sandboxCustomCode = meta.code;
+  state.sandboxEvaluatedCode = meta.code;
 }
 
 export function toggleSandboxCode() {
@@ -162,12 +178,24 @@ export function toggleSandboxCode() {
 
 export function updateSandboxCode(code) {
   state.sandboxCustomCode = code;
+  if (state.autoRun) {
+    if (sandboxCompileTimeout) {
+      clearTimeout(sandboxCompileTimeout);
+    }
+    sandboxCompileTimeout = setTimeout(() => {
+      triggerCompile();
+    }, 1500);
+  }
 }
 
 export function resetSandboxCode() {
+  if (sandboxCompileTimeout) {
+    clearTimeout(sandboxCompileTimeout);
+  }
   const activeType = state.sandboxSelectedComponent || 'Button';
   const meta = COMPONENT_DETAILS[activeType] || COMPONENT_DETAILS.Button;
   state.sandboxCustomCode = meta.code;
+  state.sandboxEvaluatedCode = meta.code;
 }
 
 export function setMonacoLoaded(status) {

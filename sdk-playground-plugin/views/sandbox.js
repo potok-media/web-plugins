@@ -12,7 +12,9 @@ import {
   toggleSandboxCode,
   updateSandboxCode,
   resetSandboxCode,
-  setMonacoLoaded
+  setMonacoLoaded,
+  setAutoRun,
+  triggerCompile
 } from '../state.js';
 import { COMPONENT_DETAILS } from '../utils/registry.js';
 
@@ -45,6 +47,46 @@ const {
   EpisodeCard,
   CodeEditor
 } = PotokSDK.ui.components;
+function prepareEvalCode(rawCode) {
+  let code = rawCode
+    .split('\n')
+    .filter(line => !line.trim().startsWith('import ') && !line.trim().startsWith('export '))
+    .join('\n')
+    .trim();
+
+  if (!code) return 'return null;';
+
+  if (code.includes('return ')) {
+    return code;
+  }
+
+  const lines = code.split('\n');
+  let lastLineIndex = lines.length - 1;
+  while (lastLineIndex >= 0 && !lines[lastLineIndex].trim()) {
+    lastLineIndex--;
+  }
+
+  if (lastLineIndex >= 0) {
+    const lastLine = lines[lastLineIndex].trim();
+    const isStatement = lastLine.startsWith('const ') ||
+                        lastLine.startsWith('let ') ||
+                        lastLine.startsWith('var ') ||
+                        lastLine.startsWith('function ') ||
+                        lastLine.startsWith('if ') ||
+                        lastLine.startsWith('for ') ||
+                        lastLine.startsWith('while ') ||
+                        lastLine.startsWith('switch ') ||
+                        lastLine.startsWith('try ') ||
+                        lastLine.endsWith('}');
+
+    if (!isStatement) {
+      lines[lastLineIndex] = 'return ' + lines[lastLineIndex];
+      return lines.join('\n');
+    }
+  }
+
+  return `return (${code});`;
+}
 
 
 
@@ -60,21 +102,12 @@ export function buildSandboxCard() {
   let liveElement;
   if (state.showSandboxCode) {
     try {
-      const codeToEval = state.sandboxCustomCode.trim();
-      let evaluator;
-      if (codeToEval.includes('return ')) {
-        evaluator = new Function(
-          'PotokSDK',
-          'VStack', 'HStack', 'Card', 'Button', 'Select', 'Text', 'Heading', 'Divider', 'Spacer', 'Markdown', 'Badge', 'Input', 'Toggle', 'LoadingSpinner', 'SearchBar', 'StreamFilterBar', 'MediaPlayer', 'EpisodesSection', 'EpisodeSelector', 'StreamRow', 'MediaCast', 'MediaOverview', 'MediaRow', 'Grid', 'EpisodeCard', 'CodeEditor',
-          codeToEval
-        );
-      } else {
-        evaluator = new Function(
-          'PotokSDK',
-          'VStack', 'HStack', 'Card', 'Button', 'Select', 'Text', 'Heading', 'Divider', 'Spacer', 'Markdown', 'Badge', 'Input', 'Toggle', 'LoadingSpinner', 'SearchBar', 'StreamFilterBar', 'MediaPlayer', 'EpisodesSection', 'EpisodeSelector', 'StreamRow', 'MediaCast', 'MediaOverview', 'MediaRow', 'Grid', 'EpisodeCard', 'CodeEditor',
-          `return (${codeToEval});`
-        );
-      }
+      const preparedCode = prepareEvalCode(state.sandboxEvaluatedCode || "");
+      const evaluator = new Function(
+        'PotokSDK',
+        'VStack', 'HStack', 'Card', 'Button', 'Select', 'Text', 'Heading', 'Divider', 'Spacer', 'Markdown', 'Badge', 'Input', 'Toggle', 'LoadingSpinner', 'SearchBar', 'StreamFilterBar', 'MediaPlayer', 'EpisodesSection', 'EpisodeSelector', 'StreamRow', 'MediaCast', 'MediaOverview', 'MediaRow', 'Grid', 'EpisodeCard', 'CodeEditor',
+        preparedCode
+      );
       liveElement = evaluator(
         PotokSDK,
         VStack, HStack, Card, Button, Select, Text, Heading, Divider, Spacer, Markdown, Badge, Input, Toggle, LoadingSpinner, SearchBar, StreamFilterBar, MediaPlayer, EpisodesSection, EpisodeSelector, StreamRow, MediaCast, MediaOverview, MediaRow, Grid, EpisodeCard, CodeEditor
@@ -280,6 +313,16 @@ export function buildSandboxCard() {
                 .value(activeType)
                 .onChange((val) => setSandboxSelectedComponent(val)),
               Spacer(),
+              state.showSandboxCode && Toggle("sandbox-autorun-toggle")
+                .label("Авто-запуск")
+                .value(state.autoRun)
+                .onChange((val) => setAutoRun(val)),
+              state.showSandboxCode && Button("Запуск")
+                .id("sandbox-run-btn")
+                .disabled(state.autoRun)
+                .onClick(() => triggerCompile()),
+              state.showSandboxCode && Badge(state.sandboxCustomCode !== state.sandboxEvaluatedCode ? 'Черновик' : 'Актуально')
+                .color(state.sandboxCustomCode !== state.sandboxEvaluatedCode ? 'warning' : 'success'),
               state.showSandboxCode && Button("Сбросить")
                 .variant("ghost")
                 .onClick(() => resetSandboxCode()),
