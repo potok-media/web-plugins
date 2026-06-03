@@ -12,7 +12,6 @@ import {
   toggleSandboxCode,
   updateSandboxCode,
   resetSandboxCode,
-  setMonacoLoaded,
   setAutoRun,
   triggerCompile
 } from '../state.js';
@@ -80,7 +79,21 @@ function prepareEvalCode(rawCode) {
                         lastLine.endsWith('}');
 
     if (!isStatement) {
-      lines[lastLineIndex] = 'return ' + lines[lastLineIndex];
+      let targetLineIndex = lastLineIndex;
+      if (lastLine.startsWith('.')) {
+        let i = lastLineIndex - 1;
+        while (i >= 0) {
+          const trimmed = lines[i].trim();
+          if (trimmed) {
+            if (!trimmed.startsWith('.')) {
+              targetLineIndex = i;
+              break;
+            }
+          }
+          i--;
+        }
+      }
+      lines[targetLineIndex] = 'return ' + lines[targetLineIndex];
       return lines.join('\n');
     }
   }
