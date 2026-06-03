@@ -1,6 +1,6 @@
 import { PotokSDK } from 'potok-sdk';
 
-const { VStack, HStack, Text, Badge } = PotokSDK.ui.components;
+const { VStack, StatusRow } = PotokSDK.ui.components;
 
 const statusState = PotokSDK.createState({
   searchEngine: { configured: false, online: false, latency: -1 },
@@ -13,8 +13,8 @@ function getStatusLabel(info) {
   return `${info.latency} ms`;
 }
 
-function getStatusBadgeColor(info) {
-  if (!info.configured) return "info";
+function getStatusColor(info) {
+  if (!info.configured) return "offline";
   if (!info.online || info.latency < 0) return "error";
   if (info.latency <= 100) return "success";
   if (info.latency <= 300) return "warning";
@@ -25,18 +25,12 @@ function buildStatusLayout() {
   return VStack()
     .spacing(8)
     .children([
-      HStack()
-        .children([
-          Badge("").color(getStatusBadgeColor(statusState.searchEngine)),
-          Text("Поиск медиа").variant("secondary").size("sm"),
-          Text(getStatusLabel(statusState.searchEngine)).variant("hint").size("sm")
-        ]),
-      HStack()
-        .children([
-          Badge("").color(getStatusBadgeColor(statusState.torrServer)),
-          Text("Торрент-плеер").variant("secondary").size("sm"),
-          Text(getStatusLabel(statusState.torrServer)).variant("hint").size("sm")
-        ])
+      StatusRow("Поиск медиа")
+        .status(getStatusColor(statusState.searchEngine))
+        .value(getStatusLabel(statusState.searchEngine)),
+      StatusRow("Торрент-плеер")
+        .status(getStatusColor(statusState.torrServer))
+        .value(getStatusLabel(statusState.torrServer))
     ]);
 }
 

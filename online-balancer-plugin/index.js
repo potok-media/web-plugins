@@ -181,7 +181,9 @@ PotokSDK.registerSlotContribution({
       layout: PotokSDK.ui.components.Button("Смотреть Онлайн")
         .variant("watch-online")
         .onClick(() => {
-          PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-online-balancer`);
+          PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-online-balancer`, {
+            media: props.media
+          });
         })
     };
   }

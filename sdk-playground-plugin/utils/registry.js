@@ -34,6 +34,12 @@ export const COMPONENT_DETAILS = {
     code: 'PotokSDK.ui.components.Badge("VIP Статус")\n  .color("warning")',
     illustration: null
   },
+  StatusRow: {
+    title: 'Строка статуса (StatusRow)',
+    desc: 'Информационная строка для отображения статуса внешнего сервиса или пинга. Обычно выводится в подвале боковой панели (сайдбара).',
+    code: 'PotokSDK.ui.components.StatusRow("Песочница API")\n  .status("success")\n  .value("12 ms")',
+    illustration: '```text\n+------------------------------------------------+\n| StatusRow (Элемент статуса)                    |\n|  (o) Песочница API                      12 ms  |\n|   ^       ^                               ^    |\n|  Dot    Label                           Value  |\n+------------------------------------------------+\n```'
+  },
   LoadingSpinner: {
     title: 'Индикатор загрузки (LoadingSpinner)',
     desc: 'Анимированный спиннер, отображающий процесс ожидания сети. Может быть плоским или полноэкранным.',

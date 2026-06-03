@@ -44,7 +44,8 @@ const {
   MediaRow,
   Grid,
   EpisodeCard,
-  CodeEditor
+  CodeEditor,
+  StatusRow
 } = PotokSDK.ui.components;
 function prepareEvalCode(rawCode) {
   let code = rawCode
@@ -94,12 +95,12 @@ export function buildSandboxCard() {
       const preparedCode = prepareEvalCode(state.sandboxEvaluatedCode || "");
       const evaluator = new Function(
         'PotokSDK',
-        'VStack', 'HStack', 'Card', 'Button', 'Select', 'Text', 'Heading', 'Divider', 'Spacer', 'Markdown', 'Badge', 'Input', 'Toggle', 'LoadingSpinner', 'SearchBar', 'StreamFilterBar', 'MediaPlayer', 'EpisodesSection', 'EpisodeSelector', 'StreamRow', 'MediaCast', 'MediaOverview', 'MediaRow', 'Grid', 'EpisodeCard', 'CodeEditor',
+        'VStack', 'HStack', 'Card', 'Button', 'Select', 'Text', 'Heading', 'Divider', 'Spacer', 'Markdown', 'Badge', 'Input', 'Toggle', 'LoadingSpinner', 'SearchBar', 'StreamFilterBar', 'MediaPlayer', 'EpisodesSection', 'EpisodeSelector', 'StreamRow', 'MediaCast', 'MediaOverview', 'MediaRow', 'Grid', 'EpisodeCard', 'CodeEditor', 'StatusRow',
         preparedCode
       );
       liveElement = evaluator(
         PotokSDK,
-        VStack, HStack, Card, Button, Select, Text, Heading, Divider, Spacer, Markdown, Badge, Input, Toggle, LoadingSpinner, SearchBar, StreamFilterBar, MediaPlayer, EpisodesSection, EpisodeSelector, StreamRow, MediaCast, MediaOverview, MediaRow, Grid, EpisodeCard, CodeEditor
+        VStack, HStack, Card, Button, Select, Text, Heading, Divider, Spacer, Markdown, Badge, Input, Toggle, LoadingSpinner, SearchBar, StreamFilterBar, MediaPlayer, EpisodesSection, EpisodeSelector, StreamRow, MediaCast, MediaOverview, MediaRow, Grid, EpisodeCard, CodeEditor, StatusRow
       );
     } catch (err) {
       liveElement = Card()
@@ -128,6 +129,11 @@ export function buildSandboxCard() {
         break;
       case 'Badge':
         liveElement = Badge("VIP Статус").color("warning");
+        break;
+      case 'StatusRow':
+        liveElement = StatusRow("Песочница API")
+          .status("success")
+          .value("12 ms");
         break;
       case 'LoadingSpinner':
         liveElement = LoadingSpinner().message("Идет рендеринг в песочнице...");

@@ -1,9 +1,6 @@
 {
   "id": "potok-torrents",
   "name": "Поиск торрентов",
-  "version": "1.0.3",
-  "description": "Поиск и стриминг торрент-раздач через native SearchEngine и TorrentGo",
-  "author": "author",
   "entrypoint": "index.js",
   "permissions": [
     "storage",
