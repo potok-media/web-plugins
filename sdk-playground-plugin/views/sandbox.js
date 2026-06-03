@@ -67,8 +67,14 @@ function prepareEvalCode(rawCode) {
     return code;
   }
 
+  // Clean trailing semicolons to prevent return (expression;); syntax errors
+  let cleanCode = code;
+  while (cleanCode.endsWith(';')) {
+    cleanCode = cleanCode.slice(0, -1).trim();
+  }
+
   // For clean expression chains (like builder configurations), wrap safely in a parenthesized return
-  return `return (${code});`;
+  return `return (${cleanCode});`;
 }
 
 
@@ -288,18 +294,21 @@ export function buildSandboxCard() {
         .child(
           HStack()
             .spacing(16)
+            .alignItems("center")
             .children([
-              Text("Выберите компонент для изучения:").variant("mute"),
+              Text("Компонент:").variant("mute"),
               Select()
                 .id("sandbox-component-select")
                 .options(selectOptions)
                 .value(activeType)
-                .onChange((val) => setSandboxSelectedComponent(val)),
+                .onChange((val) => setSandboxSelectedComponent(val))
+                .width(260),
               Spacer(),
               state.showSandboxCode && Toggle("sandbox-autorun-toggle")
                 .label("Авто-запуск")
                 .value(state.autoRun)
-                .onChange((val) => setAutoRun(val)),
+                .onChange((val) => setAutoRun(val))
+                .width(150),
               state.showSandboxCode && Button("Запуск")
                 .id("sandbox-run-btn")
                 .disabled(state.autoRun)
