@@ -355,7 +355,7 @@ export function buildSandboxCard() {
         .alignItems("start")
         .children([
           liveElement
-        ]),
+        ].filter(Boolean)),
 
       Divider(),
 
