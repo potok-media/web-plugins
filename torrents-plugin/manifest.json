@@ -1,6 +1,7 @@
 {
   "id": "potok-torrents",
   "name": "Поиск торрентов",
+  "category": "sources",
   "entrypoint": "index.js",
   "permissions": [
     "storage",

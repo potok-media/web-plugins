@@ -1,6 +1,7 @@
 {
   "id": "potok-online-balancer",
   "name": "Модульные Онлайн Источники",
+  "category": "sources",
   "entrypoint": "index.js",
   "permissions": [
     "storage",

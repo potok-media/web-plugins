@@ -1,6 +1,7 @@
 {
   "id": "potok-sdk-playground",
   "name": "Песочница SDK",
+  "category": "other",
   "entrypoint": "index.js",
   "permissions": [
     "storage",
