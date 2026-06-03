@@ -1,0 +1,17 @@
+{
+  "id": "light-themes-plugin",
+  "name": "Цветовые схемы",
+  "category": "visual",
+  "entrypoint": "index.js",
+  "permissions": [
+    "storage",
+    "ui-notifications"
+  ],
+  "slots": [
+    {
+      "id": "settings-color-accent-slot",
+      "slotName": "settings-color-accent",
+      "title": "Цветовой акцент"
+    }
+  ]
+}
