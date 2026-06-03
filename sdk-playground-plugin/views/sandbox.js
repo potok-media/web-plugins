@@ -55,49 +55,19 @@ function prepareEvalCode(rawCode) {
 
   if (!code) return 'return null;';
 
+  // If the user already wrote a return statement, execute as is
   if (code.includes('return ')) {
     return code;
   }
 
-  const lines = code.split('\n');
-  let lastLineIndex = lines.length - 1;
-  while (lastLineIndex >= 0 && !lines[lastLineIndex].trim()) {
-    lastLineIndex--;
+  // Detect declaration statements or control flow blocks
+  const hasDeclarations = /\b(const|let|var|function|class|if|for|while|switch|try)\b/.test(code);
+  
+  if (hasDeclarations) {
+    return code;
   }
 
-  if (lastLineIndex >= 0) {
-    const lastLine = lines[lastLineIndex].trim();
-    const isStatement = lastLine.startsWith('const ') ||
-                        lastLine.startsWith('let ') ||
-                        lastLine.startsWith('var ') ||
-                        lastLine.startsWith('function ') ||
-                        lastLine.startsWith('if ') ||
-                        lastLine.startsWith('for ') ||
-                        lastLine.startsWith('while ') ||
-                        lastLine.startsWith('switch ') ||
-                        lastLine.startsWith('try ') ||
-                        lastLine.endsWith('}');
-
-    if (!isStatement) {
-      let targetLineIndex = lastLineIndex;
-      if (lastLine.startsWith('.')) {
-        let i = lastLineIndex - 1;
-        while (i >= 0) {
-          const trimmed = lines[i].trim();
-          if (trimmed) {
-            if (!trimmed.startsWith('.')) {
-              targetLineIndex = i;
-              break;
-            }
-          }
-          i--;
-        }
-      }
-      lines[targetLineIndex] = 'return ' + lines[targetLineIndex];
-      return lines.join('\n');
-    }
-  }
-
+  // For clean expression chains (like builder configurations), wrap safely in a parenthesized return
   return `return (${code});`;
 }
 
