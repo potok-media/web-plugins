@@ -42,329 +42,11 @@ const {
   MediaOverview,
   MediaRow,
   Grid,
-  EpisodeCard
+  EpisodeCard,
+  CodeEditor
 } = PotokSDK.ui.components;
 
-let monacoLoadingStarted = false;
-let activeEditorComponent = null;
 
-function ensureMonacoLoaded() {
-  if (typeof window === 'undefined') return;
-  if (window.monaco) {
-    if (!state.isMonacoLoaded) {
-      setMonacoLoaded(true);
-    }
-    return;
-  }
-  if (monacoLoadingStarted) return;
-  monacoLoadingStarted = true;
-
-  // Set a fallback timer for 2 seconds (graceful degradation)
-  const fallbackTimer = setTimeout(() => {
-    if (!window.monaco) {
-      console.warn("[Monaco] Timeout loading Monaco from CDN. Falling back to textarea.");
-      setMonacoLoaded(false);
-    }
-  }, 2000);
-
-  if (typeof window.require !== 'undefined') {
-    window.require(['vs/editor/editor.main'], function () {
-      clearTimeout(fallbackTimer);
-      setMonacoLoaded(true);
-      console.log("[Monaco] Loaded successfully from CDN.");
-    });
-  } else {
-    clearTimeout(fallbackTimer);
-    setMonacoLoaded(false);
-  }
-}
-
-const copyStyles = () => {
-  try {
-    const parentDoc = window.parent.document;
-    const parentHead = parentDoc.head;
-    const iframeHead = document.head;
-    const styleTags = iframeHead.getElementsByTagName('style');
-    for (let i = 0; i < styleTags.length; i++) {
-      const style = styleTags[i];
-      const content = style.innerHTML || "";
-      if (content.includes('monaco') || content.includes('vs-dark') || style.getAttribute('data-name')) {
-        const id = `monaco-style-${i}`;
-        if (!parentHead.querySelector(`#${id}`)) {
-          const clone = style.cloneNode(true);
-          clone.id = id;
-          parentHead.appendChild(clone);
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to copy Monaco styles:", e);
-  }
-};
-
-function mountMonacoEditor() {
-  if (typeof window === 'undefined') return;
-  if (!window.monaco) return;
-
-  let parentDoc;
-  try {
-    parentDoc = window.parent.document;
-  } catch (e) {
-    parentDoc = document;
-  }
-
-  const container = parentDoc.getElementById("monaco-editor-root");
-  if (!container) {
-    setTimeout(mountMonacoEditor, 50);
-    return;
-  }
-
-  if (window._monacoEditor) {
-    if (window._monacoEditor.getDomNode() !== container) {
-      window._monacoEditor.dispose();
-      window._monacoEditor = null;
-    } else {
-      if (activeEditorComponent !== state.sandboxSelectedComponent) {
-        activeEditorComponent = state.sandboxSelectedComponent;
-        window._monacoEditor.setValue(state.sandboxCustomCode);
-      } else if (window._monacoEditor.getValue() !== state.sandboxCustomCode) {
-        window._monacoEditor.setValue(state.sandboxCustomCode);
-      }
-      return;
-    }
-  }
-
-  console.log("[Monaco] Initializing editor instance on", container);
-
-  window.monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-    noSemanticValidation: false,
-    noSyntaxValidation: false
-  });
-
-  if (!window._monacoSdkLibAdded) {
-    window.monaco.languages.typescript.javascriptDefaults.addExtraLib(`
-      declare namespace PotokSDK {
-        const pluginId: string;
-        const permissions: string[];
-        function createState<T extends object>(state: T): T;
-        
-        namespace ui {
-          function showHUD(type: 'info' | 'success' | 'warning' | 'error', msg: string): void;
-          function navigateTo(path: string): void;
-          function render(layout: any, target: string): void;
-          
-          namespace components {
-            function VStack(): VStackBuilder;
-            function HStack(): HStackBuilder;
-            function Grid(): GridBuilder;
-            function Card(): CardBuilder;
-            function Button(text: string): ButtonBuilder;
-            function Text(text: string): TextBuilder;
-            function Badge(text: string): BadgeBuilder;
-            function Spacer(): SpacerBuilder;
-            function Divider(): DividerBuilder;
-            function EpisodeCard(): EpisodeCardBuilder;
-            function Input(name: string): InputBuilder;
-            function Toggle(name: string): ToggleBuilder;
-            function Select(name: string): SelectBuilder;
-            function SearchBar(name: string): SearchBarBuilder;
-            function StreamFilterBar(): StreamFilterBarBuilder;
-            function MediaPlayer(): MediaPlayerBuilder;
-            function EpisodesSection(): EpisodesSectionBuilder;
-            function EpisodeSelector(): EpisodeSelectorBuilder;
-            function StreamRow(): StreamRowBuilder;
-            function MediaCast(): MediaCastBuilder;
-            function MediaOverview(): MediaOverviewBuilder;
-            function MediaRow(): MediaRowBuilder;
-            function Markdown(content: string): MarkdownBuilder;
-            function LoadingSpinner(): LoadingSpinnerBuilder;
-          }
-        }
-      }
-
-      interface UIComponent {
-        id(v: string): this;
-        width(v: string | number): this;
-        height(v: string | number): this;
-        visible(v: boolean): this;
-      }
-
-      interface VStackBuilder extends UIComponent {
-        spacing(v: number): this;
-        alignItems(v: 'start' | 'center' | 'end' | 'stretch'): this;
-        justifyContent(v: 'start' | 'center' | 'end' | 'between' | 'around'): this;
-        children(elms: any[]): this;
-        child(elm: any): this;
-      }
-
-      interface HStackBuilder extends UIComponent {
-        spacing(v: number): this;
-        alignItems(v: 'start' | 'center' | 'end' | 'stretch'): this;
-        justifyContent(v: 'start' | 'center' | 'end' | 'between' | 'around'): this;
-        children(elms: any[]): this;
-        child(elm: any): this;
-      }
-
-      interface GridBuilder extends UIComponent {
-        minWidth(v: string): this;
-        gap(v: string): this;
-        children(elms: any[]): this;
-      }
-
-      interface CardBuilder extends UIComponent {
-        title(v: string): this;
-        subtitle(v: string): this;
-        child(elm: any): this;
-      }
-
-      interface ButtonBuilder extends UIComponent {
-        variant(v: 'primary' | 'secondary' | 'ghost' | 'sidebar-item' | string): this;
-        icon(v: string): this;
-        disabled(v: boolean): this;
-        onClick(cb: () => void): this;
-      }
-
-      interface TextBuilder extends UIComponent {
-        variant(v: 'primary' | 'secondary' | 'hint' | 'error' | 'success' | 'danger' | 'ghost' | 'sidebar-item'): this;
-        size(v: 'xs' | 'sm' | 'md' | 'lg'): this;
-        bold(v: boolean): this;
-      }
-
-      interface BadgeBuilder extends UIComponent {
-        color(v: 'info' | 'success' | 'warning' | 'error'): this;
-      }
-
-      interface DividerBuilder extends UIComponent {}
-      interface SpacerBuilder extends UIComponent {}
-
-      interface InputBuilder extends UIComponent {
-        label(v: string): this;
-        placeholder(v: string): this;
-        inputType(v: 'text' | 'password' | 'number' | 'textarea'): this;
-        value(v: string | number): this;
-        disabled(v: boolean): this;
-        onChange(cb: (val: string) => void): this;
-      }
-
-      interface ToggleBuilder extends UIComponent {
-        label(v: string): this;
-        description(v: string): this;
-        value(v: boolean): this;
-        disabled(v: boolean): this;
-        onChange(cb: (val: boolean) => void): this;
-      }
-
-      interface SelectBuilder extends UIComponent {
-        label(v: string): this;
-        options(v: { value: string; label: string }[]): this;
-        value(v: string): this;
-        disabled(v: boolean): this;
-        onChange(cb: (val: string) => void): this;
-      }
-
-      interface SearchBarBuilder extends UIComponent {
-        placeholder(v: string): this;
-        value(v: string): this;
-        disabled(v: boolean): this;
-        onChange(cb: (val: string) => void): this;
-        onClear(cb: () => void): this;
-      }
-
-      interface StreamFilterBarBuilder extends UIComponent {
-        countLabel(v: string): this;
-        trackers(v: string[]): this;
-        activeTracker(v: string): this;
-        onRefresh(cb: () => void): this;
-        onQualityChange(cb: (val: string) => void): this;
-        onTrackerChange(cb: (val: string) => void): this;
-      }
-
-      interface MediaPlayerBuilder extends UIComponent {
-        playback(v: any): this;
-      }
-
-      interface EpisodesSectionBuilder extends UIComponent {
-        mediaId(v: number): this;
-        numberOfSeasons(v: number): this;
-        onEpisodeClick(cb: (ep: any) => void): this;
-      }
-
-      interface EpisodeSelectorBuilder extends UIComponent {
-        isOpen(v: boolean): this;
-        title(v: string): this;
-        subtitle(v: string): this;
-        backdropSrc(v: string): this;
-        seasonsLoading(v: boolean): this;
-        seasons(v: any[]): this;
-        episodes(v: any[]): this;
-        onClose(cb: () => void): this;
-        onPlay(cb: (payload: any) => void): this;
-      }
-
-      interface StreamRowBuilder extends UIComponent {
-        stream(v: any): this;
-        onClick(cb: (stream: any) => void): this;
-      }
-
-      interface MediaCastBuilder extends UIComponent {
-        cast(v: any[]): this;
-      }
-
-      interface MediaOverviewBuilder extends UIComponent {
-        media(v: any): this;
-      }
-
-      interface MediaRowBuilder extends UIComponent {
-        title(v: string): this;
-        items(v: any[]): this;
-        onCardClick(cb: (item: any) => void): this;
-      }
-
-      interface MarkdownBuilder extends UIComponent {}
-      interface LoadingSpinnerBuilder extends UIComponent {
-        message(v: string): this;
-      }
-      interface EpisodeCardBuilder extends UIComponent {
-        episode(v: any): this;
-        onClick(cb: (ep: any) => void): this;
-      }
-    `, 'ts:filename/potok-sdk.d.ts');
-    window._monacoSdkLibAdded = true;
-  }
-
-  const editor = window.monaco.editor.create(container, {
-    value: state.sandboxCustomCode,
-    language: 'javascript',
-    theme: 'vs-dark',
-    automaticLayout: true,
-    minimap: { enabled: false },
-    fontSize: 13,
-    lineNumbers: 'on',
-    scrollbar: {
-      vertical: 'visible',
-      horizontal: 'visible'
-    }
-  });
-
-  window._monacoEditor = editor;
-  activeEditorComponent = state.sandboxSelectedComponent;
-
-  copyStyles();
-
-  // Watch for dynamic style updates from Monaco and copy them
-  const styleObserver = new MutationObserver(() => {
-    copyStyles();
-  });
-  styleObserver.observe(document.head, { childList: true });
-
-  let debounceTimer;
-  editor.onDidChangeModelContent(() => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      updateSandboxCode(editor.getValue());
-    }, 300);
-  });
-}
 
 /**
  * Строит и экспортирует макет вкладки Песочницы.
@@ -377,30 +59,25 @@ export function buildSandboxCard() {
   // Инициализируем живой экземпляр выбранного UI-компонента
   let liveElement;
   if (state.showSandboxCode) {
-    ensureMonacoLoaded();
-    if (state.isMonacoLoaded) {
-      mountMonacoEditor();
-    }
-
     try {
       const codeToEval = state.sandboxCustomCode.trim();
       let evaluator;
       if (codeToEval.includes('return ')) {
         evaluator = new Function(
           'PotokSDK',
-          'VStack', 'HStack', 'Card', 'Button', 'Select', 'Text', 'Heading', 'Divider', 'Spacer', 'Markdown', 'Badge', 'Input', 'Toggle', 'LoadingSpinner', 'SearchBar', 'StreamFilterBar', 'MediaPlayer', 'EpisodesSection', 'EpisodeSelector', 'StreamRow', 'MediaCast', 'MediaOverview', 'MediaRow', 'Grid', 'EpisodeCard',
+          'VStack', 'HStack', 'Card', 'Button', 'Select', 'Text', 'Heading', 'Divider', 'Spacer', 'Markdown', 'Badge', 'Input', 'Toggle', 'LoadingSpinner', 'SearchBar', 'StreamFilterBar', 'MediaPlayer', 'EpisodesSection', 'EpisodeSelector', 'StreamRow', 'MediaCast', 'MediaOverview', 'MediaRow', 'Grid', 'EpisodeCard', 'CodeEditor',
           codeToEval
         );
       } else {
         evaluator = new Function(
           'PotokSDK',
-          'VStack', 'HStack', 'Card', 'Button', 'Select', 'Text', 'Heading', 'Divider', 'Spacer', 'Markdown', 'Badge', 'Input', 'Toggle', 'LoadingSpinner', 'SearchBar', 'StreamFilterBar', 'MediaPlayer', 'EpisodesSection', 'EpisodeSelector', 'StreamRow', 'MediaCast', 'MediaOverview', 'MediaRow', 'Grid', 'EpisodeCard',
+          'VStack', 'HStack', 'Card', 'Button', 'Select', 'Text', 'Heading', 'Divider', 'Spacer', 'Markdown', 'Badge', 'Input', 'Toggle', 'LoadingSpinner', 'SearchBar', 'StreamFilterBar', 'MediaPlayer', 'EpisodesSection', 'EpisodeSelector', 'StreamRow', 'MediaCast', 'MediaOverview', 'MediaRow', 'Grid', 'EpisodeCard', 'CodeEditor',
           `return (${codeToEval});`
         );
       }
       liveElement = evaluator(
         PotokSDK,
-        VStack, HStack, Card, Button, Select, Text, Heading, Divider, Spacer, Markdown, Badge, Input, Toggle, LoadingSpinner, SearchBar, StreamFilterBar, MediaPlayer, EpisodesSection, EpisodeSelector, StreamRow, MediaCast, MediaOverview, MediaRow, Grid, EpisodeCard
+        VStack, HStack, Card, Button, Select, Text, Heading, Divider, Spacer, Markdown, Badge, Input, Toggle, LoadingSpinner, SearchBar, StreamFilterBar, MediaPlayer, EpisodesSection, EpisodeSelector, StreamRow, MediaCast, MediaOverview, MediaRow, Grid, EpisodeCard, CodeEditor
       );
     } catch (err) {
       liveElement = Card()
@@ -576,20 +253,12 @@ export function buildSandboxCard() {
     label: COMPONENT_DETAILS[key].title
   }));
 
-  // Формируем представление редактора (или фрейм Monaco, или fallback textarea)
+  // Формируем представление редактора через нативный CodeEditor
   let codeSnippetView = null;
   if (state.showSandboxCode) {
-    if (state.isMonacoLoaded) {
-      codeSnippetView = VStack()
-        .id("monaco-editor-root")
-        .height(320);
-    } else {
-      codeSnippetView = Input("sandbox-fallback-textarea")
-        .label("Редактор кода (оффлайн режим)")
-        .inputType("textarea")
-        .value(state.sandboxCustomCode)
-        .onChange((val) => updateSandboxCode(val));
-    }
+    codeSnippetView = CodeEditor("sandbox-editor")
+      .value(state.sandboxCustomCode)
+      .onChange((val) => updateSandboxCode(val));
   }
 
   // Возвращаем итоговую разметку
