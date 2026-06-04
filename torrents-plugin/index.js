@@ -15,9 +15,9 @@ PotokSDK.streams.registerStreamSource({
   supportedTypes: ["movie", "tv"],
 
   async search(query) {
-    let searchEngineBase = await PotokSDK.storage.local.getItem("searchEngineURL");
-    if (searchEngineBase === null) {
-      searchEngineBase = PotokSDK.config.searchEngineURL || "";
+    let searchEngineBase = PotokSDK.config.searchEngineURL || "";
+    if (!searchEngineBase) {
+      searchEngineBase = await PotokSDK.storage.local.getItem("searchEngineURL") || "";
     }
     let absoluteSearchEngine = searchEngineBase.trim();
     if (!absoluteSearchEngine) {
@@ -69,9 +69,9 @@ PotokSDK.streams.registerStreamSource({
     const magnetUri = stream.magnet || "";
     const link = stream.url || "";
 
-    let torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL");
-    if (torrUrl === null) {
-      torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+    let torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+    if (!torrUrl) {
+      torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL") || "";
     }
     const cleanTorrUrl = torrUrl.trim();
     if (!cleanTorrUrl) {

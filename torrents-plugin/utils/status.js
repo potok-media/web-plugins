@@ -60,14 +60,14 @@ async function pingService(baseUrl, path = "/health") {
 }
 
 async function checkPings() {
-  let searchUrl = await PotokSDK.storage.local.getItem("searchEngineURL");
-  if (searchUrl === null) {
-    searchUrl = PotokSDK.config.searchEngineURL || "";
+  let searchUrl = PotokSDK.config.searchEngineURL || "";
+  if (!searchUrl) {
+    searchUrl = await PotokSDK.storage.local.getItem("searchEngineURL") || "";
   }
 
-  let torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL");
-  if (torrUrl === null) {
-    torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+  let torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+  if (!torrUrl) {
+    torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL") || "";
   }
 
   const [searchRes, torrRes] = await Promise.all([
