@@ -167,29 +167,7 @@ export class TorrentParser {
   }
 
   static generateStreamUrl(params) {
-    const ext = this.getFileExtension(params.originalPath);
-
-    const rawTitle = params.englishTitle || params.originalTitle || params.title || "";
-    let cleanTitle = rawTitle.replace(/[^a-zA-Z0-9]+/g, ".");
-    cleanTitle = cleanTitle.replace(/\.{2,}/g, ".");
-    cleanTitle = cleanTitle.replace(/^\.+|\.+$/g, ""); // Trim dots
-
-    if (!cleanTitle) {
-      cleanTitle = "Media";
-    }
-
-    const idTag = params.tmdbId ? `.{tmdb-${params.tmdbId}}` : "";
-    let fileName = cleanTitle;
-
-    if (params.mediaType === "tv") {
-      const s = String(params.season ?? 1).padStart(2, "0");
-      const e = String(params.episode ?? 1).padStart(2, "0");
-      fileName = `${cleanTitle}.S${s}E${e}${idTag}${ext}`;
-    } else {
-      fileName = `${cleanTitle}${idTag}${ext}`;
-    }
-
     const cleanBase = params.baseUrl.replace(/\/+$/, "");
-    return `${cleanBase}/stream/${params.hash.toLowerCase()}/${params.index}/${fileName}`;
+    return `${cleanBase}/api/torrent/${params.hash.toLowerCase()}/files/${params.index}/stream/raw`;
   }
 }
