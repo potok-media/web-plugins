@@ -168,6 +168,15 @@ export class TorrentParser {
 
   static generateStreamUrl(params) {
     const cleanBase = params.baseUrl.replace(/\/+$/, "");
-    return `${cleanBase}/api/torrents/${params.hash.toLowerCase()}/files/${params.index}/stream`;
+    let filename = "";
+    if (params.originalPath) {
+      const parts = params.originalPath.split("/");
+      filename = parts[parts.length - 1] || "";
+    }
+    if (!filename) {
+      filename = "video.mkv";
+    }
+    const encodedFilename = encodeURIComponent(filename);
+    return `${cleanBase}/api/torrents/${params.hash.toLowerCase()}/files/${params.index}/stream/${encodedFilename}`;
   }
 }
