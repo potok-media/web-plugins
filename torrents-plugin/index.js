@@ -86,7 +86,7 @@ PotokSDK.streams.registerStreamSource({
       tmdbId: Number(context.tmdbId)
     };
 
-    const filesUrl = `${cleanTorrUrl.replace(/\/$/, "")}/api/torrent/files`;
+    const filesUrl = `${cleanTorrUrl.replace(/\/$/, "")}/api/torrents`;
     const [filesResponse, overrideRes, detailRes] = await Promise.all([
       PotokSDK.http.post(filesUrl, requestBody),
       PotokSDK.http.get(`/api/media/override/${hash}`).catch(() => ({ status: 404 })),

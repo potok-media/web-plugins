@@ -168,6 +168,6 @@ export class TorrentParser {
 
   static generateStreamUrl(params) {
     const cleanBase = params.baseUrl.replace(/\/+$/, "");
-    return `${cleanBase}/api/torrent/${params.hash.toLowerCase()}/files/${params.index}/stream/raw`;
+    return `${cleanBase}/api/torrents/${params.hash.toLowerCase()}/files/${params.index}/stream`;
   }
 }
