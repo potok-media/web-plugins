@@ -224,7 +224,7 @@ PotokSDK.streams.registerStreamSource({
         streamUrl: episode.url,
         title: `${showTitle} - S${seasonNum}E${episodeNum} - ${cleanEpisodeTitle}`,
         mediaType: context.type,
-        id: context.tmdbId,
+        id: Number(context.tmdbId),
         season: seasonNum,
         episode: episodeNum,
         torrentHash: hash
@@ -234,7 +234,7 @@ PotokSDK.streams.registerStreamSource({
       streamUrl: (episode && episode.url) ? episode.url : (stream.url || stream.streamUrl || ""),
       title: context.title || stream.title || "Видео",
       mediaType: context.type,
-      id: context.tmdbId,
+      id: Number(context.tmdbId),
       torrentHash: hash
     };
   }
