@@ -34,7 +34,7 @@ PotokSDK.streams.registerStreamSource({
       id: Number(query.tmdbId),
       season: query.season,
       episode: query.episode,
-      forceSearch: false
+      forceSearch: !!query.forceSearch
     };
 
     const res = await PotokSDK.http.post(url, body);
