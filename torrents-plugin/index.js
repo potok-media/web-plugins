@@ -69,7 +69,13 @@ PotokSDK.streams.registerStreamSource({
     const magnetUri = stream.magnet || "";
     const link = stream.url || "";
 
-    let torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+    const cleanTorrentGo = (PotokSDK.config.torrentGoURL || "").trim().replace(/\/$/, "");
+    let torrUrl = "";
+    if (cleanTorrentGo && cleanTorrentGo !== "https://torrent.potok.rip") {
+      torrUrl = PotokSDK.config.torrentGoURL;
+    } else {
+      torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+    }
     if (!torrUrl) {
       torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL") || "";
     }

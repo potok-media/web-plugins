@@ -65,7 +65,13 @@ async function checkPings() {
     searchUrl = await PotokSDK.storage.local.getItem("searchEngineURL") || "";
   }
 
-  let torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+  const cleanTorrentGo = (PotokSDK.config.torrentGoURL || "").trim().replace(/\/$/, "");
+  let torrUrl = "";
+  if (cleanTorrentGo && cleanTorrentGo !== "https://torrent.potok.rip") {
+    torrUrl = PotokSDK.config.torrentGoURL;
+  } else {
+    torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+  }
   if (!torrUrl) {
     torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL") || "";
   }
