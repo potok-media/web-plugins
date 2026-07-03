@@ -219,6 +219,62 @@ PotokSDK.streams.registerStreamSource({
 
   async getPlaybackInfo(stream, episode, context) {
     const hash = cleanHash(stream.hash || stream.url || stream.magnet || "torrent-id");
+
+    const cleanTorrentGo = (PotokSDK.config.torrentGoURL || "").trim().replace(/\/$/, "");
+    let torrUrl = "";
+    if (cleanTorrentGo && cleanTorrentGo !== "https://torrent.potok.rip") {
+      torrUrl = PotokSDK.config.torrentGoURL;
+    } else {
+      torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
+    }
+    if (!torrUrl) {
+      torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL") || "";
+    }
+    const cleanTorrUrl = torrUrl.trim().replace(/\/$/, "");
+
+    let duration = undefined;
+    let introStart = undefined;
+    let introEnd = undefined;
+    let outroStart = undefined;
+    let outroEnd = undefined;
+    let subtitles = undefined;
+
+    if (cleanTorrUrl && episode && episode.id) {
+      try {
+        const metadataUrl = `${cleanTorrUrl}/api/torrents/${hash.toLowerCase()}/files/${episode.id}/metadata`;
+        const metadataResponse = await PotokSDK.http.get(metadataUrl);
+        if (metadataResponse && metadataResponse.status === 200) {
+          const metadata = typeof metadataResponse.data === 'string' ? JSON.parse(metadataResponse.data) : metadataResponse.data;
+          if (metadata) {
+            duration = metadata.duration;
+            introStart = metadata.introStart;
+            introEnd = metadata.introEnd;
+            outroStart = metadata.outroStart;
+            outroEnd = metadata.outroEnd;
+
+            if (metadata.tracks && Array.isArray(metadata.tracks)) {
+              subtitles = metadata.tracks
+                .filter(t => t.type === 'subtitle')
+                .map(t => {
+                  const codec = (t.codec || '').toLowerCase();
+                  const format = (codec === 'ass' || codec === 'ssa') ? 'ass' : 'vtt';
+                  const src = `${cleanTorrUrl}/stream/${hash.toLowerCase()}/${episode.id}/subtitles/${t.relIndex}?format=${format}`;
+                  return {
+                    id: String(t.relIndex),
+                    src,
+                    label: t.label || t.name || `Subtitles #${t.relIndex}`,
+                    language: t.language || t.languageCode || '',
+                    format
+                  };
+                });
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch metadata from TorrentGo:", err);
+      }
+    }
+
     if (context.type === "tv") {
       const showTitle = context.title || stream.title || "Сериал";
       const seasonNum = episode.season !== undefined ? episode.season : 1;
@@ -233,7 +289,13 @@ PotokSDK.streams.registerStreamSource({
         id: Number(context.tmdbId),
         season: seasonNum,
         episode: episodeNum,
-        torrentHash: hash
+        torrentHash: hash,
+        duration,
+        introStart,
+        introEnd,
+        outroStart,
+        outroEnd,
+        subtitles
       };
     }
     return {
@@ -241,7 +303,13 @@ PotokSDK.streams.registerStreamSource({
       title: context.title || stream.title || "Видео",
       mediaType: context.type,
       id: Number(context.tmdbId),
-      torrentHash: hash
+      torrentHash: hash,
+      duration,
+      introStart,
+      introEnd,
+      outroStart,
+      outroEnd,
+      subtitles
     };
   }
 });
@@ -260,7 +328,9 @@ PotokSDK.registerSlotContribution({
         .variant("watch-primary")
         .onClick(() => {
           PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-torrents`, {
-            media: props.media
+            media: props.media,
+            season: props.season,
+            episode: props.episode
           });
         })
     };
