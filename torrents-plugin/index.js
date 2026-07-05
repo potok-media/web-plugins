@@ -2,6 +2,7 @@ import { PotokSDK } from 'potok-sdk';
 import { TorrentParser } from './utils/parser.js';
 import { registerSidebarStatus } from './utils/status.js';
 import { applyTMDBMetadata } from './utils/metadata.js';
+import { resolveTorrUrl } from './utils/config.js';
 
 // Clean hash matching SDK
 function cleanHash(hash) {
@@ -69,17 +70,7 @@ PotokSDK.streams.registerStreamSource({
     const magnetUri = stream.magnet || "";
     const link = stream.url || "";
 
-    const cleanTorrentGo = (PotokSDK.config.torrentGoURL || "").trim().replace(/\/$/, "");
-    let torrUrl = "";
-    if (cleanTorrentGo && cleanTorrentGo !== "https://torrent.potok.rip") {
-      torrUrl = PotokSDK.config.torrentGoURL;
-    } else {
-      torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
-    }
-    if (!torrUrl) {
-      torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL") || "";
-    }
-    const cleanTorrUrl = torrUrl.trim();
+    const cleanTorrUrl = await resolveTorrUrl();
     if (!cleanTorrUrl) {
       throw new Error("Адрес торрент-плеера TorrentGo не настроен.");
     }
@@ -151,23 +142,10 @@ PotokSDK.streams.registerStreamSource({
     const cleanedFiles = TorrentParser.cleanTitles(refinedFiles);
 
     let mappedEpisodes = cleanedFiles.map((f) => {
-      const streamUrlParams = {
-        baseUrl: cleanTorrUrl,
-        hash: hash,
-        index: String(f.id),
-        originalPath: f.path,
-        mediaType: context.type,
-        season: f.season,
-        episode: f.episode,
-        title: stream.title,
-        tmdbId: Number(context.tmdbId)
-      };
-
-      let streamUrl = TorrentParser.generateStreamUrl(streamUrlParams);
-      const ext = TorrentParser.getFileExtension(f.path);
-      if (ext.toLowerCase() === ".mkv") {
-        streamUrl += "?remux=true";
-      }
+      // Hand the player the READY HLS master URL (no more progressive `?remux=true` marker for the
+      // player to reverse-engineer). This `url` is only an identity/placeholder anyway — the full
+      // playback descriptor (audios/subtitles/session) is built per-episode in getPlaybackInfo.
+      const streamUrl = TorrentParser.buildHlsUrl(cleanTorrUrl, hash, String(f.id));
 
       return {
         id: String(f.id),
@@ -220,17 +198,15 @@ PotokSDK.streams.registerStreamSource({
   async getPlaybackInfo(stream, episode, context) {
     const hash = cleanHash(stream.hash || stream.url || stream.magnet || "torrent-id");
 
-    const cleanTorrentGo = (PotokSDK.config.torrentGoURL || "").trim().replace(/\/$/, "");
-    let torrUrl = "";
-    if (cleanTorrentGo && cleanTorrentGo !== "https://torrent.potok.rip") {
-      torrUrl = PotokSDK.config.torrentGoURL;
-    } else {
-      torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
-    }
-    if (!torrUrl) {
-      torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL") || "";
-    }
-    const cleanTorrUrl = torrUrl.trim().replace(/\/$/, "");
+    const cleanTorrUrl = await resolveTorrUrl();
+    const fileIndex = String(episode && episode.id != null ? episode.id : "");
+
+    // The player is provider-agnostic: it plays whatever streamUrl + streamType we hand it, renders the
+    // audio/subtitle tracks we list, and drives the session heartbeat against the URLs we give. So build
+    // the FULL ready descriptor here (this is the plugin↔TorrentGo boundary, not the player's job).
+    const hlsUrl = (cleanTorrUrl && fileIndex)
+      ? TorrentParser.buildHlsUrl(cleanTorrUrl, hash, fileIndex)
+      : ((episode && episode.url) || stream.url || stream.streamUrl || "");
 
     let duration = undefined;
     let introStart = undefined;
@@ -238,10 +214,11 @@ PotokSDK.streams.registerStreamSource({
     let outroStart = undefined;
     let outroEnd = undefined;
     let subtitles = undefined;
+    let audios = undefined;
 
-    if (cleanTorrUrl && episode && episode.id) {
+    if (cleanTorrUrl && fileIndex) {
       try {
-        const metadataUrl = `${cleanTorrUrl}/api/torrents/${hash.toLowerCase()}/files/${episode.id}/metadata`;
+        const metadataUrl = `${cleanTorrUrl}/api/torrents/${hash.toLowerCase()}/files/${fileIndex}/metadata`;
         const metadataResponse = await PotokSDK.http.get(metadataUrl);
         if (metadataResponse && metadataResponse.status === 200) {
           const metadata = typeof metadataResponse.data === 'string' ? JSON.parse(metadataResponse.data) : metadataResponse.data;
@@ -253,16 +230,29 @@ PotokSDK.streams.registerStreamSource({
             outroEnd = metadata.outroEnd;
 
             if (metadata.tracks && Array.isArray(metadata.tracks)) {
+              // Audio: one HLS producer is muxed per track (absolute stream index `-map 0:N`). The FIRST
+              // audio maps to the plain HLS URL (backend `0:a:0?`, keepalive audio="") so it never spawns
+              // a duplicate producer; the rest carry `?audio=<absIndex>`.
+              const audioTracks = metadata.tracks.filter(t => t.type === 'audio');
+              if (audioTracks.length > 0) {
+                audios = audioTracks.map((t, i) => ({
+                  id: String(t.index),
+                  name: t.title || t.name || t.label || `Дорожка ${i + 1}`,
+                  url: i === 0 ? hlsUrl : TorrentParser.buildAudioUrl(hlsUrl, t.index),
+                }));
+              }
+
               subtitles = metadata.tracks
                 .filter(t => t.type === 'subtitle')
                 .map(t => {
                   const codec = (t.codec || '').toLowerCase();
                   const format = (codec === 'ass' || codec === 'ssa') ? 'ass' : 'vtt';
-                  const src = `${cleanTorrUrl}/stream/${hash.toLowerCase()}/${episode.id}/subtitles/${t.relIndex}?format=${format}`;
+                  // Base URL only — the player appends `?format=&start=<bucket>` per 15s window.
+                  const src = TorrentParser.buildSubtitleBaseUrl(cleanTorrUrl, hash, fileIndex, t.relIndex);
                   return {
                     id: String(t.relIndex),
                     src,
-                    label: t.label || t.name || `Subtitles #${t.relIndex}`,
+                    label: t.label || t.title || t.name || `Subtitles #${t.relIndex}`,
                     language: t.language || t.languageCode || '',
                     format
                   };
@@ -275,41 +265,49 @@ PotokSDK.streams.registerStreamSource({
       }
     }
 
-    if (context.type === "tv") {
-      const showTitle = context.title || stream.title || "Сериал";
-      const seasonNum = episode.season !== undefined ? episode.season : 1;
-      const episodeNum = episode.episode !== undefined ? episode.episode : 1;
-      const episodeTitle = episode.title || `Серия ${episodeNum}`;
-      const cleanEpisodeTitle = episodeTitle.replace(/^\d+[\s.\-_]+/, "").trim();
+    const session = (cleanTorrUrl && fileIndex)
+      ? {
+          keepaliveUrl: `${cleanTorrUrl}/api/playback/keepalive`,
+          stopUrl: `${cleanTorrUrl}/api/playback/stop`,
+          intervalSec: 7,
+          hash: hash.toLowerCase(),
+          file: fileIndex,
+        }
+      : undefined;
 
-      return {
-        streamUrl: episode.url,
-        title: `${showTitle} - S${seasonNum}E${episodeNum} - ${cleanEpisodeTitle}`,
-        mediaType: context.type,
-        id: Number(context.tmdbId),
-        season: seasonNum,
-        episode: episodeNum,
-        torrentHash: hash,
-        duration,
-        introStart,
-        introEnd,
-        outroStart,
-        outroEnd,
-        subtitles
-      };
-    }
-    return {
-      streamUrl: (episode && episode.url) ? episode.url : (stream.url || stream.streamUrl || ""),
-      title: context.title || stream.title || "Видео",
+    const base = {
+      streamUrl: hlsUrl,
+      streamType: "m3u8",
       mediaType: context.type,
       id: Number(context.tmdbId),
       torrentHash: hash,
+      fileIndex,
+      audios,
+      subtitles,
+      session,
       duration,
       introStart,
       introEnd,
       outroStart,
       outroEnd,
-      subtitles
+    };
+
+    if (context.type === "tv") {
+      const showTitle = context.title || stream.title || "Сериал";
+      const seasonNum = episode && episode.season !== undefined ? episode.season : 1;
+      const episodeNum = episode && episode.episode !== undefined ? episode.episode : 1;
+      const episodeTitle = (episode && episode.title) || `Серия ${episodeNum}`;
+      const cleanEpisodeTitle = episodeTitle.replace(/^\d+[\s.\-_]+/, "").trim();
+      return {
+        ...base,
+        title: `${showTitle} - S${seasonNum}E${episodeNum} - ${cleanEpisodeTitle}`,
+        season: seasonNum,
+        episode: episodeNum,
+      };
+    }
+    return {
+      ...base,
+      title: context.title || stream.title || "Видео",
     };
   }
 });

@@ -1,4 +1,5 @@
 import { PotokSDK } from 'potok-sdk';
+import { resolveTorrUrl } from './config.js';
 
 const { VStack, StatusRow } = PotokSDK.ui.components;
 
@@ -65,16 +66,7 @@ async function checkPings() {
     searchUrl = await PotokSDK.storage.local.getItem("searchEngineURL") || "";
   }
 
-  const cleanTorrentGo = (PotokSDK.config.torrentGoURL || "").trim().replace(/\/$/, "");
-  let torrUrl = "";
-  if (cleanTorrentGo && cleanTorrentGo !== "https://torrent.potok.rip") {
-    torrUrl = PotokSDK.config.torrentGoURL;
-  } else {
-    torrUrl = PotokSDK.config.playerServerURL || PotokSDK.config.torrentGoURL || "";
-  }
-  if (!torrUrl) {
-    torrUrl = await PotokSDK.storage.local.getItem("torrentGoURL") || "";
-  }
+  const torrUrl = await resolveTorrUrl();
 
   const [searchRes, torrRes] = await Promise.all([
     pingService(searchUrl, "/health"),

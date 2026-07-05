@@ -179,4 +179,25 @@ export class TorrentParser {
     const encodedFilename = encodeURIComponent(filename);
     return `${cleanBase}/api/torrents/${params.hash.toLowerCase()}/files/${params.index}/stream/${encodedFilename}`;
   }
+
+  // The player is "dumb" — it plays whatever URL/streamType we hand it. These build the READY TorrentGo
+  // HLS/subtitle URLs so the player never has to reverse-engineer them from a stream ref.
+  static buildHlsUrl(baseUrl, hash, index) {
+    const cleanBase = baseUrl.replace(/\/+$/, "");
+    return `${cleanBase}/api/torrents/${hash.toLowerCase()}/files/${index}/hls/master.m3u8`;
+  }
+
+  // Per-audio-track HLS URL. TorrentGo muxes ONE audio track per producer keyed by the absolute input
+  // stream index (`-map 0:N`); switching audio = reloading with a different `?audio=N`. The default/first
+  // audio uses the NO-param URL (backend `0:a:0?`) so it stays aligned with the keepalive `audio=""`.
+  static buildAudioUrl(hlsUrl, absIndex) {
+    return `${hlsUrl}${hlsUrl.includes("?") ? "&" : "?"}audio=${absIndex}`;
+  }
+
+  // Base subtitle endpoint. The player appends `?format=<fmt>&start=<bucket>` per 15s window itself
+  // (windowed streaming), so we return only the base path here.
+  static buildSubtitleBaseUrl(baseUrl, hash, index, relIndex) {
+    const cleanBase = baseUrl.replace(/\/+$/, "");
+    return `${cleanBase}/stream/${hash.toLowerCase()}/${index}/subtitles/${relIndex}`;
+  }
 }
