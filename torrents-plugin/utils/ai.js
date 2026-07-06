@@ -33,12 +33,12 @@ export async function batchParseMetadata(items, config) {
     }
   }
 
-  const systemPrompt = `You are a dedicated torrent release metadata extractor. Your job is to parse torrent release titles and extract metadata parameters.
+  const systemPrompt = `You are a dedicated media release metadata extractor. Your job is to parse media release titles and extract metadata parameters.
 You must output a flat JSON array of objects. Do not wrap it in markdown code blocks like \`\`\`json. Return only raw JSON.
 
 Input JSON format:
 [
-  { "id": "hash-identifier", "title": "Torrent Release Name string" }
+  { "id": "hash-identifier", "title": "Media Release Name string" }
 ]
 
 Output JSON format:
