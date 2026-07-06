@@ -19,7 +19,6 @@ export async function batchParseMetadata(items, config) {
     console.warn("AI API Key is missing. Skipping AI parsing.");
     return null;
   }
-
   // Determine endpoint
   let endpoint = "https://api.groq.com/openai/v1/chat/completions";
   if (provider === "openai") {
