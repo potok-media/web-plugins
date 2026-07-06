@@ -71,6 +71,7 @@ PotokSDK.streams.registerStreamSource({
     }
     if (!/^https?:\/\//i.test(absoluteSearchEngine)) {
       absoluteSearchEngine = `http://${absoluteSearchEngine}`;
+
     }
 
     const url = `${absoluteSearchEngine}/api/v1/torrents/search`;
