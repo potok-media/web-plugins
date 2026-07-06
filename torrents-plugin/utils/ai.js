@@ -24,7 +24,6 @@ export async function batchParseMetadata(items, config) {
   if (provider === "openai") {
     endpoint = "https://api.openai.com/v1/chat/completions";
   } else if (provider === "gemini") {
-
     endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
   } else if (provider === "custom") {
     endpoint = (config.aiCustomEndpoint || "").trim() || endpoint;
