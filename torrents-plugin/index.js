@@ -3,7 +3,6 @@ import { TorrentParser } from './utils/parser.js';
 import { registerSidebarStatus } from './utils/status.js';
 import { applyTMDBMetadata } from './utils/metadata.js';
 import { resolveTorrUrl } from './utils/config.js';
-import { batchParseMetadata } from './utils/ai.js';
 
 // Register full translations for torrents-plugin namespace
 PotokSDK.i18n.registerTranslations({
@@ -16,19 +15,11 @@ PotokSDK.i18n.registerTranslations({
       },
       config: {
         torrentGoUrl: "TorrentGo Address",
-        searchEngineUrl: "SearchEngine Address",
-        enableAi: "Enable AI Metadata Parsing",
-        aiProvider: "AI Provider",
-        aiApiKey: "API Key",
-        aiApiKeyHint: "Get free API Key on <a href=\"https://console.groq.com/keys\" target=\"_blank\">Groq Console</a> or <a href=\"https://platform.openai.com/api-keys\" target=\"_blank\">OpenAI Platform</a>. Your keys are stored locally on your device, the code is open source and completely secure (<a href=\"https://github.com/egorrrmiller/potok\" target=\"_blank\">view source code</a>).",
-        aiModel: "Model Name",
-        aiEndpoint: "Custom API URL",
-        aiCustomNoticeText: "⚠️ Custom LLM providers or models (such as Gemini, Claude, or OpenRouter) may block requests or return empty responses due to strict content safety policies regarding copyrighted titles."
+        searchEngineUrl: "SearchEngine Address"
       },
       errors: {
         noSearchUrl: "SearchEngine address is not configured.",
         noTorrUrl: "TorrentGo address is not configured.",
-        aiFailed: "AI parsing failed: {{error}}",
         torrGoError: "TorrentGo error (status {{status}})",
         noMediaFiles: "No supported media files found in the torrent."
       },
@@ -40,7 +31,6 @@ PotokSDK.i18n.registerTranslations({
       },
       ui: {
         seasonNotDetected: "Season not detected",
-        aiActive: "AI parsing active",
         correctSeason: "Correct season",
         subtitles: "Subtitles",
         file: "File",
@@ -59,19 +49,11 @@ PotokSDK.i18n.registerTranslations({
       },
       config: {
         torrentGoUrl: "Адрес TorrentGo",
-        searchEngineUrl: "Адрес SearchEngine",
-        enableAi: "Включить ИИ-распознавание метаданных",
-        aiProvider: "Провайдер ИИ",
-        aiApiKey: "API-ключ",
-        aiApiKeyHint: "Получите бесплатный ключ в <a href=\"https://console.groq.com/keys\" target=\"_blank\">Groq Console</a> или <a href=\"https://platform.openai.com/api-keys\" target=\"_blank\">OpenAI</a>. Ваши ключи хранятся локально на вашем устройстве, код полностью открыт и безопасен (<a href=\"https://github.com/egorrrmiller/potok\" target=\"_blank\">посмотреть исходный код</a>).",
-        aiModel: "Имя модели",
-        aiEndpoint: "Кастомный API URL",
-        aiCustomNoticeText: "⚠️ Кастомные провайдеры или модели (например, Gemini, Claude, OpenRouter) могут блокировать запросы или возвращать пустые ответы из-за строгой политики безопасности в отношении защищенных авторским правом названий."
+        searchEngineUrl: "Адрес SearchEngine"
       },
       errors: {
         noSearchUrl: "Адрес поисковика SearchEngine не настроен.",
         noTorrUrl: "Адрес торрент-плеера TorrentGo не настроен.",
-        aiFailed: "Ошибка ИИ-парсинга: {{error}}",
         torrGoError: "Ошибка TorrentGo (статус {{status}})",
         noMediaFiles: "В раздаче не найдено поддерживаемых медиафайлов."
       },
@@ -83,7 +65,6 @@ PotokSDK.i18n.registerTranslations({
       },
       ui: {
         seasonNotDetected: "Сезон не определен",
-        aiActive: "ИИ-парсинг активен",
         correctSeason: "Исправить сезон",
         subtitles: "Субтитры",
         file: "Файл",
@@ -138,6 +119,102 @@ function buildSubtitleLabel(t, i) {
   return codec ? `${primary} (${codec})` : primary;
 }
 
+// Frontend relevance filter. SearchEngine returns fuzzy matches — searching KonoSuba ("Да благословят боги
+// сей расчудесный мир!") also yields "Да, я паук, и что?" / "Да, я Сакамото, и что?" (matched on the shared
+// leading word). We know what was searched, so drop results that share ZERO significant title tokens with the
+// query — a different show. Conservative: only kills clear mismatches, and does nothing when the query title
+// is too short to discriminate safely. No AI, no tokens; runs BEFORE the AI batch so garbage costs nothing.
+const RELEVANCE_STOPWORDS = new Set(["да", "и", "что", "я", "в", "на", "с", "the", "a", "of", "on", "this", "from", "от", "за", "по"]);
+function relevanceTokens(s) {
+  return (s || "").toLowerCase()
+    .replace(/[!?.,:;/()\[\]{}|"“”«»_+\-]/g, " ")
+    .split(/\s+/)
+    .filter(w => w.length >= 3 && !RELEVANCE_STOPWORDS.has(w) && !/^\d+$/.test(w));
+}
+function filterRelevantResults(results, queryTitle) {
+  const expected = new Set(relevanceTokens(queryTitle));
+  if (expected.size < 2) return results; // too short/ambiguous → don't risk false drops
+  return results.filter(t => {
+    const res = relevanceTokens(t.title);
+    for (const w of res) if (expected.has(w)) return true; // ≥1 shared significant token → keep
+    return false; // zero overlap → a different show
+  });
+}
+
+// Resolve the SYNCHRONOUS half of a playback descriptor (no I/O): hash, fileIndex, HLS url, and the
+// session/thumbnails endpoints — all derivable from the stream/episode alone. getPlaybackInfo returns this
+// instantly so the player opens immediately with its waiting overlay; the slow /metadata probe is deferred.
+async function resolvePlaybackBase(stream, episode) {
+  const cleanTorrUrl = await resolveTorrUrl();
+  const fileIndex = String(episode && episode.id != null ? episode.id : "");
+  const hash = cleanHash(
+    (episode && episode.torrentHash) ||
+    parseHashFromUrl(episode && episode.url) ||
+    stream.hash || stream.url || stream.magnet || ""
+  );
+  const hlsUrl = (cleanTorrUrl && fileIndex)
+    ? TorrentParser.buildHlsUrl(cleanTorrUrl, hash, fileIndex)
+    : ((episode && episode.url) || stream.url || stream.streamUrl || "");
+  const hasBackend = !!(cleanTorrUrl && fileIndex && hash);
+  const session = hasBackend
+    ? {
+        keepaliveUrl: `${cleanTorrUrl}/api/playback/keepalive`,
+        stopUrl: `${cleanTorrUrl}/api/playback/stop`,
+        // Generic status endpoint the dumb player polls for warm-up progress (backend peers/speed → generic).
+        statusUrl: `${cleanTorrUrl}/api/torrents/${hash}`,
+        statusIntervalSec: 2,
+        intervalSec: 7,
+        hash,
+        file: fileIndex,
+      }
+    : undefined;
+  // Generic scrub-preview template ({time} → rounded seconds). The player never learns it's a torrent.
+  const thumbnails = hasBackend
+    ? { urlTemplate: `${TorrentParser.buildThumbnailBaseUrl(cleanTorrUrl, hash, fileIndex)}?time={time}`, intervalSec: 5 }
+    : undefined;
+  return { cleanTorrUrl, fileIndex, hash, hlsUrl, hasBackend, session, thumbnails };
+}
+
+// The DEFERRED slow half: probe TorrentGo /metadata for subtitle tracks + duration (needs the container
+// header resident, so cold-start slow). Returns {} on any failure (degraded: player keeps playing, no menus).
+async function fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex) {
+  if (!cleanTorrUrl || !fileIndex) return {};
+  try {
+    const metadataUrl = `${cleanTorrUrl}/api/torrents/${hash}/files/${fileIndex}/metadata`;
+    const metadataResponse = await PotokSDK.http.get(metadataUrl);
+    const metadata = (metadataResponse && metadataResponse.status === 200)
+      ? (typeof metadataResponse.data === 'string' ? JSON.parse(metadataResponse.data) : metadataResponse.data)
+      : null;
+    if (!metadata) return {};
+
+    const duration = (typeof metadata.duration === 'number') ? metadata.duration : undefined;
+    let subtitles = undefined;
+    if (Array.isArray(metadata.tracks)) {
+      // Audio tracks are NOT listed here: the HLS master carries them as EXT-X-MEDIA renditions and hls.js
+      // exposes/switches them natively. Only external subtitle tracks need the plugin↔backend windowed path.
+      subtitles = metadata.tracks
+        .filter(t => t.type === 'subtitle')
+        .map((t, i) => {
+          const rel = (typeof t.relIndex === 'number') ? t.relIndex : i;
+          const codec = (t.codec || '').toLowerCase();
+          const format = (codec === 'ass' || codec === 'ssa') ? 'ass' : 'vtt';
+          return {
+            id: String(rel),
+            // Base URL only — the player appends `?format=&start=<bucket>` per window.
+            src: TorrentParser.buildSubtitleBaseUrl(cleanTorrUrl, hash, fileIndex, rel),
+            label: buildSubtitleLabel(t, i),
+            language: t.language || t.languageCode || '',
+            format,
+          };
+        });
+    }
+    return { duration, subtitles };
+  } catch (err) {
+    console.error("TorrentGo metadata unavailable, degrading to default track:", err);
+    return {};
+  }
+}
+
 PotokSDK.streams.registerStreamSource({
   id: "potok-torrents",
   name: PotokSDK.i18n.t("potok-torrents:manifest.name"),
@@ -171,20 +248,9 @@ PotokSDK.streams.registerStreamSource({
       throw new Error(`Status code: ${res.status}`);
     }
     const data = JSON.parse(res.data);
-    const results = data.results || [];
-
-    // Load AI configurations
-    const enableAi = await PotokSDK.storage.local.getItem("enableAiParsing") === "true";
-    const aiProvider = await PotokSDK.storage.local.getItem("aiProvider") || "groq";
-    const aiApiKey = await PotokSDK.storage.local.getItem("aiApiKey") || "";
-    const aiModelName = await PotokSDK.storage.local.getItem("aiModelName") || "llama-3.1-8b-instant";
-    const aiCustomEndpoint = await PotokSDK.storage.local.getItem("aiCustomEndpoint") || "";
-
-    let aiParsedMetadata = null;
-    if (enableAi && aiApiKey && results.length > 0) {
-      const batchItems = results.map(t => ({ id: (t.id || "").toLowerCase(), title: t.title }));
-      aiParsedMetadata = await batchParseMetadata(batchItems, { aiProvider, aiApiKey, aiModelName, aiCustomEndpoint });
-    }
+    // Drop fuzzy garbage (different shows SearchEngine matched on a shared word) before mapping, so the
+    // sources list only shows real matches for the searched title.
+    const results = filterRelevantResults(data.results || [], query.title);
 
     let mappedResults = results.map(t => {
       const hash = (t.id || "").toLowerCase();
@@ -207,33 +273,25 @@ PotokSDK.streams.registerStreamSource({
         kind: "torrent"
       };
 
-      // Enrich metadata
-      const aiMeta = aiParsedMetadata ? aiParsedMetadata.find(m => m.id === hash) : null;
-      if (aiMeta) {
-        baseTorrent.seasons = Array.isArray(aiMeta.seasons) ? aiMeta.seasons : (aiMeta.season !== undefined && aiMeta.season !== null ? [aiMeta.season] : undefined);
-        baseTorrent.season = (baseTorrent.seasons && baseTorrent.seasons.length > 0) ? baseTorrent.seasons[0] : undefined;
-        baseTorrent.episodeStart = aiMeta.episodeStart;
-        baseTorrent.episodeEnd = aiMeta.episodeEnd;
-        baseTorrent.resolution = aiMeta.resolution;
-        baseTorrent.codec = aiMeta.codec;
-        baseTorrent.voice = Array.isArray(aiMeta.audio) ? aiMeta.audio.join(", ") : undefined;
-        baseTorrent.subtitles = Array.isArray(aiMeta.subtitles) ? aiMeta.subtitles : undefined;
-        baseTorrent.year = aiMeta.year;
+      // Enrich from the title with the local regex parser (season/episode, range-aware) + cheap quality tags
+      // (resolution/codec/year). Deterministic, offline, no tokens. Season 0 never leaks into a filter bucket.
+      const parsed = TorrentParser.parseEpisode(t.title, query.type, undefined, undefined, undefined, 0);
+      baseTorrent.season = (Number.isInteger(parsed.season) && parsed.season > 0) ? parsed.season : undefined;
+      baseTorrent.seasons = (parsed.seasons && parsed.seasons.length > 0)
+        ? parsed.seasons
+        : (baseTorrent.season !== undefined ? [baseTorrent.season] : undefined);
+      baseTorrent.episode = parsed.episode;
 
-        // Enrich tags with new parsed metadata
-        const tagsSet = new Set(baseTorrent.tags);
-        if (aiMeta.resolution) tagsSet.add(aiMeta.resolution);
-        if (aiMeta.codec) tagsSet.add(aiMeta.codec.toUpperCase());
-        if (Array.isArray(aiMeta.audio)) aiMeta.audio.forEach(a => tagsSet.add(a));
-        if (aiMeta.year) tagsSet.add(String(aiMeta.year));
-        baseTorrent.tags = Array.from(tagsSet);
-      } else {
-        // Fallback: use local regex parser
-        const parsed = TorrentParser.parseEpisode(t.title, query.type, undefined, undefined, undefined, 0);
-        baseTorrent.season = parsed.season;
-        baseTorrent.seasons = parsed.season !== undefined ? [parsed.season] : undefined;
-        baseTorrent.episode = parsed.episode;
-      }
+      const quality = TorrentParser.extractQualityTags(t.title);
+      baseTorrent.resolution = quality.resolution;
+      baseTorrent.codec = quality.codec;
+      baseTorrent.year = quality.year;
+
+      const tagsSet = new Set(baseTorrent.tags);
+      if (quality.resolution) tagsSet.add(quality.resolution);
+      if (quality.codec) tagsSet.add(quality.codec.toUpperCase());
+      if (quality.year) tagsSet.add(String(quality.year));
+      baseTorrent.tags = Array.from(tagsSet);
 
       return baseTorrent;
     });
@@ -386,85 +444,10 @@ PotokSDK.streams.registerStreamSource({
   },
 
   async getPlaybackInfo(stream, episode, context) {
-    const cleanTorrUrl = await resolveTorrUrl();
-    const fileIndex = String(episode && episode.id != null ? episode.id : "");
-
-    // Resolve the AUTHORITATIVE infohash robustly: threaded on the episode by getEpisodes, else recovered
-    // from the episode URL it baked, else the search stream's own id. All TorrentGo URLs + descriptor
-    // identity use this hash.
-    const hash = cleanHash(
-      (episode && episode.torrentHash) ||
-      parseHashFromUrl(episode && episode.url) ||
-      stream.hash || stream.url || stream.magnet || ""
-    );
-
-    // The player is provider-agnostic: it plays whatever streamUrl + streamType we hand it, renders the
-    // tracks we list, and drives the session/status/thumbnails against the URLs we give. So build the FULL
-    // ready descriptor here (this is the plugin↔TorrentGo boundary, not the player's job).
-    const hlsUrl = (cleanTorrUrl && fileIndex)
-      ? TorrentParser.buildHlsUrl(cleanTorrUrl, hash, fileIndex)
-      : ((episode && episode.url) || stream.url || stream.streamUrl || "");
-
-    let duration = undefined;
-    let subtitles = undefined;
-
-    if (cleanTorrUrl && fileIndex) {
-      try {
-        const metadataUrl = `${cleanTorrUrl}/api/torrents/${hash}/files/${fileIndex}/metadata`;
-        const metadataResponse = await PotokSDK.http.get(metadataUrl);
-        const metadata = (metadataResponse && metadataResponse.status === 200)
-          ? (typeof metadataResponse.data === 'string' ? JSON.parse(metadataResponse.data) : metadataResponse.data)
-          : null;
-
-        if (metadata && typeof metadata.duration === 'number') {
-          duration = metadata.duration;
-        }
-
-        if (metadata && Array.isArray(metadata.tracks)) {
-          // Audio tracks are NOT listed here: the HLS master carries them as EXT-X-MEDIA renditions and
-          // hls.js exposes/switches them natively (no per-track URLs, no source reload).
-          subtitles = metadata.tracks
-            .filter(t => t.type === 'subtitle')
-            .map((t, i) => {
-              const rel = (typeof t.relIndex === 'number') ? t.relIndex : i;
-              const codec = (t.codec || '').toLowerCase();
-              const format = (codec === 'ass' || codec === 'ssa') ? 'ass' : 'vtt';
-              return {
-                id: String(rel),
-                // Base URL only — the player appends `?format=&start=<bucket>` per window.
-                src: TorrentParser.buildSubtitleBaseUrl(cleanTorrUrl, hash, fileIndex, rel),
-                label: buildSubtitleLabel(t, i),
-                language: t.language || t.languageCode || '',
-                format,
-              };
-            });
-        }
-      } catch (err) {
-        // Degraded path: no usable metadata → the default audio still plays off the plain HLS URL; the
-        // player just shows no track menus. (Also covers a 504 METADATA_TIMEOUT surfaced from getEpisodes.)
-        console.error("TorrentGo metadata unavailable, degrading to default track:", err);
-      }
-    }
-
-    const hasBackend = !!(cleanTorrUrl && fileIndex && hash);
-
-    const session = hasBackend
-      ? {
-          keepaliveUrl: `${cleanTorrUrl}/api/playback/keepalive`,
-          stopUrl: `${cleanTorrUrl}/api/playback/stop`,
-          // Generic status endpoint the dumb player polls for warm-up progress (backend peers/speed → generic).
-          statusUrl: `${cleanTorrUrl}/api/torrents/${hash}`,
-          statusIntervalSec: 2,
-          intervalSec: 7,
-          hash,
-          file: fileIndex,
-        }
-      : undefined;
-
-    // Generic scrub-preview template ({time} → rounded seconds). The player never learns it's a torrent.
-    const thumbnails = hasBackend
-      ? { urlTemplate: `${TorrentParser.buildThumbnailBaseUrl(cleanTorrUrl, hash, fileIndex)}?time={time}`, intervalSec: 5 }
-      : undefined;
+    // Return INSTANTLY: everything here is derived synchronously from the stream/episode (no /metadata probe),
+    // so the player opens immediately with its waiting overlay. Subtitles + duration are DEFERRED to
+    // getPlaybackMetadata and merged into the live descriptor by the host once the (slow) probe resolves.
+    const { hlsUrl, hasBackend, session, thumbnails, hash, fileIndex } = await resolvePlaybackBase(stream, episode);
 
     const base = {
       streamUrl: hlsUrl,
@@ -473,11 +456,11 @@ PotokSDK.streams.registerStreamSource({
       id: Number(context.tmdbId),
       torrentHash: hash,
       fileIndex,
-      subtitles,
+      subtitles: undefined, // deferred → getPlaybackMetadata (player merges them in when they arrive)
       session,
       thumbnails,
       requiresBuffering: hasBackend, // torrent-backed streams warm up → show the loading/progress overlay
-      duration,
+      duration: undefined,  // deferred → getPlaybackMetadata (the HLS manifest also provides it to the player)
     };
 
     if (context.type === "tv") {
@@ -498,6 +481,14 @@ PotokSDK.streams.registerStreamSource({
       ...base,
       title: context.title || stream.title || PotokSDK.i18n.t("potok-torrents:ui.video"),
     };
+  },
+
+  // Deferred slow half of the descriptor: probe TorrentGo /metadata for subtitle tracks + duration. The host
+  // calls this right after opening the player, then merges the result into the live playback (the host owns
+  // the descriptor state; the player is already reactive to late subtitles/duration).
+  async getPlaybackMetadata(stream, episode, context) {
+    const { cleanTorrUrl, fileIndex, hash } = await resolvePlaybackBase(stream, episode);
+    return await fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex);
   }
 });
 
@@ -522,83 +513,5 @@ PotokSDK.registerSlotContribution({
           });
         })
     };
-  }
-});
-
-// Initialize Custom LLM provider warning banner on load if conditions are met
-(async function initSettingsNotice() {
-  try {
-    const aiProvider = await PotokSDK.storage.local.getItem("aiProvider") || "groq";
-    const currentNotice = await PotokSDK.storage.local.getItem("aiProviderNotice") || "";
-    
-    if (aiProvider === "custom") {
-      const warningText = PotokSDK.i18n.t("potok-torrents:config.aiCustomNoticeText");
-      if (currentNotice !== warningText) {
-        await PotokSDK.storage.local.setItem("aiProviderNotice", warningText);
-      }
-    } else {
-      if (currentNotice !== "") {
-        await PotokSDK.storage.local.setItem("aiProviderNotice", "");
-      }
-    }
-  } catch (e) {
-    console.error("Failed to init settings notice:", e);
-  }
-})();
-
-// Dynamic AI settings autofill managed by the plugin itself
-PotokSDK.onSettingsChanged((key, val, currentSettings) => {
-  const updates = {};
-  
-  if (key === "aiProvider") {
-    const currentModel = currentSettings.aiModelName;
-    const currentEndpoint = currentSettings.aiCustomEndpoint;
-
-    const isGroqModel = !currentModel || currentModel === "llama-3.1-8b-instant" || currentModel === "";
-    const isGroqEndpoint = !currentEndpoint || currentEndpoint === "https://api.groq.com/openai/v1" || currentEndpoint === "";
-
-    const isOpenAiModel = currentModel === "gpt-4o-mini";
-    const isOpenAiEndpoint = currentEndpoint === "https://api.openai.com/v1";
-
-    if (val === "groq") {
-      if (isOpenAiModel || !currentModel) {
-        updates.aiModelName = "llama-3.1-8b-instant";
-      }
-      if (isOpenAiEndpoint || !currentEndpoint) {
-        updates.aiCustomEndpoint = "https://api.groq.com/openai/v1";
-      }
-    } else if (val === "openai") {
-      if (isGroqModel || !currentModel) {
-        updates.aiModelName = "gpt-4o-mini";
-      }
-      if (isGroqEndpoint || !currentEndpoint) {
-        updates.aiCustomEndpoint = "https://api.openai.com/v1";
-      }
-    } else if (val === "custom") {
-      if (isGroqModel || isOpenAiModel) {
-        updates.aiModelName = "";
-      }
-      if (isGroqEndpoint || isOpenAiEndpoint) {
-        updates.aiCustomEndpoint = "";
-      }
-    }
-  }
-
-  // Update Custom warning notice dynamically
-  const provider = key === "aiProvider" ? val : currentSettings.aiProvider;
-  
-  if (provider === "custom") {
-    const warningText = PotokSDK.i18n.t("potok-torrents:config.aiCustomNoticeText");
-    if (currentSettings.aiProviderNotice !== warningText) {
-      updates.aiProviderNotice = warningText;
-    }
-  } else {
-    if (currentSettings.aiProviderNotice !== "") {
-      updates.aiProviderNotice = "";
-    }
-  }
-
-  if (Object.keys(updates).length > 0) {
-    PotokSDK.updateSettingsForm(updates);
   }
 });

@@ -30,48 +30,6 @@
       "type": "string",
       "default": "https://search.potok.rip",
       "label": "potok-torrents:config.searchEngineUrl"
-    },
-    "enableAiParsing": {
-      "type": "boolean",
-      "default": false,
-      "label": "potok-torrents:config.enableAi"
-    },
-    "aiApiKey": {
-      "type": "string",
-      "default": "",
-      "label": "potok-torrents:config.aiApiKey",
-      "descriptionHtml": "potok-torrents:config.aiApiKeyHint",
-      "layoutRow": "aiCredentials",
-      "dependsOn": "enableAiParsing"
-    },
-    "aiProvider": {
-      "type": "select",
-      "default": "groq",
-      "options": [
-        { "value": "groq", "label": "Groq (Free)" },
-        { "value": "openai", "label": "OpenAI" },
-        { "value": "custom", "label": "Custom (OpenAI-compatible)" }
-      ],
-      "label": "potok-torrents:config.aiProvider",
-      "layoutRow": "aiCredentials",
-      "dependsOn": "enableAiParsing"
-    },
-    "aiModelName": {
-      "type": "string",
-      "default": "llama-3.1-8b-instant",
-      "label": "potok-torrents:config.aiModel",
-      "dependsOn": "enableAiParsing"
-    },
-    "aiCustomEndpoint": {
-      "type": "string",
-      "default": "https://api.groq.com/openai/v1",
-      "label": "potok-torrents:config.aiEndpoint",
-      "dependsOn": "enableAiParsing"
-    },
-    "aiProviderNotice": {
-      "type": "notice",
-      "default": "",
-      "dependsOn": "enableAiParsing"
     }
   }
 }
