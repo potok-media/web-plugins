@@ -8,7 +8,7 @@ export class TorrentParser {
   // boundary `(?:^|[^a-zа-яё0-9])`. Separator-flexible ("Сезон: 4", "ТВ-2", "5 сезон"). Season is never ≤ 0.
   static extractSeasonEpisode(title) {
     const s = (title || "").replace(/_/g, " ");
-    let episode;
+    let episode, kind, ovaNumber;
 
     // --- episodes first (so a range never leaks into the season) ---
     const em = s.match(/сери[ияйю]\s*[:.№]?\s*(\d{1,3})\s*[-–]\s*\d{1,3}/i)              // Серии: 1-8
@@ -18,14 +18,34 @@ export class TorrentParser {
       || s.match(/(\d{1,3})\s*сери[ияйю]/i);                                              // 5 серия
     if (em) episode = parseInt(em[1], 10);
 
-    // --- seasons, precedence: digit-before → digit-after → ТВ-N → S01 → NxM. Group 2 (when present) is the
-    //     RANGE END, so multi-season packs ("S01-05", "1-4 сезон") expand to a full seasons[] array. ---
+    // --- kind: OVA/special vs Movie vs TV. Anime specials come as ОВА-3 / OVA-3 / [OVA] / [2025, OVA,…],
+    //     mixed across languages in one title. Cyrillic «ова» + Latin «ova» (NOT «она»/«ona» — «она» is a
+    //     common RU word); optional trailing number = the OVA index. The leading boundary skips surnames
+    //     («Иванова»), the lookahead skips «ovation». Detected BEFORE seasons so an OVA's «wo! 3» / «3 Bonus
+    //     Stage» is never mistaken for a TV season. OVA is NOT a TV season → `season` stays undefined. ---
+    const ovaM = s.match(/(?:^|[^a-zа-яё0-9])(?:ова|ova)(?:[\s._:()-]*(\d{1,2}))?(?![a-zа-яё])/i);
+    if (ovaM) {
+      kind = "ova";
+      if (ovaM[1]) ovaNumber = parseInt(ovaM[1], 10);
+    } else if (/(?:^|[^a-zа-яё0-9])(?:фильм|movie|gekijou?ban?|劇場)/i.test(s)) {
+      kind = "movie";
+    } else if (/\[\s*(?:tv|тв)\s*\]/i.test(s) || /(?:^|[^a-zа-яё0-9])(?:тв|tv)[\s._-]*\d{1,2}/i.test(s)) {
+      kind = "tv";
+    }
+
+    // --- seasons (TV only), precedence: digit-before → digit-after → ТВ-N → S01 → NxM, then a conservative
+    //     «!»-anchored bare-number fallback («…wo! 3» / «…мир! 3» → S3). Group 2 is the RANGE END, so packs
+    //     ("S01-05", "1-4 сезон") expand to a full seasons[] array. Skipped entirely for OVA/movie kinds. ---
     let season, seasonEnd, m;
-    if ((m = s.match(/(\d{1,2})\s*(?:[-–]\s*(\d{1,2})\s*)?сезон/i))) { season = +m[1]; seasonEnd = m[2] ? +m[2] : undefined; } // 5 сезон / 1-4 сезон
-    else if ((m = s.match(/(?:сезон|season)\s*[:.№]?\s*(\d{1,2})/i))) { season = +m[1]; }                                     // Сезон: 4 / season 5
-    else if ((m = s.match(/(?:^|[^a-zа-яё0-9])(?:тв|tv)[\s._-]*(\d{1,2})/i))) { season = +m[1]; }                              // ТВ-2 / TV 2
-    else if ((m = s.match(/(?:^|[^a-zа-яё0-9])s(\d{1,2})(?:\s*[-–]\s*s?(\d{1,2}))?/i))) { season = +m[1]; seasonEnd = m[2] ? +m[2] : undefined; } // S01 / S01-05
-    else if ((m = s.match(/(\d{1,2})x\d{1,3}/i))) { season = +m[1]; }                                                          // 05x01 → season 5
+    if (kind !== "ova" && kind !== "movie") {
+      if ((m = s.match(/(\d{1,2})\s*(?:[-–]\s*(\d{1,2})\s*)?сезон/i))) { season = +m[1]; seasonEnd = m[2] ? +m[2] : undefined; } // 5 сезон / 1-4 сезон
+      else if ((m = s.match(/(?:сезон|season)\s*[:.№]?\s*(\d{1,2})/i))) { season = +m[1]; }                                     // Сезон: 4 / season 5
+      else if ((m = s.match(/(\d{1,2})(?:st|nd|rd|th)\s+season/i))) { season = +m[1]; }                                          // «2nd Season» / «3rd Season» (AniLibria)
+      else if ((m = s.match(/(?:^|[^a-zа-яё0-9])(?:тв|tv)[\s._-]*(\d{1,2})/i))) { season = +m[1]; }                              // ТВ-2 / TV 2
+      else if ((m = s.match(/(?:^|[^a-zа-яё0-9])s(\d{1,2})(?:\s*[-–]\s*s?(\d{1,2}))?/i))) { season = +m[1]; seasonEnd = m[2] ? +m[2] : undefined; } // S01 / S01-05 (S01E05-safe: no trailing anchor)
+      else if ((m = s.match(/(\d{1,2})x\d{1,3}/i))) { season = +m[1]; }                                                          // 05x01 → season 5
+      else if ((m = s.match(/[!！]\s+(\d{1,2})(?=\s|:|$|\/|\[|,)/))) { season = +m[1]; }                                          // «…wo! 3» / «…мир! 3 [»
+    }
 
     if (episode === undefined) { const xm = s.match(/\d{1,2}x(\d{1,3})/i); if (xm) episode = parseInt(xm[1], 10); }
     if (season !== undefined && season <= 0) { season = undefined; seasonEnd = undefined; } // seasons are never 0 or negative
@@ -40,7 +60,7 @@ export class TorrentParser {
         seasons = [season];
       }
     }
-    return { season, seasons, episode };
+    return { kind, season, seasons, episode, ovaNumber };
   }
 
   // extractQualityTags pulls the cheap, deterministic bits (resolution / codec / year) so the sources list

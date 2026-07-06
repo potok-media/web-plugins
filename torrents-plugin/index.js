@@ -273,9 +273,14 @@ PotokSDK.streams.registerStreamSource({
         kind: "torrent"
       };
 
-      // Enrich from the title with the local regex parser (season/episode, range-aware) + cheap quality tags
-      // (resolution/codec/year). Deterministic, offline, no tokens. Season 0 never leaks into a filter bucket.
-      const parsed = TorrentParser.parseEpisode(t.title, query.type, undefined, undefined, undefined, 0);
+      // Enrich from the FULL title with the local regex parser — NOT parseEpisode, which path-splits on "/",
+      // but in a release title "/" separates LANGUAGES, not folders (the season/OVA marker often lives in the
+      // first language segment, e.g. "(ОВА-3) / … / [OVA]"). extractSeasonEpisode reads the whole string:
+      // season/episode (range-aware), kind (tv/ova/movie) + OVA number. Plus cheap quality tags. Deterministic,
+      // offline, no tokens. Season 0 never leaks into a filter bucket; OVAs are not TV seasons.
+      const parsed = TorrentParser.extractSeasonEpisode(t.title);
+      baseTorrent.kind = parsed.kind;
+      baseTorrent.ovaNumber = parsed.ovaNumber;
       baseTorrent.season = (Number.isInteger(parsed.season) && parsed.season > 0) ? parsed.season : undefined;
       baseTorrent.seasons = (parsed.seasons && parsed.seasons.length > 0)
         ? parsed.seasons
@@ -291,6 +296,8 @@ PotokSDK.streams.registerStreamSource({
       if (quality.resolution) tagsSet.add(quality.resolution);
       if (quality.codec) tagsSet.add(quality.codec.toUpperCase());
       if (quality.year) tagsSet.add(String(quality.year));
+      if (parsed.kind === "ova") tagsSet.add(parsed.ovaNumber ? "OVA-" + parsed.ovaNumber : "OVA");
+      else if (parsed.kind === "movie") tagsSet.add("Movie");
       baseTorrent.tags = Array.from(tagsSet);
 
       return baseTorrent;
@@ -300,13 +307,18 @@ PotokSDK.streams.registerStreamSource({
     if (query.season !== undefined && query.season !== null) {
       const targetSeason = Number(query.season);
       mappedResults = mappedResults.filter(t => {
+        if (t.kind === "ova") {
+          // OVAs/specials aren't TV seasons: an OVA-N shows ONLY under its associated Season N; a number-less
+          // OVA under no specific season (still visible in the "All seasons" view). Fixes the cross-bucket leak.
+          return t.ovaNumber === targetSeason;
+        }
         if (t.seasons) {
           return t.seasons.includes(targetSeason);
         }
         if (t.season !== undefined && t.season !== null) {
           return t.season === targetSeason;
         }
-        return true; // Keep unspecified releases so users don't miss rare uploads
+        return true; // genuinely season-less TV release → keep (rare uploads)
       });
     }
 
