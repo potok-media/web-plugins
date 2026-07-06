@@ -173,14 +173,6 @@ export class TorrentParser {
     return `${cleanBase}/api/torrents/${hash.toLowerCase()}/files/${index}/hls/master.m3u8`;
   }
 
-  // Per-audio-track HLS URL. The new backend reads `?audio=M` as the M-th audio track = 0-based POSITION
-  // among audio tracks (`relIndex`), NOT the libav stream index. Switching audio = reloading the playlist
-  // with a different `?audio=`. relIndex 0 uses the NO-param URL (backend defaults to the first audio,
-  // matching keepalive `audio=""`).
-  static buildAudioUrl(hlsUrl, relIndex) {
-    return `${hlsUrl}${hlsUrl.includes("?") ? "&" : "?"}audio=${relIndex}`;
-  }
-
   // Base subtitle endpoint (canonical /api path). The player appends `?format=<fmt>&start=<bucket>` per
   // window itself (windowed streaming), so we return only the base path here.
   static buildSubtitleBaseUrl(baseUrl, hash, index, relIndex) {

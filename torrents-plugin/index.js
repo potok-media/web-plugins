@@ -42,17 +42,9 @@ function langName(code) {
   return table[c.toLowerCase()] || c.toUpperCase();
 }
 
-// Display-ready track labels (plain strings — the dumb player just renders them). Prefer a meaningful
-// backend title, else the language name, then enrich with the codec. e.g. "Русский · AC3", "Commentary · AAC".
-function buildAudioLabel(t, i) {
-  const lang = langName(t.language || t.languageCode);
-  const codec = (t.codec || "").toUpperCase();
-  const title = (t.title || t.name || t.label || "").trim();
-  const generic = /^(audio|track|дорожка|аудио)\s*#?\d*$/i;
-  const primary = (title && !generic.test(title)) ? title : (lang || `Дорожка ${i + 1}`);
-  return codec ? `${primary} · ${codec}` : primary;
-}
-
+// Display-ready subtitle label (plain string — the dumb player just renders it). Audio labels are NOT
+// built here anymore: audio renditions live in the HLS master (EXT-X-MEDIA NAME/LANGUAGE from the
+// backend) and hls.js exposes them natively.
 function buildSubtitleLabel(t, i) {
   const lang = langName(t.language || t.languageCode);
   const codec = (t.codec || "").toUpperCase();
@@ -274,7 +266,6 @@ PotokSDK.streams.registerStreamSource({
 
     let duration = undefined;
     let subtitles = undefined;
-    let audios = undefined;
 
     if (cleanTorrUrl && fileIndex) {
       try {
@@ -289,20 +280,8 @@ PotokSDK.streams.registerStreamSource({
         }
 
         if (metadata && Array.isArray(metadata.tracks)) {
-          // Audio: `?audio=M` selects the M-th audio track = 0-based POSITION among audio tracks (relIndex),
-          // NOT the libav stream index. relIndex 0 → plain HLS URL (backend default, keepalive audio="").
-          const audioTracks = metadata.tracks.filter(t => t.type === 'audio');
-          if (audioTracks.length > 0) {
-            audios = audioTracks.map((t, i) => {
-              const rel = (typeof t.relIndex === 'number') ? t.relIndex : i; // fallback: running position
-              return {
-                id: String(rel),
-                name: buildAudioLabel(t, i),
-                url: rel === 0 ? hlsUrl : TorrentParser.buildAudioUrl(hlsUrl, rel),
-              };
-            });
-          }
-
+          // Audio tracks are NOT listed here: the HLS master carries them as EXT-X-MEDIA renditions and
+          // hls.js exposes/switches them natively (no per-track URLs, no source reload).
           subtitles = metadata.tracks
             .filter(t => t.type === 'subtitle')
             .map((t, i) => {
@@ -353,7 +332,6 @@ PotokSDK.streams.registerStreamSource({
       id: Number(context.tmdbId),
       torrentHash: hash,
       fileIndex,
-      audios,
       subtitles,
       session,
       thumbnails,
