@@ -3,6 +3,95 @@ import { TorrentParser } from './utils/parser.js';
 import { registerSidebarStatus } from './utils/status.js';
 import { applyTMDBMetadata } from './utils/metadata.js';
 import { resolveTorrUrl } from './utils/config.js';
+import { batchParseMetadata } from './utils/ai.js';
+
+// Register full translations for torrents-plugin namespace
+PotokSDK.i18n.registerTranslations({
+  en: {
+    "potok-torrents": {
+      manifest: {
+        name: "Torrent Search",
+        watch: "Watch",
+        statusTitle: "Torrents Status"
+      },
+      config: {
+        torrentGoUrl: "TorrentGo Address",
+        searchEngineUrl: "SearchEngine Address",
+        enableAi: "Enable AI Metadata Parsing",
+        aiProvider: "AI Provider",
+        aiApiKey: "API Key",
+        aiApiKeyHint: "Get free API Key on <a href=\"https://console.groq.com/keys\" target=\"_blank\">Groq Console</a> or <a href=\"https://platform.openai.com/api-keys\" target=\"_blank\">OpenAI Platform</a>. Your keys are stored locally on your device, the code is open source and completely secure (<a href=\"https://github.com/egorrrmiller/potok\" target=\"_blank\">view source code</a>).",
+        aiModel: "Model Name",
+        aiEndpoint: "Custom API URL"
+      },
+      errors: {
+        noSearchUrl: "SearchEngine address is not configured.",
+        noTorrUrl: "TorrentGo address is not configured.",
+        aiFailed: "AI parsing failed: {{error}}",
+        torrGoError: "TorrentGo error (status {{status}})",
+        noMediaFiles: "No supported media files found in the torrent."
+      },
+      status: {
+        mediaSearch: "Media Search",
+        torrentPlayer: "Torrent Player",
+        off: "off",
+        offline: "offline"
+      },
+      ui: {
+        seasonNotDetected: "Season not detected",
+        aiActive: "AI parsing active",
+        correctSeason: "Correct season",
+        subtitles: "Subtitles",
+        file: "File",
+        episode: "Episode",
+        serial: "Series",
+        video: "Video"
+      }
+    }
+  },
+  ru: {
+    "potok-torrents": {
+      manifest: {
+        name: "Поиск торрентов",
+        watch: "Смотреть",
+        statusTitle: "Статус Торрентов"
+      },
+      config: {
+        torrentGoUrl: "Адрес TorrentGo",
+        searchEngineUrl: "Адрес SearchEngine",
+        enableAi: "Включить ИИ-распознавание метаданных",
+        aiProvider: "Провайдер ИИ",
+        aiApiKey: "API-ключ",
+        aiApiKeyHint: "Получите бесплатный ключ в <a href=\"https://console.groq.com/keys\" target=\"_blank\">Groq Console</a> или <a href=\"https://platform.openai.com/api-keys\" target=\"_blank\">OpenAI</a>. Ваши ключи хранятся локально на вашем устройстве, код полностью открыт и безопасен (<a href=\"https://github.com/egorrrmiller/potok\" target=\"_blank\">посмотреть исходный код</a>).",
+        aiModel: "Имя модели",
+        aiEndpoint: "Кастомный API URL"
+      },
+      errors: {
+        noSearchUrl: "Адрес поисковика SearchEngine не настроен.",
+        noTorrUrl: "Адрес торрент-плеера TorrentGo не настроен.",
+        aiFailed: "Ошибка ИИ-парсинга: {{error}}",
+        torrGoError: "Ошибка TorrentGo (статус {{status}})",
+        noMediaFiles: "В раздаче не найдено поддерживаемых медиафайлов."
+      },
+      status: {
+        mediaSearch: "Поиск медиа",
+        torrentPlayer: "Торрент-плеер",
+        off: "выкл",
+        offline: "оффлайн"
+      },
+      ui: {
+        seasonNotDetected: "Сезон не определен",
+        aiActive: "ИИ-парсинг активен",
+        correctSeason: "Исправить сезон",
+        subtitles: "Субтитры",
+        file: "Файл",
+        episode: "Серия",
+        serial: "Сериал",
+        video: "Видео"
+      }
+    }
+  }
+});
 
 // Clean hash matching SDK
 function cleanHash(hash) {
@@ -19,27 +108,18 @@ function parseHashFromUrl(url) {
   return m ? m[1].toLowerCase() : "";
 }
 
-// Best-effort human language name from an ISO code (falls back to the code uppercased).
-let _langDisplay;
+// Best-effort human language name from an ISO code using Intl.DisplayNames dynamic locale
 function langName(code) {
   if (!code) return "";
-  const c = String(code).trim();
-  if (!c) return "";
+  const c = String(code).trim().toLowerCase();
   try {
-    if (_langDisplay === undefined) {
-      _langDisplay = (typeof Intl !== "undefined" && Intl.DisplayNames)
-        ? new Intl.DisplayNames(["ru"], { type: "language" })
-        : null;
-    }
-    if (_langDisplay) {
-      const name = _langDisplay.of(c.toLowerCase());
-      if (name && name.toLowerCase() !== c.toLowerCase()) {
-        return name.charAt(0).toUpperCase() + name.slice(1);
-      }
-    }
-  } catch (e) { /* ignore */ }
-  const table = { rus: "Русский", ru: "Русский", eng: "Английский", en: "Английский", jpn: "Японский", ja: "Японский", ukr: "Украинский", uk: "Украинский" };
-  return table[c.toLowerCase()] || c.toUpperCase();
+    const locale = PotokSDK.i18n.locale || "en";
+    const formatter = new Intl.DisplayNames([locale], { type: "language" });
+    const name = formatter.of(c);
+    return name ? name.charAt(0).toUpperCase() + name.slice(1) : c.toUpperCase();
+  } catch (e) {
+    return c.toUpperCase();
+  }
 }
 
 // Display-ready subtitle label (plain string — the dumb player just renders it). Audio labels are NOT
@@ -51,13 +131,14 @@ function buildSubtitleLabel(t, i) {
   const title = (t.title || t.name || t.label || "").trim();
   const generic = /^(subtitle|sub|субтитры|саб)\s*#?\d*$/i;
   const rel = (typeof t.relIndex === "number") ? t.relIndex : i;
-  const primary = (title && !generic.test(title)) ? title : (lang || `Субтитры #${rel}`);
+  const subText = PotokSDK.i18n.t("potok-torrents:ui.subtitles");
+  const primary = (title && !generic.test(title)) ? title : (lang || `${subText} #${rel}`);
   return codec ? `${primary} (${codec})` : primary;
 }
 
 PotokSDK.streams.registerStreamSource({
   id: "potok-torrents",
-  name: "Поиск торрентов",
+  name: PotokSDK.i18n.t("potok-torrents:manifest.name"),
   supportedTypes: ["movie", "tv"],
 
   async search(query) {
@@ -67,11 +148,10 @@ PotokSDK.streams.registerStreamSource({
     }
     let absoluteSearchEngine = searchEngineBase.trim();
     if (!absoluteSearchEngine) {
-      throw new Error("Адрес поисковика SearchEngine не настроен.");
+      throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
     }
     if (!/^https?:\/\//i.test(absoluteSearchEngine)) {
       absoluteSearchEngine = `http://${absoluteSearchEngine}`;
-
     }
 
     const url = `${absoluteSearchEngine}/api/v1/torrents/search`;
@@ -91,24 +171,86 @@ PotokSDK.streams.registerStreamSource({
     const data = JSON.parse(res.data);
     const results = data.results || [];
 
-    return results.map(t => ({
-      title: t.title,
-      url: t.link,
-      magnet: t.magnetUri,
-      sizeBytes: typeof t.sizeBytes === "number" ? t.sizeBytes : undefined,
-      size: typeof t.sizeBytes === "number" ? t.sizeBytes : undefined,
-      sizeLabel: t.sizeLabel || "",
-      seeders: typeof t.seeders === "number" ? t.seeders : 0,
-      seeds: typeof t.seeders === "number" ? t.seeders : 0,
-      leechers: typeof t.leechers === "number" ? t.leechers : 0,
-      peers: typeof t.leechers === "number" ? t.leechers : 0,
-      tracker: t.tracker || "SearchEngine",
-      provider: t.tracker || "SearchEngine",
-      tags: t.tags || [],
-      publishDate: t.publishDate || "",
-      hash: (t.id || "").toLowerCase(),
-      kind: "torrent"
-    }));
+    // Load AI configurations
+    const enableAi = await PotokSDK.storage.local.getItem("enableAiParsing") === "true";
+    const aiProvider = await PotokSDK.storage.local.getItem("aiProvider") || "groq";
+    const aiApiKey = await PotokSDK.storage.local.getItem("aiApiKey") || "";
+    const aiModelName = await PotokSDK.storage.local.getItem("aiModelName") || "llama-3.1-8b-instant";
+    const aiCustomEndpoint = await PotokSDK.storage.local.getItem("aiCustomEndpoint") || "";
+
+    let aiParsedMetadata = null;
+    if (enableAi && aiApiKey && results.length > 0) {
+      const batchItems = results.map(t => ({ id: (t.id || "").toLowerCase(), title: t.title }));
+      aiParsedMetadata = await batchParseMetadata(batchItems, { aiProvider, aiApiKey, aiModelName, aiCustomEndpoint });
+    }
+
+    let mappedResults = results.map(t => {
+      const hash = (t.id || "").toLowerCase();
+      const baseTorrent = {
+        title: t.title,
+        url: t.link,
+        magnet: t.magnetUri,
+        sizeBytes: typeof t.sizeBytes === "number" ? t.sizeBytes : undefined,
+        size: typeof t.sizeBytes === "number" ? t.sizeBytes : undefined,
+        sizeLabel: t.sizeLabel || "",
+        seeders: typeof t.seeders === "number" ? t.seeders : 0,
+        seeds: typeof t.seeders === "number" ? t.seeders : 0,
+        leechers: typeof t.leechers === "number" ? t.leechers : 0,
+        peers: typeof t.leechers === "number" ? t.leechers : 0,
+        tracker: t.tracker || "SearchEngine",
+        provider: t.tracker || "SearchEngine",
+        tags: Array.isArray(t.tags) ? [...t.tags] : [],
+        publishDate: t.publishDate || "",
+        hash: hash,
+        kind: "torrent"
+      };
+
+      // Enrich metadata
+      const aiMeta = aiParsedMetadata ? aiParsedMetadata.find(m => m.id === hash) : null;
+      if (aiMeta) {
+        baseTorrent.seasons = Array.isArray(aiMeta.seasons) ? aiMeta.seasons : (aiMeta.season !== undefined && aiMeta.season !== null ? [aiMeta.season] : undefined);
+        baseTorrent.season = (baseTorrent.seasons && baseTorrent.seasons.length > 0) ? baseTorrent.seasons[0] : undefined;
+        baseTorrent.episodeStart = aiMeta.episodeStart;
+        baseTorrent.episodeEnd = aiMeta.episodeEnd;
+        baseTorrent.resolution = aiMeta.resolution;
+        baseTorrent.codec = aiMeta.codec;
+        baseTorrent.voice = Array.isArray(aiMeta.audio) ? aiMeta.audio.join(", ") : undefined;
+        baseTorrent.subtitles = Array.isArray(aiMeta.subtitles) ? aiMeta.subtitles : undefined;
+        baseTorrent.year = aiMeta.year;
+
+        // Enrich tags with new parsed metadata
+        const tagsSet = new Set(baseTorrent.tags);
+        if (aiMeta.resolution) tagsSet.add(aiMeta.resolution);
+        if (aiMeta.codec) tagsSet.add(aiMeta.codec.toUpperCase());
+        if (Array.isArray(aiMeta.audio)) aiMeta.audio.forEach(a => tagsSet.add(a));
+        if (aiMeta.year) tagsSet.add(String(aiMeta.year));
+        baseTorrent.tags = Array.from(tagsSet);
+      } else {
+        // Fallback: use local regex parser
+        const parsed = TorrentParser.parseEpisode(t.title, query.type, undefined, undefined, undefined, 0);
+        baseTorrent.season = parsed.season;
+        baseTorrent.seasons = parsed.season !== undefined ? [parsed.season] : undefined;
+        baseTorrent.episode = parsed.episode;
+      }
+
+      return baseTorrent;
+    });
+
+    // If query requires a specific season, perform pre-filtering
+    if (query.season !== undefined && query.season !== null) {
+      const targetSeason = Number(query.season);
+      mappedResults = mappedResults.filter(t => {
+        if (t.seasons) {
+          return t.seasons.includes(targetSeason);
+        }
+        if (t.season !== undefined && t.season !== null) {
+          return t.season === targetSeason;
+        }
+        return true; // Keep unspecified releases so users don't miss rare uploads
+      });
+    }
+
+    return mappedResults;
   },
 
   async getEpisodes(stream, context) {
@@ -118,7 +260,7 @@ PotokSDK.streams.registerStreamSource({
 
     const cleanTorrUrl = await resolveTorrUrl();
     if (!cleanTorrUrl) {
-      throw new Error("Адрес торрент-плеера TorrentGo не настроен.");
+      throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noTorrUrl"));
     }
 
     const requestBody = {
@@ -137,16 +279,14 @@ PotokSDK.streams.registerStreamSource({
     ]);
 
     if (filesResponse.status !== 200) {
-      throw new Error(`Ошибка TorrentGo (статус ${filesResponse.status})`);
+      throw new Error(PotokSDK.i18n.t("potok-torrents:errors.torrGoError", { status: filesResponse.status }));
     }
 
     const resJson = typeof filesResponse.data === 'string' ? JSON.parse(filesResponse.data) : filesResponse.data;
     const rawFiles = resJson.items || [];
-    // AUTHORITATIVE infohash from the backend (`POST /api/torrents` → `hash`). Used for ALL TorrentGo URLs
-    // + descriptor identity. The BFF override namespace above deliberately keeps the search-derived `hash`.
     const authHash = cleanHash(resJson.hash) || hash;
     if (rawFiles.length === 0) {
-      throw new Error("В раздаче не найдено поддерживаемых медиафайлов.");
+      throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noMediaFiles"));
     }
 
     let override = null;
@@ -191,16 +331,14 @@ PotokSDK.streams.registerStreamSource({
     const cleanedFiles = TorrentParser.cleanTitles(refinedFiles);
 
     let mappedEpisodes = cleanedFiles.map((f) => {
-      // READY HLS master URL, built with the AUTHORITATIVE hash. This `url` doubles as the carrier of that
-      // hash — getPlaybackInfo recovers it from here if the host strips the `torrentHash` field. The full
-      // playback descriptor (audios/subtitles/session) is built per-episode in getPlaybackInfo.
       const streamUrl = TorrentParser.buildHlsUrl(cleanTorrUrl, authHash, String(f.id));
 
+      const fileLabel = PotokSDK.i18n.t("potok-torrents:ui.file");
       return {
         id: String(f.id),
         season: f.season !== undefined ? f.season : (context.type === "tv" ? 1 : 0),
         episode: f.episode !== undefined ? f.episode : 1,
-        title: f.title || `Файл ${f.id}`,
+        title: f.title || `${fileLabel} ${f.id}`,
         isWatched: false,
         torrentHash: authHash,
         url: streamUrl
@@ -341,10 +479,11 @@ PotokSDK.streams.registerStreamSource({
     };
 
     if (context.type === "tv") {
-      const showTitle = context.title || stream.title || "Сериал";
+      const showTitle = context.title || stream.title || PotokSDK.i18n.t("potok-torrents:ui.serial");
       const seasonNum = episode && episode.season !== undefined ? episode.season : 1;
       const episodeNum = episode && episode.episode !== undefined ? episode.episode : 1;
-      const episodeTitle = (episode && episode.title) || `Серия ${episodeNum}`;
+      const episodeLabel = PotokSDK.i18n.t("potok-torrents:ui.episode");
+      const episodeTitle = (episode && episode.title) || `${episodeLabel} ${episodeNum}`;
       const cleanEpisodeTitle = episodeTitle.replace(/^\d+[\s.\-_]+/, "").trim();
       return {
         ...base,
@@ -355,7 +494,7 @@ PotokSDK.streams.registerStreamSource({
     }
     return {
       ...base,
-      title: context.title || stream.title || "Видео",
+      title: context.title || stream.title || PotokSDK.i18n.t("potok-torrents:ui.video"),
     };
   }
 });
@@ -368,9 +507,10 @@ PotokSDK.registerSlotContribution({
   id: "torrents-media-actions",
   slotName: "media-actions",
   render(props) {
+    const watchText = PotokSDK.i18n.t("potok-torrents:manifest.watch");
     return {
-      label: "Смотреть",
-      layout: PotokSDK.ui.components.Button("Смотреть")
+      label: watchText,
+      layout: PotokSDK.ui.components.Button(watchText)
         .variant("watch-primary")
         .onClick(() => {
           PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-torrents`, {

@@ -9,8 +9,8 @@ const statusState = PotokSDK.createState({
 });
 
 function getStatusLabel(info) {
-  if (!info.configured) return "выкл";
-  if (!info.online || info.latency < 0) return "оффлайн";
+  if (!info.configured) return PotokSDK.i18n.t("potok-torrents:status.off");
+  if (!info.online || info.latency < 0) return PotokSDK.i18n.t("potok-torrents:status.offline");
   return `${info.latency} ms`;
 }
 
@@ -26,10 +26,10 @@ function buildStatusLayout() {
   return VStack()
     .spacing(8)
     .children([
-      StatusRow("Поиск медиа")
+      StatusRow(PotokSDK.i18n.t("potok-torrents:status.mediaSearch"))
         .status(getStatusColor(statusState.searchEngine))
         .value(getStatusLabel(statusState.searchEngine)),
-      StatusRow("Торрент-плеер")
+      StatusRow(PotokSDK.i18n.t("potok-torrents:status.torrentPlayer"))
         .status(getStatusColor(statusState.torrServer))
         .value(getStatusLabel(statusState.torrServer))
     ]);
@@ -83,7 +83,7 @@ export function registerSidebarStatus() {
     id: "torrents-sidebar-status",
     render: () => {
       return {
-        label: "Статус Торрентов",
+        label: PotokSDK.i18n.t("potok-torrents:manifest.statusTitle"),
         layout: buildStatusLayout()
       };
     }

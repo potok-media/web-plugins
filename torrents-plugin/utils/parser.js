@@ -1,5 +1,8 @@
 export class TorrentParser {
   static regexps = [
+    { regex: /(?:сезон|season)\s*(\d+)\s*(?:серия|episode)\s*(\d+)/i, keys: ["season", "episode"] },
+    { regex: /(\d+)\s*сезон\s*(\d+)\s*серия/i, keys: ["season", "episode"] },
+    { regex: /\b(?:тв|tv)[-\s]?(\d+)\b/i, keys: ["season"] }, // ТВ-1, ТВ 2
     { regex: /\bs(\d+)\.?ep?(\d+)\b/i, keys: ["season", "episode"] },
     { regex: /\b(\d{1,2})[x-](\d+)\b/i, keys: ["season", "episode"] },
     { regex: /\bs(\d{2})(\d{2,3})\b/i, keys: ["season", "episode"] },
