@@ -32,8 +32,8 @@ export async function batchParseMetadata(items, config) {
     }
   }
 
-  const systemPrompt = `You are a dedicated media release metadata extractor. Your job is to parse media release titles and extract metadata parameters.
-You must output a flat JSON array of objects. Do not wrap it in markdown code blocks like \`\`\`json. Return only raw JSON.
+  const systemPrompt = `You are a text normalization and parsing assistant. Your task is to process a list of file/title strings, parse their formatting components, and output metadata in a structured JSON format. This is used for cataloging and file organization.
+You must output a flat JSON array of objects. You can wrap the JSON in a \`\`\`json ... \`\`\` code block.
 
 Input JSON format:
 [
@@ -68,8 +68,8 @@ Parsing Rules:
 Few-shot examples:
 Input:
 [
-  { "id": "a1b2", "title": "Клинок рассекающий демонов ТВ-2 [01-11 из 11] [1080p] [HEVC] [AniLibria]" },
-  { "id": "c3d4", "title": "Inception (2010) 2160p BluRay x264 DTS-HD MA 5.1-FGT" }
+  { "id": "a1b2", "title": "Sci-Fi Adventure Series Part 2 [01-11 of 11] [1080p] [HEVC] [VoiceStudio]" },
+  { "id": "c3d4", "title": "Dreamscape Journey (2010) 2160p BluRay x264 DTS-HD MA 5.1-RG" }
 ]
 Output:
 [
@@ -80,7 +80,7 @@ Output:
     "episodeEnd": 11,
     "resolution": "1080p",
     "codec": "hevc",
-    "audio": ["AniLibria"],
+    "audio": ["VoiceStudio"],
     "subtitles": null,
     "year": null
   },
