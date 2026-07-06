@@ -166,20 +166,6 @@ export class TorrentParser {
     return match ? match[0] : ".mkv";
   }
 
-  static generateStreamUrl(params) {
-    const cleanBase = params.baseUrl.replace(/\/+$/, "");
-    let filename = "";
-    if (params.originalPath) {
-      const parts = params.originalPath.split("/");
-      filename = parts[parts.length - 1] || "";
-    }
-    if (!filename) {
-      filename = "video.mkv";
-    }
-    const encodedFilename = encodeURIComponent(filename);
-    return `${cleanBase}/api/torrents/${params.hash.toLowerCase()}/files/${params.index}/stream/${encodedFilename}`;
-  }
-
   // The player is "dumb" — it plays whatever URL/streamType we hand it. These build the READY TorrentGo
   // HLS/subtitle URLs so the player never has to reverse-engineer them from a stream ref.
   static buildHlsUrl(baseUrl, hash, index) {
@@ -187,17 +173,24 @@ export class TorrentParser {
     return `${cleanBase}/api/torrents/${hash.toLowerCase()}/files/${index}/hls/master.m3u8`;
   }
 
-  // Per-audio-track HLS URL. TorrentGo muxes ONE audio track per producer keyed by the absolute input
-  // stream index (`-map 0:N`); switching audio = reloading with a different `?audio=N`. The default/first
-  // audio uses the NO-param URL (backend `0:a:0?`) so it stays aligned with the keepalive `audio=""`.
-  static buildAudioUrl(hlsUrl, absIndex) {
-    return `${hlsUrl}${hlsUrl.includes("?") ? "&" : "?"}audio=${absIndex}`;
+  // Per-audio-track HLS URL. The new backend reads `?audio=M` as the M-th audio track = 0-based POSITION
+  // among audio tracks (`relIndex`), NOT the libav stream index. Switching audio = reloading the playlist
+  // with a different `?audio=`. relIndex 0 uses the NO-param URL (backend defaults to the first audio,
+  // matching keepalive `audio=""`).
+  static buildAudioUrl(hlsUrl, relIndex) {
+    return `${hlsUrl}${hlsUrl.includes("?") ? "&" : "?"}audio=${relIndex}`;
   }
 
-  // Base subtitle endpoint. The player appends `?format=<fmt>&start=<bucket>` per 15s window itself
-  // (windowed streaming), so we return only the base path here.
+  // Base subtitle endpoint (canonical /api path). The player appends `?format=<fmt>&start=<bucket>` per
+  // window itself (windowed streaming), so we return only the base path here.
   static buildSubtitleBaseUrl(baseUrl, hash, index, relIndex) {
     const cleanBase = baseUrl.replace(/\/+$/, "");
-    return `${cleanBase}/stream/${hash.toLowerCase()}/${index}/subtitles/${relIndex}`;
+    return `${cleanBase}/api/torrents/${hash.toLowerCase()}/files/${index}/subtitles/${relIndex}`;
+  }
+
+  // Base thumbnail endpoint. The player fills `?time=<sec>` (rounded) per scrub position.
+  static buildThumbnailBaseUrl(baseUrl, hash, index) {
+    const cleanBase = baseUrl.replace(/\/+$/, "");
+    return `${cleanBase}/api/torrents/${hash.toLowerCase()}/files/${index}/thumbnail`;
   }
 }

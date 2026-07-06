@@ -10,6 +10,59 @@ function cleanHash(hash) {
   return hash.replace(/^urn:btih:/i, "").split("&")[0].trim().toLowerCase();
 }
 
+// Recover the infohash from a TorrentGo URL (`.../api/torrents/{40-hex}/...`). getEpisodes bakes the
+// authoritative hash into each episode URL, so getPlaybackInfo can recover it even if the host strips
+// the custom `torrentHash` field off the episode object.
+function parseHashFromUrl(url) {
+  if (!url) return "";
+  const m = String(url).match(/\/api\/torrents\/([0-9a-fA-F]{40})\b/);
+  return m ? m[1].toLowerCase() : "";
+}
+
+// Best-effort human language name from an ISO code (falls back to the code uppercased).
+let _langDisplay;
+function langName(code) {
+  if (!code) return "";
+  const c = String(code).trim();
+  if (!c) return "";
+  try {
+    if (_langDisplay === undefined) {
+      _langDisplay = (typeof Intl !== "undefined" && Intl.DisplayNames)
+        ? new Intl.DisplayNames(["ru"], { type: "language" })
+        : null;
+    }
+    if (_langDisplay) {
+      const name = _langDisplay.of(c.toLowerCase());
+      if (name && name.toLowerCase() !== c.toLowerCase()) {
+        return name.charAt(0).toUpperCase() + name.slice(1);
+      }
+    }
+  } catch (e) { /* ignore */ }
+  const table = { rus: "Русский", ru: "Русский", eng: "Английский", en: "Английский", jpn: "Японский", ja: "Японский", ukr: "Украинский", uk: "Украинский" };
+  return table[c.toLowerCase()] || c.toUpperCase();
+}
+
+// Display-ready track labels (plain strings — the dumb player just renders them). Prefer a meaningful
+// backend title, else the language name, then enrich with the codec. e.g. "Русский · AC3", "Commentary · AAC".
+function buildAudioLabel(t, i) {
+  const lang = langName(t.language || t.languageCode);
+  const codec = (t.codec || "").toUpperCase();
+  const title = (t.title || t.name || t.label || "").trim();
+  const generic = /^(audio|track|дорожка|аудио)\s*#?\d*$/i;
+  const primary = (title && !generic.test(title)) ? title : (lang || `Дорожка ${i + 1}`);
+  return codec ? `${primary} · ${codec}` : primary;
+}
+
+function buildSubtitleLabel(t, i) {
+  const lang = langName(t.language || t.languageCode);
+  const codec = (t.codec || "").toUpperCase();
+  const title = (t.title || t.name || t.label || "").trim();
+  const generic = /^(subtitle|sub|субтитры|саб)\s*#?\d*$/i;
+  const rel = (typeof t.relIndex === "number") ? t.relIndex : i;
+  const primary = (title && !generic.test(title)) ? title : (lang || `Субтитры #${rel}`);
+  return codec ? `${primary} (${codec})` : primary;
+}
+
 PotokSDK.streams.registerStreamSource({
   id: "potok-torrents",
   name: "Поиск торрентов",
@@ -96,6 +149,9 @@ PotokSDK.streams.registerStreamSource({
 
     const resJson = typeof filesResponse.data === 'string' ? JSON.parse(filesResponse.data) : filesResponse.data;
     const rawFiles = resJson.items || [];
+    // AUTHORITATIVE infohash from the backend (`POST /api/torrents` → `hash`). Used for ALL TorrentGo URLs
+    // + descriptor identity. The BFF override namespace above deliberately keeps the search-derived `hash`.
+    const authHash = cleanHash(resJson.hash) || hash;
     if (rawFiles.length === 0) {
       throw new Error("В раздаче не найдено поддерживаемых медиафайлов.");
     }
@@ -142,10 +198,10 @@ PotokSDK.streams.registerStreamSource({
     const cleanedFiles = TorrentParser.cleanTitles(refinedFiles);
 
     let mappedEpisodes = cleanedFiles.map((f) => {
-      // Hand the player the READY HLS master URL (no more progressive `?remux=true` marker for the
-      // player to reverse-engineer). This `url` is only an identity/placeholder anyway — the full
+      // READY HLS master URL, built with the AUTHORITATIVE hash. This `url` doubles as the carrier of that
+      // hash — getPlaybackInfo recovers it from here if the host strips the `torrentHash` field. The full
       // playback descriptor (audios/subtitles/session) is built per-episode in getPlaybackInfo.
-      const streamUrl = TorrentParser.buildHlsUrl(cleanTorrUrl, hash, String(f.id));
+      const streamUrl = TorrentParser.buildHlsUrl(cleanTorrUrl, authHash, String(f.id));
 
       return {
         id: String(f.id),
@@ -153,6 +209,7 @@ PotokSDK.streams.registerStreamSource({
         episode: f.episode !== undefined ? f.episode : 1,
         title: f.title || `Файл ${f.id}`,
         isWatched: false,
+        torrentHash: authHash,
         url: streamUrl
       };
     });
@@ -196,83 +253,97 @@ PotokSDK.streams.registerStreamSource({
   },
 
   async getPlaybackInfo(stream, episode, context) {
-    const hash = cleanHash(stream.hash || stream.url || stream.magnet || "torrent-id");
-
     const cleanTorrUrl = await resolveTorrUrl();
     const fileIndex = String(episode && episode.id != null ? episode.id : "");
 
+    // Resolve the AUTHORITATIVE infohash robustly: threaded on the episode by getEpisodes, else recovered
+    // from the episode URL it baked, else the search stream's own id. All TorrentGo URLs + descriptor
+    // identity use this hash.
+    const hash = cleanHash(
+      (episode && episode.torrentHash) ||
+      parseHashFromUrl(episode && episode.url) ||
+      stream.hash || stream.url || stream.magnet || ""
+    );
+
     // The player is provider-agnostic: it plays whatever streamUrl + streamType we hand it, renders the
-    // audio/subtitle tracks we list, and drives the session heartbeat against the URLs we give. So build
-    // the FULL ready descriptor here (this is the plugin↔TorrentGo boundary, not the player's job).
+    // tracks we list, and drives the session/status/thumbnails against the URLs we give. So build the FULL
+    // ready descriptor here (this is the plugin↔TorrentGo boundary, not the player's job).
     const hlsUrl = (cleanTorrUrl && fileIndex)
       ? TorrentParser.buildHlsUrl(cleanTorrUrl, hash, fileIndex)
       : ((episode && episode.url) || stream.url || stream.streamUrl || "");
 
     let duration = undefined;
-    let introStart = undefined;
-    let introEnd = undefined;
-    let outroStart = undefined;
-    let outroEnd = undefined;
     let subtitles = undefined;
     let audios = undefined;
 
     if (cleanTorrUrl && fileIndex) {
       try {
-        const metadataUrl = `${cleanTorrUrl}/api/torrents/${hash.toLowerCase()}/files/${fileIndex}/metadata`;
+        const metadataUrl = `${cleanTorrUrl}/api/torrents/${hash}/files/${fileIndex}/metadata`;
         const metadataResponse = await PotokSDK.http.get(metadataUrl);
-        if (metadataResponse && metadataResponse.status === 200) {
-          const metadata = typeof metadataResponse.data === 'string' ? JSON.parse(metadataResponse.data) : metadataResponse.data;
-          if (metadata) {
-            duration = metadata.duration;
-            introStart = metadata.introStart;
-            introEnd = metadata.introEnd;
-            outroStart = metadata.outroStart;
-            outroEnd = metadata.outroEnd;
+        const metadata = (metadataResponse && metadataResponse.status === 200)
+          ? (typeof metadataResponse.data === 'string' ? JSON.parse(metadataResponse.data) : metadataResponse.data)
+          : null;
 
-            if (metadata.tracks && Array.isArray(metadata.tracks)) {
-              // Audio: one HLS producer is muxed per track (absolute stream index `-map 0:N`). The FIRST
-              // audio maps to the plain HLS URL (backend `0:a:0?`, keepalive audio="") so it never spawns
-              // a duplicate producer; the rest carry `?audio=<absIndex>`.
-              const audioTracks = metadata.tracks.filter(t => t.type === 'audio');
-              if (audioTracks.length > 0) {
-                audios = audioTracks.map((t, i) => ({
-                  id: String(t.index),
-                  name: t.title || t.name || t.label || `Дорожка ${i + 1}`,
-                  url: i === 0 ? hlsUrl : TorrentParser.buildAudioUrl(hlsUrl, t.index),
-                }));
-              }
+        if (metadata && typeof metadata.duration === 'number') {
+          duration = metadata.duration;
+        }
 
-              subtitles = metadata.tracks
-                .filter(t => t.type === 'subtitle')
-                .map(t => {
-                  const codec = (t.codec || '').toLowerCase();
-                  const format = (codec === 'ass' || codec === 'ssa') ? 'ass' : 'vtt';
-                  // Base URL only — the player appends `?format=&start=<bucket>` per 15s window.
-                  const src = TorrentParser.buildSubtitleBaseUrl(cleanTorrUrl, hash, fileIndex, t.relIndex);
-                  return {
-                    id: String(t.relIndex),
-                    src,
-                    label: t.label || t.title || t.name || `Subtitles #${t.relIndex}`,
-                    language: t.language || t.languageCode || '',
-                    format
-                  };
-                });
-            }
+        if (metadata && Array.isArray(metadata.tracks)) {
+          // Audio: `?audio=M` selects the M-th audio track = 0-based POSITION among audio tracks (relIndex),
+          // NOT the libav stream index. relIndex 0 → plain HLS URL (backend default, keepalive audio="").
+          const audioTracks = metadata.tracks.filter(t => t.type === 'audio');
+          if (audioTracks.length > 0) {
+            audios = audioTracks.map((t, i) => {
+              const rel = (typeof t.relIndex === 'number') ? t.relIndex : i; // fallback: running position
+              return {
+                id: String(rel),
+                name: buildAudioLabel(t, i),
+                url: rel === 0 ? hlsUrl : TorrentParser.buildAudioUrl(hlsUrl, rel),
+              };
+            });
           }
+
+          subtitles = metadata.tracks
+            .filter(t => t.type === 'subtitle')
+            .map((t, i) => {
+              const rel = (typeof t.relIndex === 'number') ? t.relIndex : i;
+              const codec = (t.codec || '').toLowerCase();
+              const format = (codec === 'ass' || codec === 'ssa') ? 'ass' : 'vtt';
+              return {
+                id: String(rel),
+                // Base URL only — the player appends `?format=&start=<bucket>` per window.
+                src: TorrentParser.buildSubtitleBaseUrl(cleanTorrUrl, hash, fileIndex, rel),
+                label: buildSubtitleLabel(t, i),
+                language: t.language || t.languageCode || '',
+                format,
+              };
+            });
         }
       } catch (err) {
-        console.error("Failed to fetch metadata from TorrentGo:", err);
+        // Degraded path: no usable metadata → the default audio still plays off the plain HLS URL; the
+        // player just shows no track menus. (Also covers a 504 METADATA_TIMEOUT surfaced from getEpisodes.)
+        console.error("TorrentGo metadata unavailable, degrading to default track:", err);
       }
     }
 
-    const session = (cleanTorrUrl && fileIndex)
+    const hasBackend = !!(cleanTorrUrl && fileIndex && hash);
+
+    const session = hasBackend
       ? {
           keepaliveUrl: `${cleanTorrUrl}/api/playback/keepalive`,
           stopUrl: `${cleanTorrUrl}/api/playback/stop`,
+          // Generic status endpoint the dumb player polls for warm-up progress (backend peers/speed → generic).
+          statusUrl: `${cleanTorrUrl}/api/torrents/${hash}`,
+          statusIntervalSec: 2,
           intervalSec: 7,
-          hash: hash.toLowerCase(),
+          hash,
           file: fileIndex,
         }
+      : undefined;
+
+    // Generic scrub-preview template ({time} → rounded seconds). The player never learns it's a torrent.
+    const thumbnails = hasBackend
+      ? { urlTemplate: `${TorrentParser.buildThumbnailBaseUrl(cleanTorrUrl, hash, fileIndex)}?time={time}`, intervalSec: 5 }
       : undefined;
 
     const base = {
@@ -285,11 +356,9 @@ PotokSDK.streams.registerStreamSource({
       audios,
       subtitles,
       session,
+      thumbnails,
+      requiresBuffering: hasBackend, // torrent-backed streams warm up → show the loading/progress overlay
       duration,
-      introStart,
-      introEnd,
-      outroStart,
-      outroEnd,
     };
 
     if (context.type === "tv") {
