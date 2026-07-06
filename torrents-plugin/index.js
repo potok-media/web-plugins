@@ -22,7 +22,8 @@ PotokSDK.i18n.registerTranslations({
         aiApiKey: "API Key",
         aiApiKeyHint: "Get free API Key on <a href=\"https://console.groq.com/keys\" target=\"_blank\">Groq Console</a> or <a href=\"https://platform.openai.com/api-keys\" target=\"_blank\">OpenAI Platform</a>. Your keys are stored locally on your device, the code is open source and completely secure (<a href=\"https://github.com/egorrrmiller/potok\" target=\"_blank\">view source code</a>).",
         aiModel: "Model Name",
-        aiEndpoint: "Custom API URL"
+        aiEndpoint: "Custom API URL",
+        aiGeminiNoticeText: "⚠️ Google Gemini API does not support CORS requests directly from the browser. For Gemini to work correctly, please disable <b>Direct requests</b> under <b>Accessibility settings</b> so requests can be proxied securely through the Potok server."
       },
       errors: {
         noSearchUrl: "SearchEngine address is not configured.",
@@ -64,7 +65,8 @@ PotokSDK.i18n.registerTranslations({
         aiApiKey: "API-ключ",
         aiApiKeyHint: "Получите бесплатный ключ в <a href=\"https://console.groq.com/keys\" target=\"_blank\">Groq Console</a> или <a href=\"https://platform.openai.com/api-keys\" target=\"_blank\">OpenAI</a>. Ваши ключи хранятся локально на вашем устройстве, код полностью открыт и безопасен (<a href=\"https://github.com/egorrrmiller/potok\" target=\"_blank\">посмотреть исходный код</a>).",
         aiModel: "Имя модели",
-        aiEndpoint: "Кастомный API URL"
+        aiEndpoint: "Кастомный API URL",
+        aiGeminiNoticeText: "⚠️ Google Gemini API не поддерживает CORS-запросы напрямую из браузера. Для корректной работы Gemini отключите <b>Прямые запросы</b> в разделе <b>Специальные возможности</b> настроек, чтобы запросы проксировались через сервер Potok."
       },
       errors: {
         noSearchUrl: "Адрес поисковика SearchEngine не настроен.",
@@ -520,5 +522,95 @@ PotokSDK.registerSlotContribution({
           });
         })
     };
+  }
+});
+
+// Initialize Gemini CORS warning banner on load if conditions are met
+(async function initSettingsNotice() {
+  try {
+    const aiProvider = await PotokSDK.storage.local.getItem("aiProvider") || "groq";
+    const isDirectRequestsEnabled = PotokSDK.config.disableHttpProxy !== false;
+    const currentNotice = await PotokSDK.storage.local.getItem("aiGeminiNotice") || "";
+    
+    if (aiProvider === "gemini" && isDirectRequestsEnabled) {
+      const warningText = PotokSDK.i18n.t("potok-torrents:config.aiGeminiNoticeText");
+      if (currentNotice !== warningText) {
+        await PotokSDK.storage.local.setItem("aiGeminiNotice", warningText);
+      }
+    } else {
+      if (currentNotice !== "") {
+        await PotokSDK.storage.local.setItem("aiGeminiNotice", "");
+      }
+    }
+  } catch (e) {
+    console.error("Failed to init settings notice:", e);
+  }
+})();
+
+// Dynamic AI settings autofill managed by the plugin itself
+PotokSDK.onSettingsChanged((key, val, currentSettings) => {
+  const updates = {};
+  
+  if (key === "aiProvider") {
+    const currentModel = currentSettings.aiModelName;
+    const currentEndpoint = currentSettings.aiCustomEndpoint;
+
+    const isGroqModel = !currentModel || currentModel === "llama-3.1-8b-instant" || currentModel === "";
+    const isGroqEndpoint = !currentEndpoint || currentEndpoint === "https://api.groq.com/openai/v1" || currentEndpoint === "";
+
+    const isOpenAiModel = currentModel === "gpt-4o-mini";
+    const isOpenAiEndpoint = currentEndpoint === "https://api.openai.com/v1";
+
+    const isGeminiModel = currentModel === "gemini-1.5-flash";
+    const isGeminiEndpoint = currentEndpoint === "https://generativelanguage.googleapis.com/v1beta/openai";
+
+    if (val === "groq") {
+      if (isOpenAiModel || isGeminiModel || !currentModel) {
+        updates.aiModelName = "llama-3.1-8b-instant";
+      }
+      if (isOpenAiEndpoint || isGeminiEndpoint || !currentEndpoint) {
+        updates.aiCustomEndpoint = "https://api.groq.com/openai/v1";
+      }
+    } else if (val === "openai") {
+      if (isGroqModel || isGeminiModel || !currentModel) {
+        updates.aiModelName = "gpt-4o-mini";
+      }
+      if (isGroqEndpoint || isGeminiEndpoint || !currentEndpoint) {
+        updates.aiCustomEndpoint = "https://api.openai.com/v1";
+      }
+    } else if (val === "gemini") {
+      if (isGroqModel || isOpenAiModel || !currentModel) {
+        updates.aiModelName = "gemini-1.5-flash";
+      }
+      if (isGroqEndpoint || isOpenAiEndpoint || !currentEndpoint) {
+        updates.aiCustomEndpoint = "https://generativelanguage.googleapis.com/v1beta/openai";
+      }
+    } else if (val === "custom") {
+      if (isGroqModel || isOpenAiModel || isGeminiModel) {
+        updates.aiModelName = "";
+      }
+      if (isGroqEndpoint || isOpenAiEndpoint || isGeminiEndpoint) {
+        updates.aiCustomEndpoint = "";
+      }
+    }
+  }
+
+  // Update Gemini CORS warning banner notice dynamically
+  const provider = key === "aiProvider" ? val : currentSettings.aiProvider;
+  const isDirectRequestsEnabled = PotokSDK.config.disableHttpProxy !== false; // default true
+  
+  if (provider === "gemini" && isDirectRequestsEnabled) {
+    const warningText = PotokSDK.i18n.t("potok-torrents:config.aiGeminiNoticeText");
+    if (currentSettings.aiGeminiNotice !== warningText) {
+      updates.aiGeminiNotice = warningText;
+    }
+  } else {
+    if (currentSettings.aiGeminiNotice !== "") {
+      updates.aiGeminiNotice = "";
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    PotokSDK.updateSettingsForm(updates);
   }
 });

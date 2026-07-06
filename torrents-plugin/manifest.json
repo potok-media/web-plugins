@@ -49,6 +49,7 @@
       "default": "groq",
       "options": [
         { "value": "groq", "label": "Groq (Free)" },
+        { "value": "gemini", "label": "Google Gemini (AI Studio)" },
         { "value": "openai", "label": "OpenAI" },
         { "value": "custom", "label": "Custom (OpenAI-compatible)" }
       ],
@@ -66,6 +67,11 @@
       "type": "string",
       "default": "https://api.groq.com/openai/v1",
       "label": "potok-torrents:config.aiEndpoint",
+      "dependsOn": "enableAiParsing"
+    },
+    "aiGeminiNotice": {
+      "type": "notice",
+      "default": "",
       "dependsOn": "enableAiParsing"
     }
   }

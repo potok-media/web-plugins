@@ -24,8 +24,13 @@ export async function batchParseMetadata(items, config) {
   let endpoint = "https://api.groq.com/openai/v1/chat/completions";
   if (provider === "openai") {
     endpoint = "https://api.openai.com/v1/chat/completions";
+  } else if (provider === "gemini") {
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
   } else if (provider === "custom") {
     endpoint = (config.aiCustomEndpoint || "").trim() || endpoint;
+    if (!endpoint.endsWith("/chat/completions") && !endpoint.includes("/chat/completions?")) {
+      endpoint = endpoint.replace(/\/+$/, "") + "/chat/completions";
+    }
   }
 
   const systemPrompt = `You are a dedicated torrent release metadata extractor. Your job is to parse torrent release titles and extract metadata parameters.
@@ -105,7 +110,7 @@ Output:
   };
 
   // Enable JSON Mode if possible
-  if (provider === "openai" || provider === "groq") {
+  if (provider === "openai" || provider === "groq" || provider === "gemini") {
     requestBody.response_format = { type: "json_object" };
   }
 
