@@ -111,10 +111,8 @@ Output:
 
   try {
     const response = await PotokSDK.http.post(endpoint, requestBody, {
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      }
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
     });
 
     if (response.status !== 200) {
