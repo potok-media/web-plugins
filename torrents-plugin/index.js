@@ -476,6 +476,20 @@ PotokSDK.streams.registerStreamSource({
     }
   },
 
+  // Reset ONE source season's override (delete the entry → that season falls back to auto-parse).
+  async clearSeasonOverride(stream, context, sourceSeason) {
+    const hash = cleanHash(stream.hash || stream.url || stream.magnet || "torrent-id");
+    const searchEngineUrl = await resolveSearchEngineUrl();
+    if (!searchEngineUrl) {
+      throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
+    }
+    const q = (sourceSeason === undefined || sourceSeason === null) ? "" : `?sourceSeason=${encodeURIComponent(sourceSeason)}`;
+    const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/season/remove${q}`, {});
+    if (res.status !== 200) {
+      throw new Error(`Reset override failed with status ${res.status}`);
+    }
+  },
+
   async getPlaybackInfo(stream, episode, context) {
     // Return INSTANTLY: everything here is derived synchronously from the stream/episode (no /metadata probe),
     // so the player opens immediately with its waiting overlay. Subtitles + duration are DEFERRED to
