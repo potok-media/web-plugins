@@ -16,3 +16,16 @@ export async function resolveTorrUrl() {
   }
   return torrUrl.trim().replace(/\/$/, "");
 }
+
+// The SearchEngine base URL (search AND overrides live there now). Prefers configured value, then stored value.
+// Returns "" when unset (callers decide: search throws, overrides skip gracefully). `http://` prefixed, trailing
+// slash stripped — matches the shape the search() call was building inline.
+export async function resolveSearchEngineUrl() {
+  let base = (PotokSDK.config.searchEngineURL || "").trim();
+  if (!base) {
+    base = (await PotokSDK.storage.local.getItem("searchEngineURL") || "").trim();
+  }
+  if (!base) return "";
+  if (!/^https?:\/\//i.test(base)) base = `http://${base}`;
+  return base.replace(/\/+$/, "");
+}

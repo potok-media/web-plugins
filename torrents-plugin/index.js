@@ -2,7 +2,7 @@ import { PotokSDK } from 'potok-sdk';
 import { TorrentParser } from './utils/parser.js';
 import { registerSidebarStatus } from './utils/status.js';
 import { applyTMDBMetadata } from './utils/metadata.js';
-import { resolveTorrUrl } from './utils/config.js';
+import { resolveTorrUrl, resolveSearchEngineUrl } from './utils/config.js';
 
 // Register full translations for torrents-plugin namespace
 PotokSDK.i18n.registerTranslations({
@@ -221,16 +221,9 @@ PotokSDK.streams.registerStreamSource({
   supportedTypes: ["movie", "tv"],
 
   async search(query) {
-    let searchEngineBase = PotokSDK.config.searchEngineURL || "";
-    if (!searchEngineBase) {
-      searchEngineBase = await PotokSDK.storage.local.getItem("searchEngineURL") || "";
-    }
-    let absoluteSearchEngine = searchEngineBase.trim();
+    const absoluteSearchEngine = await resolveSearchEngineUrl();
     if (!absoluteSearchEngine) {
       throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
-    }
-    if (!/^https?:\/\//i.test(absoluteSearchEngine)) {
-      absoluteSearchEngine = `http://${absoluteSearchEngine}`;
     }
 
     const url = `${absoluteSearchEngine}/api/v1/torrents/search`;
@@ -344,9 +337,16 @@ PotokSDK.streams.registerStreamSource({
     };
 
     const filesUrl = `${cleanTorrUrl.replace(/\/$/, "")}/api/torrents`;
+    // Overrides now live in the SearchEngine (moved out of the gateway). Fetch the per-season map directly there
+    // (absolute URL, like search); if no SearchEngine is configured, skip overrides gracefully.
+    const searchEngineUrl = await resolveSearchEngineUrl();
+    const overridePromise = searchEngineUrl
+      ? PotokSDK.http.get(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}`).catch(() => null)
+      : Promise.resolve(null);
+
     const [filesResponse, overrideRes, detailRes] = await Promise.all([
       PotokSDK.http.post(filesUrl, requestBody),
-      PotokSDK.http.get(`/api/media/override/${hash}`).catch(() => ({ status: 404 })),
+      overridePromise,
       PotokSDK.http.get(`/api/media/detail/${context.type === "tv" ? "tv" : "movie"}/${context.tmdbId}`).catch(() => null)
     ]);
 
@@ -361,9 +361,12 @@ PotokSDK.streams.registerStreamSource({
       throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noMediaFiles"));
     }
 
-    let override = null;
+    // seasonMap: { "<sourceSeason>": { season: <targetSeason>, offset }, "_": {...} } — sentinel "_" = files with
+    // no parseable season. An entry REPLACES the auto-parse for that source season (it never stacks on it).
+    let seasonMap = {};
     if (overrideRes && overrideRes.status === 200) {
-      override = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
+      const data = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
+      seasonMap = (data && data.seasonMap) || {};
     }
 
     let loadedTotalSeasons = 1;
@@ -372,30 +375,38 @@ PotokSDK.streams.registerStreamSource({
       loadedTotalSeasons = details.numberOfSeasons || 1;
     }
 
-    const refinedFiles = rawFiles.map((file, fileIdx) => {
+    // Per-SOURCE-season remap. Parse each file by NAME only (no override), group by its RAW source-season key
+    // (sentinel "_" = no season), then apply the map entry for that key: displayedEpisode = parsedEpisode + offset.
+    // The offset was computed by the UI on RAW parsed episodes (offset = targetEp − rawFirstEp), so it never
+    // compounds. Files with no parsed episode fall back to sequential numbering WITHIN their key group. Each file
+    // carries its RAW parsed season/episode so the UI can recompute a per-season offset without compounding.
+    const SENTINEL = "_";
+    const groupCounts = {};
+    const refinedFiles = rawFiles.map((file) => {
       let filePath = file.path || file.title || "";
       if (!filePath.includes("/")) {
         filePath = stream.title ? `${stream.title}/${filePath}` : filePath;
       }
-      const sOverride = override ? (override.season !== undefined ? override.season : override.Season) : undefined;
-      const oOverride = override ? (
-        override.episodeOffset !== undefined ? override.episodeOffset :
-        override.EpisodeOffset !== undefined ? override.EpisodeOffset :
-        override.episode_offset
-      ) : undefined;
+      const parsed = TorrentParser.parseEpisode(filePath, context.type, context.type === "tv" ? loadedTotalSeasons : undefined);
+      const key = parsed.season !== undefined ? String(parsed.season) : SENTINEL;
+      const idxInGroup = (groupCounts[key] = (groupCounts[key] ?? 0));
+      groupCounts[key] = idxInGroup + 1;
 
-      const parsed = TorrentParser.parseEpisode(
-        filePath,
-        context.type,
-        context.type === "tv" ? loadedTotalSeasons : undefined,
-        sOverride,
-        oOverride,
-        fileIdx
-      );
+      const entry = seasonMap[key];
+      let season, episode;
+      if (entry) {
+        season = entry.season;
+        episode = parsed.episode !== undefined ? parsed.episode + entry.offset : (1 + entry.offset + idxInGroup);
+      } else {
+        season = parsed.season !== undefined ? parsed.season : (context.type === "tv" ? 1 : 0);
+        episode = parsed.episode !== undefined ? parsed.episode : (1 + idxInGroup);
+      }
       return {
         ...file,
-        season: parsed.season,
-        episode: parsed.episode,
+        season,
+        episode,
+        rawSeason: parsed.season,
+        rawEpisode: parsed.episode,
         isSerial: parsed.isSerial
       };
     });
@@ -408,8 +419,10 @@ PotokSDK.streams.registerStreamSource({
       const fileLabel = PotokSDK.i18n.t("potok-torrents:ui.file");
       return {
         id: String(f.id),
-        season: f.season !== undefined ? f.season : (context.type === "tv" ? 1 : 0),
-        episode: f.episode !== undefined ? f.episode : 1,
+        season: f.season,
+        episode: f.episode,
+        rawSeason: f.rawSeason,
+        rawEpisode: f.rawEpisode,
         title: f.title || `${fileLabel} ${f.id}`,
         isWatched: false,
         torrentHash: authHash,
@@ -421,7 +434,8 @@ PotokSDK.streams.registerStreamSource({
 
     return {
       episodes: mappedEpisodes,
-      tmdbSeasonsCount: loadedTotalSeasons
+      tmdbSeasonsCount: loadedTotalSeasons,
+      seasonMap
     };
   },
 
@@ -441,17 +455,21 @@ PotokSDK.streams.registerStreamSource({
     return Promise.all(promises);
   },
 
-  async saveMetadataOverride(stream, context, seasonNum, episodeOffset) {
+  // Upsert ONE source-season's mapping into the SearchEngine per-season override. sourceSeason may be null (the
+  // sentinel bucket for files with no parseable season). offset is computed by the UI on RAW parsed episodes.
+  async saveSeasonOverride(stream, context, sourceSeason, targetSeason, offset) {
     const hash = cleanHash(stream.hash || stream.url || stream.magnet || "torrent-id");
-    const saveRes = await PotokSDK.http.post(`/api/media/override`, {
-      hash: hash,
-      override: {
-        season: seasonNum,
-        episodeOffset: episodeOffset
-      }
+    const searchEngineUrl = await resolveSearchEngineUrl();
+    if (!searchEngineUrl) {
+      throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
+    }
+    const saveRes = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/season`, {
+      sourceSeason: sourceSeason === undefined ? null : sourceSeason,
+      targetSeason: targetSeason,
+      offset: offset
     });
     if (saveRes.status !== 200) {
-      throw new Error(`BFF save override failed with status ${saveRes.status}`);
+      throw new Error(`Save override failed with status ${saveRes.status}`);
     }
   },
 

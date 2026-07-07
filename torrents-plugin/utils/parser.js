@@ -88,13 +88,12 @@ export class TorrentParser {
     return { resolution, codec, year };
   }
 
+  // Pure name/folder parse (season + episode). Overrides are NO LONGER applied here — getEpisodes owns the
+  // per-source-season remap using the SearchEngine seasonMap (see [[torrents-plugin]] index.js).
   static parseEpisode(
     path,
     mediaType,
-    numberOfSeasons,
-    overrideSeason,
-    overrideEpisodeOffset,
-    fileIndex
+    numberOfSeasons
   ) {
     const isSerial = mediaType === "tv" || (numberOfSeasons ?? 0) > 0;
     const info = {
@@ -141,23 +140,6 @@ export class TorrentParser {
     if (numberOfSeasons && numberOfSeasons > 0 && info.season !== undefined && info.season > numberOfSeasons) {
       info.season = undefined; // Trigger manual fix / parsing failure
       info.seasons = undefined;
-    }
-
-    // 4. Apply Overrides (User overrides are the absolute source of truth!)
-    if (overrideSeason !== undefined && overrideSeason !== null) {
-      info.season = overrideSeason;
-      
-      // If we have an override, we map episodes sequentially based on the file index in the sorted list!
-      if (fileIndex !== undefined) {
-        const offset = overrideEpisodeOffset ?? 0;
-        info.episode = offset + 1 + fileIndex;
-      } else if (overrideEpisodeOffset !== undefined && overrideEpisodeOffset !== null && info.episode !== undefined) {
-        info.episode = Math.max(1, info.episode + overrideEpisodeOffset);
-      }
-    } else {
-      if (overrideEpisodeOffset !== undefined && overrideEpisodeOffset !== null && info.episode !== undefined) {
-        info.episode = Math.max(1, info.episode + overrideEpisodeOffset);
-      }
     }
 
     return info;

@@ -15,25 +15,6 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
     );
   };
 
-  // Get local override offset if exists
-  const deterministicHash = `online:${activeProvider}:${mediaId}`;
-  let override = null;
-  try {
-    // Query local BFF API for overrides using the correct controller endpoint
-    const overrideRes = await PotokSDK.http.get(`/api/media/override/${encodeURIComponent(deterministicHash)}`).catch(() => null);
-    if (overrideRes && overrideRes.status === 200) {
-      const data = typeof overrideRes.data === 'string' ? JSON.parse(overrideRes.data) : overrideRes.data;
-      if (data) {
-        override = {
-          season: data.season ?? data.Season,
-          episodeOffset: data.episodeOffset ?? data.EpisodeOffset ?? 0
-        };
-      }
-    }
-  } catch (err) {
-    console.warn("[Plugin] Override retrieval failed:", err);
-  }
-
   // Delegate episode fetching to modular provider modules
   if (activeProvider === "videodb") {
     parsedFiles = await fetchVideoDBEpisodes(mediaId, checkWatched).catch(() => []);
@@ -96,44 +77,12 @@ export async function fetchOnlineEpisodes(activeProvider, mediaItem) {
     });
   });
 
-  // Apply automatic mapping offsets
-  const autoMappedFiles = parsedFiles.map((file) => {
+  // 6. Apply the automatic season-mapping offsets (target season + sequential episode offset). Online balancers
+  //    are their own source type — no torrent overrides here.
+  const refinedFiles = parsedFiles.map((file) => {
     const rawSeason = file.season;
-    const targetSeason = rawSeason > maxValidSeason ? maxValidSeason : rawSeason;
-    const offset = balancerSeasonOffsets[rawSeason] || 0;
-    
-    return {
-      ...file,
-      season: targetSeason,
-      episode: file.episode + offset
-    };
-  });
-
-  // Sort autoMappedFiles chronologically before applying overrides to make sure the relative firstFile logic is correct.
-  autoMappedFiles.sort((a, b) => {
-    if (a.season !== b.season) return a.season - b.season;
-    return a.episode - b.episode;
-  });
-
-  // 6. Refine seasons/episodes offsets if local database override exists
-  const refinedFiles = autoMappedFiles.map((file) => {
-    let finalSeason = file.season;
-    let finalEpisode = file.episode;
-
-    if (override && override.season !== undefined && override.season !== null) {
-      const firstFile = autoMappedFiles[0];
-      const seasonShift = override.season - (firstFile ? firstFile.season : 1);
-      finalSeason = file.season + seasonShift;
-      
-      const offset = override.episodeOffset ?? 0;
-      if (firstFile && file.season === firstFile.season) {
-        finalEpisode = offset + (file.episode - firstFile.episode) + 1;
-      } else {
-        // Keep the relative episode number for other seasons
-        finalEpisode = file.episode;
-      }
-    }
-
+    const finalSeason = rawSeason > maxValidSeason ? maxValidSeason : rawSeason;
+    const finalEpisode = file.episode + (balancerSeasonOffsets[rawSeason] || 0);
     return {
       ...file,
       season: finalSeason,
