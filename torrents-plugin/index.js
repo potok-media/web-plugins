@@ -407,6 +407,8 @@ PotokSDK.streams.registerStreamSource({
         episode,
         rawSeason: parsed.season,
         rawEpisode: parsed.episode,
+        // Keep the ORIGINAL file name before cleanTitles trims it / applyTMDBMetadata overwrites `title`.
+        fileName: file.title || (file.path ? file.path.split("/").pop() : undefined),
         isSerial: parsed.isSerial
       };
     });
@@ -424,6 +426,7 @@ PotokSDK.streams.registerStreamSource({
         rawSeason: f.rawSeason,
         rawEpisode: f.rawEpisode,
         title: f.title || `${fileLabel} ${f.id}`,
+        fileName: f.fileName,
         isWatched: false,
         torrentHash: authHash,
         url: streamUrl
