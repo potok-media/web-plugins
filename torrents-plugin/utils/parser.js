@@ -15,7 +15,8 @@ export class TorrentParser {
       || s.match(/\[\s*(\d{1,3})\s*[-–]\s*\d{1,3}\s*(?:из|of)\b/i)                        // [01-11 из 11]
       || s.match(/(?:^|[^a-zа-яё0-9])(?:ep|episode|эпизод)\s*[:.№]?\s*(\d{1,3})/i)         // Ep 3 / эпизод 5
       || s.match(/(\d{1,3})\s*(?:из|of)\s*\d{1,3}/i)                                       // 11 из 11
-      || s.match(/(\d{1,3})\s*сери[ияйю]/i);                                              // 5 серия
+      || s.match(/(\d{1,3})\s*сери[ияйю]/i)                                               // 5 серия
+      || s.match(/(?:^|[^a-zа-яё0-9])s\d{1,2}[\s._-]*e(\d{1,3})/i);                        // S04E01 / S04.E01 → episode 1
     if (em) episode = parseInt(em[1], 10);
 
     // --- kind: OVA/special vs Movie vs TV. Anime specials come as ОВА-3 / OVA-3 / [OVA] / [2025, OVA,…],
