@@ -272,7 +272,7 @@ PotokSDK.streams.registerStreamSource({
       // season/episode (range-aware), kind (tv/ova/movie) + OVA number. Plus cheap quality tags. Deterministic,
       // offline, no tokens. Season 0 never leaks into a filter bucket; OVAs are not TV seasons.
       const parsed = TorrentParser.extractSeasonEpisode(t.title);
-      baseTorrent.kind = parsed.kind;
+      baseTorrent.parsedKind = parsed.kind;
       baseTorrent.ovaNumber = parsed.ovaNumber;
       baseTorrent.season = (Number.isInteger(parsed.season) && parsed.season > 0) ? parsed.season : undefined;
       baseTorrent.seasons = (parsed.seasons && parsed.seasons.length > 0)
@@ -300,7 +300,7 @@ PotokSDK.streams.registerStreamSource({
     if (query.season !== undefined && query.season !== null) {
       const targetSeason = Number(query.season);
       mappedResults = mappedResults.filter(t => {
-        if (t.kind === "ova") {
+        if (t.parsedKind === "ova") {
           // OVAs/specials aren't TV seasons: an OVA-N shows ONLY under its associated Season N; a number-less
           // OVA under no specific season (still visible in the "All seasons" view). Fixes the cross-bucket leak.
           return t.ovaNumber === targetSeason;
