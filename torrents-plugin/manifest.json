@@ -147,6 +147,30 @@
       "dependsOn": "searchEngineConfigEditable",
       "label": "potok-torrents:config.proxyUrl"
     },
+    "proxyUsername": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.proxyUsername"
+    },
+    "proxyPassword": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.proxyPassword"
+    },
+    "ffprobeLogin": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.ffprobeLogin"
+    },
+    "ffprobePassword": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.ffprobePassword"
+    },
     "rutrackerEnableSearch": {
       "type": "boolean",
       "default": true,
@@ -177,11 +201,35 @@
       "dependsOn": "searchEngineConfigEditable",
       "label": "potok-torrents:config.rutrackerPopularCategories"
     },
+    "rutrackerLogin": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.rutrackerLogin"
+    },
+    "rutrackerPassword": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.rutrackerPassword"
+    },
     "animelayerEnableSearch": {
       "type": "boolean",
       "default": true,
       "dependsOn": "searchEngineConfigEditable",
       "label": "potok-torrents:config.animelayerEnableSearch"
+    },
+    "animelayerLogin": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.animelayerLogin"
+    },
+    "animelayerPassword": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.animelayerPassword"
     },
     "nnmclubEnableSearch": {
       "type": "boolean",
@@ -206,6 +254,18 @@
       "default": true,
       "dependsOn": "searchEngineConfigEditable",
       "label": "potok-torrents:config.kinozalEnableSearch"
+    },
+    "kinozalLogin": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.kinozalLogin"
+    },
+    "kinozalPassword": {
+      "type": "string",
+      "default": "",
+      "dependsOn": "searchEngineConfigEditable",
+      "label": "potok-torrents:config.kinozalPassword"
     },
     "megapeerEnableSearch": {
       "type": "boolean",
