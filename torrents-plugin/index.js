@@ -54,8 +54,7 @@ PotokSDK.i18n.registerTranslations({
         kinozalEnableSearch: "Kinozal search",
         kinozalLogin: "Kinozal login",
         kinozalPassword: "Kinozal password",
-        megapeerEnableSearch: "MegaPeer search",
-        configLockedNotice: "SearchEngine settings are managed by the operator and cannot be changed here."
+        megapeerEnableSearch: "MegaPeer search"
       },
       errors: {
         noSearchUrl: "SearchEngine address is not configured.",
@@ -128,8 +127,7 @@ PotokSDK.i18n.registerTranslations({
         kinozalEnableSearch: "Поиск Kinozal",
         kinozalLogin: "Логин Kinozal",
         kinozalPassword: "Пароль Kinozal",
-        megapeerEnableSearch: "Поиск MegaPeer",
-        configLockedNotice: "Настройки SearchEngine управляются оператором и недоступны для изменения."
+        megapeerEnableSearch: "Поиск MegaPeer"
       },
       errors: {
         noSearchUrl: "Адрес поисковика SearchEngine не настроен.",
