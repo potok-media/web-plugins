@@ -139,8 +139,8 @@ export function settingsToFileConfig(settings) {
   };
 }
 
-async function fetchSearchEngineMeta(baseUrl) {
-  const res = await PotokSDK.http.get(`${baseUrl}/api/v1/config/meta`);
+async function fetchSearchEngineMeta(baseUrl, headers) {
+  const res = await PotokSDK.http.get(`${baseUrl}/api/v1/config/meta`, headers);
   if (res.status !== 200) return null;
   return JSON.parse(res.data);
 }
@@ -160,34 +160,59 @@ async function saveSearchEngineConfig(baseUrl, headers, config) {
   return res.status === 200;
 }
 
-function hasSearchEngineConfigFields(settings) {
-  return "mergeDuplicates" in settings
-    || "cacheEnable" in settings
-    || "rutrackerEnableSearch" in settings;
+function lockedNoticeHtml() {
+  return PotokSDK.i18n.t("potok-torrents:config.configLockedNotice");
 }
 
 export function registerSearchEngineSettings() {
   PotokSDK.onSettingsPageOpened(async () => {
     const baseUrl = await resolveSearchEngineUrl();
-    if (!baseUrl) return;
+    if (!baseUrl) {
+      PotokSDK.updateSettingsForm({
+        searchEngineConfigLocked: false,
+        searchEngineConfigEditable: false,
+        configLockedNotice: "",
+      });
+      return;
+    }
 
     const headers = await searchEngineHeaders();
-    const fileConfig = await fetchSearchEngineConfig(baseUrl, headers);
-    if (fileConfig) {
-      PotokSDK.updateSettingsForm(fileConfigToSettings(fileConfig));
+    const meta = await fetchSearchEngineMeta(baseUrl, headers);
+    if (!meta) {
+      PotokSDK.updateSettingsForm({
+        searchEngineConfigLocked: false,
+        searchEngineConfigEditable: false,
+        configLockedNotice: "",
+      });
+      return;
     }
+
+    if (meta.readOnly) {
+      PotokSDK.updateSettingsForm({
+        searchEngineConfigLocked: true,
+        searchEngineConfigEditable: false,
+        configLockedNotice: lockedNoticeHtml(),
+      });
+      return;
+    }
+
+    const fileConfig = await fetchSearchEngineConfig(baseUrl, headers);
+    const updates = {
+      searchEngineConfigLocked: false,
+      searchEngineConfigEditable: true,
+      configLockedNotice: "",
+      ...(fileConfig ? fileConfigToSettings(fileConfig) : {}),
+    };
+    PotokSDK.updateSettingsForm(updates);
   });
 
   PotokSDK.onSettingsSaved(async (settings) => {
-    if (!hasSearchEngineConfigFields(settings)) return;
+    if (!settings.searchEngineConfigEditable) return;
 
     const baseUrl = await resolveSearchEngineUrl();
     if (!baseUrl) {
       throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
     }
-
-    const meta = await fetchSearchEngineMeta(baseUrl);
-    if (meta?.readOnly) return;
 
     const headers = await searchEngineHeaders();
     const ok = await saveSearchEngineConfig(baseUrl, headers, settingsToFileConfig(settings));
