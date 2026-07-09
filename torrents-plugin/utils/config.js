@@ -29,3 +29,16 @@ export async function resolveSearchEngineUrl() {
   if (!/^https?:\/\//i.test(base)) base = `http://${base}`;
   return base.replace(/\/+$/, "");
 }
+
+export async function resolveSearchEngineApiKey() {
+  let key = (PotokSDK.config.searchEngineApiKey || "").trim();
+  if (!key) {
+    key = (await PotokSDK.storage.local.getItem("searchEngineApiKey") || "").trim();
+  }
+  return key;
+}
+
+export async function searchEngineHeaders() {
+  const key = await resolveSearchEngineApiKey();
+  return key ? { "X-Api-Key": key } : {};
+}

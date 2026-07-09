@@ -2,7 +2,8 @@ import { PotokSDK } from 'potok-sdk';
 import { TorrentParser } from './utils/parser.js';
 import { registerSidebarStatus } from './utils/status.js';
 import { applyTMDBMetadata } from './utils/metadata.js';
-import { resolveTorrUrl, resolveSearchEngineUrl } from './utils/config.js';
+import { resolveTorrUrl, resolveSearchEngineUrl, searchEngineHeaders } from './utils/config.js';
+import { registerSearchEngineSettings } from './utils/searchEngineSettings.js';
 
 // Register full translations for torrents-plugin namespace
 PotokSDK.i18n.registerTranslations({
@@ -15,10 +16,40 @@ PotokSDK.i18n.registerTranslations({
       },
       config: {
         torrentGoUrl: "TorrentGo Address",
-        searchEngineUrl: "SearchEngine Address"
+        searchEngineUrl: "SearchEngine Address",
+        searchEngineApiKey: "SearchEngine API Key",
+        mergeDuplicates: "Merge duplicate torrents (by infohash)",
+        mergeNumDuplicates: "Merge numbered title duplicates",
+        cacheEnable: "Enable cache",
+        cacheExpiry: "Cache TTL (minutes)",
+        cacheAuthExpiry: "Auth cache TTL (days)",
+        refreshEnable: "Enable torrent refresh",
+        refreshTimeout: "Refresh interval (minutes)",
+        refreshOlderThanMin: "Refresh torrents older than (minutes)",
+        refreshLimit: "Refresh batch limit",
+        ffprobeEnable: "Enable ffprobe probing",
+        ffprobeTimeout: "Ffprobe interval (minutes)",
+        ffprobeTsUri: "TorrServer / ffprobe URL",
+        ffprobeBatchSize: "Ffprobe batch size",
+        ffprobeAttempts: "Ffprobe max attempts",
+        proxyBypassOnLocal: "Proxy: bypass local addresses",
+        proxyUrl: "Proxy URL",
+        rutrackerEnableSearch: "RuTracker search",
+        rutrackerPopularEnable: "RuTracker popular sync",
+        rutrackerPopularTimeout: "Popular sync interval (minutes)",
+        rutrackerPopularMaxPages: "Popular sync max pages",
+        rutrackerPopularCategories: "Popular category IDs (comma-separated)",
+        animelayerEnableSearch: "AnimeLayer search",
+        nnmclubEnableSearch: "NNM-Club search",
+        rutorEnableSearch: "RuTor search",
+        anilibertyEnableSearch: "Aniliberty search",
+        kinozalEnableSearch: "Kinozal search",
+        megapeerEnableSearch: "MegaPeer search",
+        configLockedNotice: "SearchEngine settings are managed by the operator and cannot be changed here."
       },
       errors: {
         noSearchUrl: "SearchEngine address is not configured.",
+        searchEngineConfigSaveFailed: "Failed to save SearchEngine configuration.",
         noTorrUrl: "TorrentGo address is not configured.",
         torrGoError: "TorrentGo error (status {{status}})",
         noMediaFiles: "No supported media files found in the torrent."
@@ -49,10 +80,40 @@ PotokSDK.i18n.registerTranslations({
       },
       config: {
         torrentGoUrl: "Адрес TorrentGo",
-        searchEngineUrl: "Адрес SearchEngine"
+        searchEngineUrl: "Адрес SearchEngine",
+        searchEngineApiKey: "API-ключ SearchEngine",
+        mergeDuplicates: "Объединять дубликаты (по infohash)",
+        mergeNumDuplicates: "Объединять дубликаты с суффиксами в названии",
+        cacheEnable: "Включить кеш",
+        cacheExpiry: "TTL кеша (мин)",
+        cacheAuthExpiry: "TTL кеша авторизации (дни)",
+        refreshEnable: "Обновление торрентов",
+        refreshTimeout: "Интервал обновления (мин)",
+        refreshOlderThanMin: "Обновлять старше (мин)",
+        refreshLimit: "Лимит за проход",
+        ffprobeEnable: "Ffprobe-пробинг",
+        ffprobeTimeout: "Интервал ffprobe (мин)",
+        ffprobeTsUri: "URL TorrServer / ffprobe",
+        ffprobeBatchSize: "Размер пакета ffprobe",
+        ffprobeAttempts: "Попыток ffprobe",
+        proxyBypassOnLocal: "Прокси: не использовать для local",
+        proxyUrl: "URL прокси",
+        rutrackerEnableSearch: "Поиск RuTracker",
+        rutrackerPopularEnable: "Синхронизация популярного RuTracker",
+        rutrackerPopularTimeout: "Интервал popular (мин)",
+        rutrackerPopularMaxPages: "Глубина popular (страниц)",
+        rutrackerPopularCategories: "ID категорий popular (через запятую)",
+        animelayerEnableSearch: "Поиск AnimeLayer",
+        nnmclubEnableSearch: "Поиск NNM-Club",
+        rutorEnableSearch: "Поиск RuTor",
+        anilibertyEnableSearch: "Поиск Aniliberty",
+        kinozalEnableSearch: "Поиск Kinozal",
+        megapeerEnableSearch: "Поиск MegaPeer",
+        configLockedNotice: "Настройки SearchEngine управляются оператором и недоступны для изменения."
       },
       errors: {
         noSearchUrl: "Адрес поисковика SearchEngine не настроен.",
+        searchEngineConfigSaveFailed: "Не удалось сохранить конфигурацию SearchEngine.",
         noTorrUrl: "Адрес торрент-плеера TorrentGo не настроен.",
         torrGoError: "Ошибка TorrentGo (статус {{status}})",
         noMediaFiles: "В раздаче не найдено поддерживаемых медиафайлов."
@@ -75,6 +136,8 @@ PotokSDK.i18n.registerTranslations({
     }
   }
 });
+
+registerSearchEngineSettings();
 
 // Clean hash matching SDK
 function cleanHash(hash) {
@@ -236,7 +299,8 @@ PotokSDK.streams.registerStreamSource({
       forceSearch: !!query.forceSearch
     };
 
-    const res = await PotokSDK.http.post(url, body);
+    const headers = await searchEngineHeaders();
+    const res = await PotokSDK.http.post(url, body, headers);
     if (res.status !== 200) {
       throw new Error(`Status code: ${res.status}`);
     }
@@ -340,8 +404,9 @@ PotokSDK.streams.registerStreamSource({
     // Overrides now live in the SearchEngine (moved out of the gateway). Fetch the per-season map directly there
     // (absolute URL, like search); if no SearchEngine is configured, skip overrides gracefully.
     const searchEngineUrl = await resolveSearchEngineUrl();
+    const seHeaders = await searchEngineHeaders();
     const overridePromise = searchEngineUrl
-      ? PotokSDK.http.get(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}`).catch(() => null)
+      ? PotokSDK.http.get(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}`, seHeaders).catch(() => null)
       : Promise.resolve(null);
 
     const [filesResponse, overrideRes, detailRes] = await Promise.all([
@@ -466,11 +531,12 @@ PotokSDK.streams.registerStreamSource({
     if (!searchEngineUrl) {
       throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
     }
+    const headers = await searchEngineHeaders();
     const saveRes = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/season`, {
       sourceSeason: sourceSeason === undefined ? null : sourceSeason,
       targetSeason: targetSeason,
       offset: offset
-    });
+    }, headers);
     if (saveRes.status !== 200) {
       throw new Error(`Save override failed with status ${saveRes.status}`);
     }
@@ -484,7 +550,8 @@ PotokSDK.streams.registerStreamSource({
       throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
     }
     const q = (sourceSeason === undefined || sourceSeason === null) ? "" : `?sourceSeason=${encodeURIComponent(sourceSeason)}`;
-    const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/season/remove${q}`, {});
+    const headers = await searchEngineHeaders();
+    const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/season/remove${q}`, {}, headers);
     if (res.status !== 200) {
       throw new Error(`Reset override failed with status ${res.status}`);
     }
