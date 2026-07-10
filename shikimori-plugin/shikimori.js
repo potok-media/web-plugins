@@ -1,11 +1,11 @@
 import { PotokSDK } from 'potok-sdk';
 
-// Shikimori keeps changing domains (one -> me -> io, blocked in RU by turns). Try them in order and
-// remember the one that answers. REST v1 is used instead of GraphQL: it's GET-only (no proxy POST/redirect
-// or CORS issues) and covers catalog browsing fully.
-const BASES = ['https://shikimori.io', 'https://shikimori.one', 'https://shikimori.me'];
+// Shikimori blocks cross-origin browser requests (no CORS) and rate-limits hard. So we:
+//  1) go through the gateway's server-side proxy (/api/proxy?url=) — host-relative, no CORS;
+//  2) use ONE GraphQL request per row that returns the list + each anime's IMDb link at once,
+//     instead of a REST list + N per-anime external_links calls (which got us rate-limit banned).
+const BASES = ['https://shikimori.one', 'https://shikimori.io', 'https://shikimori.me'];
 const ARM_URL = 'https://arm.haglund.dev/api/v2/ids?source=myanimelist&id=';
-// Shikimori requires a descriptive User-Agent; the host proxy forwards request headers.
 const HEADERS = { 'User-Agent': 'Potok-Shikimori' };
 const BASE_CACHE_KEY = 'shiki:base';
 
@@ -26,47 +26,53 @@ async function orderedBases() {
   return BASES;
 }
 
-// GET a Shikimori REST path, trying domains until one answers; persist the working base.
-async function shikiGet(path) {
+// POST a GraphQL query to Shikimori via the proxy, trying domains until one answers; persist the working base.
+async function shikiGraphql(query) {
   for (const base of await orderedBases()) {
     try {
-      const json = unwrap(await PotokSDK.http.get(`${base}${path}`, HEADERS));
-      if (json != null) {
-        if (activeBase !== base) {
-          activeBase = base;
-          await PotokSDK.storage.local.setItem(BASE_CACHE_KEY, base);
+      const res = await PotokSDK.http.proxy(`${base}/api/graphql`, { method: 'POST', body: { query }, headers: HEADERS });
+      if (res && res.status >= 200 && res.status < 300) {
+        const json = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+        if (json && json.data) {
+          if (activeBase !== base) {
+            activeBase = base;
+            await PotokSDK.storage.local.setItem(BASE_CACHE_KEY, base);
+          }
+          return json.data;
         }
-        return json;
       }
     } catch (e) { /* try next domain */ }
   }
   return null;
 }
 
-function currentBase() {
-  return activeBase || BASES[0];
-}
-
+// One GraphQL request → animes with id/malId/name/kind/score/poster AND their external links (IMDb).
 export async function fetchAnimes(filters) {
-  const params = new URLSearchParams();
-  params.set('limit', String(Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 50)));
-  params.set('page', String(Math.max(parseInt(filters.page, 10) || 1, 1)));
-  params.set('order', ALLOWED_ORDER.includes(filters.order) ? filters.order : 'popularity');
-  if (filters.kind && ALLOWED_KIND.includes(filters.kind)) params.set('kind', filters.kind);
-  if (filters.status && ALLOWED_STATUS.includes(filters.status)) params.set('status', filters.status);
-  if (filters.genre) params.set('genre', String(filters.genre));
-  if (filters.season) params.set('season', String(filters.season));
-  if (filters.search) params.set('search', String(filters.search));
+  const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 50);
+  const page = Math.max(parseInt(filters.page, 10) || 1, 1);
+  const order = ALLOWED_ORDER.includes(filters.order) ? filters.order : 'popularity';
 
-  const list = await shikiGet(`/api/animes?${params.toString()}`);
-  return Array.isArray(list) ? list : [];
+  const args = [`page: ${page}`, `limit: ${limit}`, `order: ${order}`];
+  if (filters.kind && ALLOWED_KIND.includes(filters.kind)) args.push(`kind: ${JSON.stringify(filters.kind)}`);
+  if (filters.status && ALLOWED_STATUS.includes(filters.status)) args.push(`status: ${JSON.stringify(filters.status)}`);
+  if (filters.genre) args.push(`genre: ${JSON.stringify(String(filters.genre))}`);
+  if (filters.search) args.push(`search: ${JSON.stringify(String(filters.search))}`);
+
+  const query = `{
+    animes(${args.join(', ')}) {
+      id malId name russian kind score
+      poster { originalUrl mainUrl }
+      externalLinks { kind url }
+    }
+  }`;
+
+  const data = await shikiGraphql(query);
+  return data && Array.isArray(data.animes) ? data.animes : [];
 }
 
 export async function fetchGenres() {
-  const list = await shikiGet('/api/genres');
-  if (!Array.isArray(list)) return [];
-  // v1 /api/genres returns both anime and manga genres.
-  return list.filter((g) => !g.kind || g.kind === 'anime');
+  const data = await shikiGraphql(`{ genres(entryType: Anime) { id russian name } }`);
+  return data && Array.isArray(data.genres) ? data.genres : [];
 }
 
 function mediaTypeFromKind(kind) {
@@ -74,25 +80,19 @@ function mediaTypeFromKind(kind) {
 }
 
 function shikiPoster(anime) {
-  const path = anime.image && (anime.image.original || anime.image.preview);
-  if (!path) return undefined;
-  return /^https?:/.test(path) ? path : `${currentBase()}${path}`;
+  const p = anime.poster;
+  return (p && (p.originalUrl || p.mainUrl)) || undefined;
 }
 
-// Shikimori exposes an IMDb link per anime. REST external_links is GET-only (proxy-safe, no CORS/POST),
-// so we read it instead of GraphQL. Returns "ttXXXXXXX" or null.
-async function fetchImdbId(animeId) {
-  const links = await shikiGet(`/api/animes/${animeId}/external_links`);
-  if (!Array.isArray(links)) return null;
-  const imdb = links.find((l) => l && l.kind === 'imdb' && typeof l.url === 'string');
-  if (!imdb) return null;
-  const m = imdb.url.match(/(tt\d+)/);
+function imdbFromLinks(anime) {
+  const link = (anime.externalLinks || []).find((l) => l && l.kind === 'imdb' && typeof l.url === 'string');
+  if (!link) return null;
+  const m = link.url.match(/(tt\d+)/);
   return m ? m[1] : null;
 }
 
 // Resolve an IMDb id -> full TMDB card via the gateway's TMDB API proxy (server key, host-relative, no CORS).
-// We pull the poster/title/year/rating/backdrop FROM TMDB (Shikimori is only identity + fallback), so posters
-// are always correct even when Shikimori lacks them.
+// We pull poster/title/year/rating/backdrop FROM TMDB (Shikimori is only identity + fallback).
 async function tmdbFromImdb(imdbId, kind) {
   const res = unwrap(await PotokSDK.http.get(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
   if (!res) return null;
@@ -113,11 +113,9 @@ async function tmdbFromImdb(imdbId, kind) {
   };
 }
 
-// Map a Shikimori anime (its id == MyAnimeList id) to a clickable Potok card {id: tmdbId, mediaType}.
-// Priority: IMDb->TMDB (reliable) -> ARM (mal->tmdb) -> gateway title search (fuzzy). Cached in storage
-// since the relation is stable. Returns null when no TMDB match exists.
+// Priority: IMDb->TMDB (reliable) -> gateway title search (fuzzy) -> ARM (mal->tmdb). Cached in storage.
 async function resolveTmdb(anime) {
-  const cacheKey = `shiki:map2:${anime.id}`; // v2: now stores full TMDB card (poster/title/year/rating)
+  const cacheKey = `shiki:map2:${anime.id}`; // v2: stores the full TMDB card
   const cached = await PotokSDK.storage.local.getItem(cacheKey);
   if (cached != null) {
     const parsed = JSON.parse(cached);
@@ -126,13 +124,13 @@ async function resolveTmdb(anime) {
 
   let mapped = null;
 
-  // 1) IMDb (from Shikimori) -> TMDB find. Most reliable + gives us the TMDB poster/title/year/rating.
-  try {
-    const imdbId = await fetchImdbId(anime.id);
-    if (imdbId) mapped = await tmdbFromImdb(imdbId, anime.kind);
-  } catch (e) { /* fall through */ }
+  // 1) IMDb from the already-batched externalLinks (no extra Shikimori request) -> TMDB find.
+  const imdbId = imdbFromLinks(anime);
+  if (imdbId) {
+    try { mapped = await tmdbFromImdb(imdbId, anime.kind); } catch (e) { /* fall through */ }
+  }
 
-  // 2) Fallback: gateway title search (fuzzy) — also returns a TMDB card (poster/title/rating).
+  // 2) Fallback: gateway title search (host-relative, fuzzy) — also returns a TMDB card.
   if (!mapped) {
     try {
       const name = anime.russian || anime.name;
@@ -151,10 +149,10 @@ async function resolveTmdb(anime) {
     } catch (e) { /* fall through */ }
   }
 
-  // 3) Last resort: ARM (MyAnimeList id -> themoviedb) — id only, poster comes from Shikimori.
-  if (!mapped) {
+  // 3) Last resort: ARM (MyAnimeList id -> themoviedb) via proxy — id only, poster comes from Shikimori.
+  if (!mapped && anime.malId) {
     try {
-      const arm = unwrap(await PotokSDK.http.get(`${ARM_URL}${anime.id}`));
+      const arm = unwrap(await PotokSDK.http.proxy(`${ARM_URL}${anime.malId}`));
       const tmdbId = arm && arm.themoviedb;
       if (tmdbId) mapped = { id: Number(tmdbId), mediaType: mediaTypeFromKind(anime.kind) };
     } catch (e) { /* no match */ }
