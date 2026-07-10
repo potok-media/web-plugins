@@ -264,8 +264,14 @@ function toolbar() {
       .onChange(onSearch).onClear(() => onSearch('')),
   ]);
 
+  const left = [];
+  if (isBrowsing()) {
+    left.push(Button(t('backToCollections')).variant('secondary').icon('arrow-left').onClick(goCollections));
+  }
+  left.push(searchBox);
+
   return HStack().spacing(12).alignItems('center').children([
-    searchBox,
+    ...left,
     Spacer(),
     Select('shiki-order').variant('glass').icon('arrow-down-wide-narrow')
       .value(state.order)
@@ -327,19 +333,10 @@ function buildCatalogResults() {
 }
 
 function buildLayout() {
-  const children = [toolbar()];
-  if (isBrowsing()) {
-    children.push(
-      HStack().alignItems('center').children([
-        Button(t('backToCollections')).variant('secondary').icon('arrow-left').onClick(goCollections),
-        Spacer(),
-      ]),
-    );
-    children.push(buildCatalogResults());
-  } else {
-    children.push(buildCollections());
-  }
-  return VStack().id('shiki-root').spacing(20).children(children);
+  return VStack().id('shiki-root').spacing(20).children([
+    toolbar(),
+    isBrowsing() ? buildCatalogResults() : buildCollections(),
+  ]);
 }
 
 // --- home-page contribution (Phase 3): a "popular anime" row on the native home ------

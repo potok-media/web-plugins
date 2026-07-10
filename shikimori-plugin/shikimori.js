@@ -32,7 +32,7 @@ async function orderedBases() {
 async function shikiGraphql(query) {
   for (const base of await orderedBases()) {
     try {
-      const res = await PotokSDK.http.proxy(`${base}/api/graphql`, { method: 'POST', body: { query }, headers: HEADERS });
+      const res = await PotokSDK.http.get(`${base}/api/graphql`, { method: 'POST', body: { query }, headers: HEADERS });
       if (res && res.status >= 200 && res.status < 300) {
         const json = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
         if (json && json.data) {
@@ -160,7 +160,7 @@ async function searchTmdb(meta) {
 async function armIds(malId) {
   if (malId == null) return null;
   try {
-    const res = await PotokSDK.http.proxy(
+    const res = await PotokSDK.http.get(
       `https://arm.haglund.dev/api/v2/ids?source=myanimelist&id=${encodeURIComponent(malId)}&include=themoviedb,imdb`,
     );
     if (!res || res.status < 200 || res.status >= 300) return null;
