@@ -6,7 +6,7 @@ const HOME_ID = 'potok-shikimori-home';
 const CATALOG_LIMIT = 30;
 
 const {
-  VStack, HStack, Hero, ContentRow, TopTenRow, PosterGrid,
+  VStack, HStack, Spacer, ContentRow, TopTenRow, PosterGrid,
   Scroller, SearchBar, Select, Skeleton, EmptyState,
   SidebarGroup, Button,
 } = PotokSDK.ui.components;
@@ -16,7 +16,6 @@ const t = (key, opts) => PotokSDK.i18n.t(`potok-shikimori:${key}`, opts);
 const state = PotokSDK.createState({
   // collections landing (shown by default, when no filter is active)
   colLoading: true,
-  featured: null,
   popular: [],
   top: [],
   ongoing: [],
@@ -74,7 +73,6 @@ async function loadCollections() {
   state.top = top.items;
   state.ongoing = ongoing.items;
   state.movies = movies.items;
-  state.featured = popular.items[0] || null;
   state.colLoading = false;
   renderHomeContribution();
 }
@@ -149,14 +147,21 @@ function setGenre(id) {
 
 // --- view builders ------------------------------------------------------------------
 
-// Toolbar (always on top): search → order select → genre select.
+// Toolbar (always on top): search on the left (compact, like the page's main search), order + genre selects
+// centered. The SDK search hard-sets width:100%, so we cap it by nesting in a fixed-width box; the flanking
+// Spacers (flex-grow:1) center the two selects in the space to its right.
 function toolbar() {
   const genreOptions = [{ value: '', label: t('filters.anyGenre') }];
   state.genres.forEach((g) => genreOptions.push({ value: String(g.id), label: g.russian || g.name }));
 
-  return HStack().spacing(12).alignItems('center').children([
+  const searchBox = HStack().width('28rem').children([
     SearchBar('shiki-search').placeholder(t('searchPlaceholder')).value(state.query)
-      .onChange(onSearch).onClear(() => onSearch('')).flex(1),
+      .onChange(onSearch).onClear(() => onSearch('')),
+  ]);
+
+  return HStack().spacing(12).alignItems('center').children([
+    searchBox,
+    Spacer(),
     Select('shiki-order').variant('glass').icon('arrow-down-wide-narrow')
       .value(state.order)
       .options([
@@ -169,6 +174,7 @@ function toolbar() {
       .value(state.genre)
       .options(genreOptions)
       .onChange((v) => setGenre(Array.isArray(v) ? v[0] : v)),
+    Spacer(),
   ]);
 }
 
@@ -186,16 +192,6 @@ function buildCollections() {
   if (state.colLoading) return collectionsSkeleton();
 
   const children = [];
-
-  if (state.featured) {
-    children.push(
-      Hero()
-        .id('shiki-hero')
-        .items([{ ...state.featured, subtitle: t('heroSubtitle') }])
-        .onPlay(openItem)
-        .onDetails(openItem),
-    );
-  }
 
   if (state.popular.length) {
     children.push(
@@ -304,7 +300,6 @@ PotokSDK.i18n.registerTranslations({
       sidebar: { title: 'Anime', catalog: 'Shikimori' },
       view: { collections: 'Collections', catalog: 'Catalog' },
       rows: { popular: 'Popular now', top: 'Top 10 by rating', ongoing: 'Airing now', movies: 'Anime movies', anime: 'Anime' },
-      heroSubtitle: 'Featured anime of the week',
       watch: 'Watch',
       details: 'Details',
       seeAll: 'See all',
@@ -324,7 +319,6 @@ PotokSDK.i18n.registerTranslations({
       sidebar: { title: 'Аниме', catalog: 'Shikimori' },
       view: { collections: 'Подборки', catalog: 'Каталог' },
       rows: { popular: 'Популярное сейчас', top: 'Топ-10 по рейтингу', ongoing: 'Онгоинги', movies: 'Аниме-фильмы', anime: 'Аниме' },
-      heroSubtitle: 'Аниме недели',
       watch: 'Смотреть',
       details: 'Подробнее',
       seeAll: 'Все',
