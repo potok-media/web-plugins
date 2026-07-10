@@ -1,0 +1,18 @@
+{
+  "id": "potok-shikimori",
+  "name": "potok-shikimori:manifest.name",
+  "category": "catalog",
+  "entrypoint": "index.js",
+  "permissions": [
+    "http-proxy",
+    "storage",
+    "ui-notifications"
+  ],
+  "slots": [
+    {
+      "id": "potok-shikimori",
+      "slotName": "extension-page",
+      "title": "potok-shikimori:manifest.name"
+    }
+  ]
+}
