@@ -160,7 +160,7 @@ async function searchTmdb(meta) {
 async function armIds(malId) {
   if (malId == null) return null;
   try {
-    const res = await PotokSDK.http.proxy(
+    const res = await PotokSDK.http.get(
       `https://arm.haglund.dev/api/v2/ids?source=myanimelist&id=${encodeURIComponent(malId)}&include=themoviedb,imdb`,
     );
     if (!res || res.status < 200 || res.status >= 300) return null;

@@ -19,8 +19,7 @@ const t = (key, opts) => PotokSDK.i18n.t(`potok-shikimori:${key}`, opts);
 
 const state = PotokSDK.createState({
   // collections landing (shown by default, when no filter is active)
-  colLoading: true,
-  shelves: {}, // shelf id -> items[] (see SHELVES); filled progressively as each row loads
+  shelves: {}, // shelf id -> items[] (see SHELVES); undefined = still loading, [] = loaded-empty
   // catalog / browse filters (mirror of the URL — see applyRoute)
   query: '',
   order: 'popularity',
@@ -105,28 +104,21 @@ function shelfSee(s) {
   return s.see || {};
 }
 
-// Run async work with bounded concurrency (Shikimori rate-limits ~5 rps, so we cap at 3 in flight).
-async function mapLimit(items, limit, fn) {
-  let i = 0;
-  async function worker() {
-    while (i < items.length) {
-      const idx = i;
-      i += 1;
-      await fn(items[idx], idx);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const SHELF_REQUEST_DELAY = 250; // ms between shelf requests — Shikimori rate-limits fast bursts hard
 
+// Load shelves ONE AT A TIME with a delay between requests (bursting 10 gets us rate-limited/banned).
+// A shelf stays `undefined` until it lands → buildCollections shows a skeleton row for it in the meantime;
+// each finished shelf drops in progressively (or is skipped if it came back empty).
 async function loadCollections() {
-  state.colLoading = true;
   state.shelves = {};
-  await mapLimit(SHELVES, 3, async (s) => {
+  for (const s of SHELVES) {
+    await sleep(SHELF_REQUEST_DELAY); // space out from the previous request (incl. the genres fetch)
     const filters = shelfFilters(s);
     const items = filters ? (await loadItems(filters)).items : [];
-    state.shelves = { ...state.shelves, [s.id]: items }; // new ref → re-render; row pops in as it lands
-    state.colLoading = false; // reveal the feed as soon as the first shelf arrives
-  });
+    state.shelves = { ...state.shelves, [s.id]: items }; // new ref → re-render; row pops in
+    if (s.id === 'popular') renderHomeContribution(); // native home row can update early
+  }
   renderHomeContribution();
 }
 
@@ -289,23 +281,26 @@ function toolbar() {
   ]);
 }
 
-function collectionsSkeleton() {
-  return VStack().spacing(20).children([
-    Skeleton().height('20rem').rounded('1rem'),
-    Skeleton().height('1.5rem').width('40%'),
+// A single loading row: the real category title + a strip of skeleton cards, shown while the shelf is still
+// in flight (rate-limited sequential loading means later shelves take a moment to arrive).
+function shelfSkeleton(s) {
+  return VStack().spacing(12).children([
+    Skeleton().height('1.25rem').width('12rem').rounded('0.5rem'),
     Scroller().orientation('horizontal').spacing(16).children(
-      [0, 1, 2, 3, 4].map(() => Skeleton().width('10rem').height('15rem').rounded('0.75rem')),
+      [0, 1, 2, 3, 4, 5].map(() => Skeleton().width('10rem').height('15rem').rounded('0.75rem')),
     ),
   ]);
 }
 
 function buildCollections() {
-  if (state.colLoading) return collectionsSkeleton();
-
   const children = [];
-  // Render shelves in SHELVES order; each "see all →" opens the catalog filtered to that category.
+  // Render shelves in SHELVES order. Not-yet-loaded (undefined) → skeleton row; loaded-empty → skip.
   SHELVES.forEach((s) => {
-    const items = state.shelves[s.id] || [];
+    const items = state.shelves[s.id];
+    if (items === undefined) {
+      children.push(shelfSkeleton(s));
+      return;
+    }
     if (!items.length) return;
     const Row = s.top ? TopTenRow : ContentRow;
     children.push(
