@@ -8,6 +8,7 @@ const CATALOG_LIMIT = 30;
 const {
   VStack, HStack, Segmented, Hero, ContentRow, TopTenRow, PosterGrid,
   Scroller, Chip, SearchBar, Skeleton, EmptyState, Spacer, Heading,
+  SidebarGroup, Button,
 } = PotokSDK.ui.components;
 
 const t = (key, opts) => PotokSDK.i18n.t(`potok-shikimori:${key}`, opts);
@@ -278,6 +279,23 @@ PotokSDK.registerSlotContribution({
   },
 });
 
+// Own sidebar CATEGORY (like "МЕДИАТЕКА") with the entry point to this page.
+// Falls back to a plain sidebar button if the host is older and lacks SidebarGroup.
+PotokSDK.registerSlotContribution({
+  id: 'potok-shikimori-sidebar',
+  slotName: SidebarGroup ? 'sidebar-groups' : 'sidebar-menu',
+  render() {
+    const catalog = Button(t('sidebar.catalog'))
+      .variant('sidebar-item')
+      .icon('clapperboard')
+      .onClick(() => PotokSDK.ui.navigateTo(`/extensions/${PAGE_ID}`));
+    const layout = SidebarGroup
+      ? SidebarGroup(t('sidebar.title')).child(catalog)
+      : catalog;
+    return { label: t('sidebar.title'), layout };
+  },
+});
+
 if (typeof PotokSDK.registerHomeSection === 'function') {
   PotokSDK.registerHomeSection({
     id: HOME_ID,
@@ -297,6 +315,7 @@ PotokSDK.i18n.registerTranslations({
     'potok-shikimori': {
       manifest: { name: 'Anime (Shikimori)' },
       pageTitle: 'Anime — Shikimori',
+      sidebar: { title: 'Anime', catalog: 'Shikimori' },
       view: { collections: 'Collections', catalog: 'Catalog' },
       rows: { popular: 'Popular now', top: 'Top 10 by rating', ongoing: 'Airing now', movies: 'Anime movies', anime: 'Anime' },
       heroSubtitle: 'Featured anime of the week',
@@ -315,6 +334,7 @@ PotokSDK.i18n.registerTranslations({
     'potok-shikimori': {
       manifest: { name: 'Аниме (Shikimori)' },
       pageTitle: 'Аниме — Shikimori',
+      sidebar: { title: 'Аниме', catalog: 'Shikimori' },
       view: { collections: 'Подборки', catalog: 'Каталог' },
       rows: { popular: 'Популярное сейчас', top: 'Топ-10 по рейтингу', ongoing: 'Онгоинги', movies: 'Аниме-фильмы', anime: 'Аниме' },
       heroSubtitle: 'Аниме недели',
