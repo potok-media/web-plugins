@@ -6,16 +6,15 @@ const HOME_ID = 'potok-shikimori-home';
 const CATALOG_LIMIT = 30;
 
 const {
-  VStack, HStack, Segmented, Hero, ContentRow, TopTenRow, PosterGrid,
-  Scroller, Chip, SearchBar, Skeleton, EmptyState, Spacer, Heading,
+  VStack, HStack, Hero, ContentRow, TopTenRow, PosterGrid,
+  Scroller, SearchBar, Select, Skeleton, EmptyState,
   SidebarGroup, Button,
 } = PotokSDK.ui.components;
 
 const t = (key, opts) => PotokSDK.i18n.t(`potok-shikimori:${key}`, opts);
 
 const state = PotokSDK.createState({
-  view: 'collections',        // 'collections' | 'catalog'
-  // collections
+  // collections landing (shown by default, when no filter is active)
   colLoading: true,
   featured: null,
   popular: [],
@@ -126,46 +125,51 @@ async function openItem(item) {
   }
 }
 
-function goCatalog(preset) {
-  state.view = 'catalog';
-  if (preset) {
-    state.order = preset.order || state.order;
-    state.genre = preset.genre != null ? preset.genre : state.genre;
-    state.query = '';
-  }
-  loadCatalog(true);
+// The single tab shows the collections landing by default and flips to the catalog grid the moment any
+// filter is active — i.e. a search query, a picked genre, or any order other than the default "popular".
+function isBrowsing() {
+  return !!state.query || !!state.genre || state.order !== 'popularity';
 }
 
 function onSearch(value) {
   state.query = value;
   if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => loadCatalog(true), 400);
+  searchTimer = setTimeout(() => { if (isBrowsing()) loadCatalog(true); }, 400);
 }
 
 function setOrder(order) {
   state.order = order;
-  loadCatalog(true);
+  if (isBrowsing()) loadCatalog(true); // popular + no query/genre → back to the collections landing
 }
 
-function toggleGenre(id) {
-  state.genre = state.genre === id ? '' : id;
-  loadCatalog(true);
+function setGenre(id) {
+  state.genre = id || '';
+  if (isBrowsing()) loadCatalog(true);
 }
 
 // --- view builders ------------------------------------------------------------------
 
-function viewSwitch() {
-  return Segmented()
-    .id('shiki-view')
-    .items([
-      { id: 'collections', label: t('view.collections') },
-      { id: 'catalog', label: t('view.catalog') },
-    ])
-    .value(state.view)
-    .onChange((v) => {
-      state.view = v;
-      if (v === 'catalog' && !state.items.length && !state.catLoading) loadCatalog(true);
-    });
+// Toolbar (always on top): search → order select → genre select.
+function toolbar() {
+  const genreOptions = [{ value: '', label: t('filters.anyGenre') }];
+  state.genres.forEach((g) => genreOptions.push({ value: String(g.id), label: g.russian || g.name }));
+
+  return HStack().spacing(12).alignItems('center').children([
+    SearchBar('shiki-search').placeholder(t('searchPlaceholder')).value(state.query)
+      .onChange(onSearch).onClear(() => onSearch('')).flex(1),
+    Select('shiki-order').variant('glass').icon('arrow-down-wide-narrow')
+      .value(state.order)
+      .options([
+        { value: 'popularity', label: t('order.popularity') },
+        { value: 'ranked', label: t('order.ranked') },
+        { value: 'aired_on', label: t('order.aired') },
+      ])
+      .onChange((v) => setOrder(Array.isArray(v) ? v[0] : v)),
+    Select('shiki-genre').variant('glass').icon('tag')
+      .value(state.genre)
+      .options(genreOptions)
+      .onChange((v) => setGenre(Array.isArray(v) ? v[0] : v)),
+  ]);
 }
 
 function collectionsSkeleton() {
@@ -195,9 +199,7 @@ function buildCollections() {
 
   if (state.popular.length) {
     children.push(
-      ContentRow().id('shiki-popular').title(t('rows.popular')).items(state.popular)
-        .seeAllLabel(t('seeAll')).onCardClick(openItem)
-        .onSeeAllClick(() => goCatalog({ order: 'popularity' })),
+      ContentRow().id('shiki-popular').title(t('rows.popular')).items(state.popular).onCardClick(openItem),
     );
   }
   if (state.top.length) {
@@ -205,29 +207,16 @@ function buildCollections() {
   }
   if (state.ongoing.length) {
     children.push(
-      ContentRow().id('shiki-ongoing').title(t('rows.ongoing')).items(state.ongoing)
-        .seeAllLabel(t('seeAll')).onCardClick(openItem)
-        .onSeeAllClick(() => goCatalog({ order: 'popularity' })),
+      ContentRow().id('shiki-ongoing').title(t('rows.ongoing')).items(state.ongoing).onCardClick(openItem),
     );
   }
   if (state.movies.length) {
     children.push(
-      ContentRow().id('shiki-movies').title(t('rows.movies')).items(state.movies)
-        .seeAllLabel(t('seeAll')).onCardClick(openItem)
-        .onSeeAllClick(() => goCatalog({ order: 'popularity' })),
+      ContentRow().id('shiki-movies').title(t('rows.movies')).items(state.movies).onCardClick(openItem),
     );
   }
 
   return VStack().spacing(24).children(children);
-}
-
-function genreChips() {
-  const chips = [Chip(t('filters.anyGenre')).active(!state.genre).onClick(() => toggleGenre(''))];
-  state.genres.slice(0, 24).forEach((g) => {
-    const id = String(g.id);
-    chips.push(Chip(g.russian || g.name).active(state.genre === id).onClick(() => toggleGenre(id)));
-  });
-  return Scroller().orientation('horizontal').spacing(8).children(chips);
 }
 
 function catalogSkeletonGrid() {
@@ -236,39 +225,19 @@ function catalogSkeletonGrid() {
   );
 }
 
-function buildCatalog() {
-  const controls = VStack().spacing(12).children([
-    SearchBar('shiki-search').placeholder(t('searchPlaceholder')).value(state.query)
-      .onChange(onSearch).onClear(() => onSearch('')),
-    Segmented().id('shiki-order').value(state.order)
-      .items([
-        { id: 'popularity', label: t('order.popularity') },
-        { id: 'ranked', label: t('order.ranked') },
-        { id: 'aired_on', label: t('order.aired') },
-      ])
-      .onChange(setOrder),
-    genreChips(),
-  ]);
-
-  let results;
-  if (state.catLoading) {
-    results = catalogSkeletonGrid();
-  } else if (!state.items.length) {
-    results = EmptyState().icon('search-x').title(t('empty')).description(t('emptyHint'));
-  } else {
-    const grid = PosterGrid().id('shiki-grid').items(state.items).onCardClick(openItem);
-    if (state.hasMore) grid.onLoadMore(() => loadCatalog(false)); // auto-loads on scroll (SDK sentinel)
-    results = grid;
-  }
-
-  return VStack().spacing(16).children([controls, results]);
+// The catalog grid (results only — the toolbar lives above it, shared with the collections view).
+function buildCatalogResults() {
+  if (state.catLoading) return catalogSkeletonGrid();
+  if (!state.items.length) return EmptyState().icon('search-x').title(t('empty')).description(t('emptyHint'));
+  const grid = PosterGrid().id('shiki-grid').items(state.items).onCardClick(openItem);
+  if (state.hasMore) grid.onLoadMore(() => loadCatalog(false)); // auto-loads on scroll (SDK sentinel)
+  return grid;
 }
 
 function buildLayout() {
   return VStack().id('shiki-root').spacing(20).children([
-    // Compact mode switcher pinned to the top-right, out of the hero's way.
-    HStack().alignItems('center').children([Spacer(), viewSwitch()]),
-    state.view === 'catalog' ? buildCatalog() : buildCollections(),
+    toolbar(),
+    isBrowsing() ? buildCatalogResults() : buildCollections(),
   ]);
 }
 

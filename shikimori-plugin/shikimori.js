@@ -2,7 +2,7 @@ import { PotokSDK } from 'potok-sdk';
 
 // Shikimori blocks cross-origin browser requests (no CORS) and rate-limits hard. So we:
 //  1) go through the gateway's server-side proxy (/api/graphql via PotokSDK.http.proxy) — host-relative, no CORS;
-//  2) use ONE GraphQL request per row that returns EVERYTHING a card needs (title, year, genres, poster, score).
+//  2) use ONE GraphQL request per row that returns EVERYTHING a card needs (title, year, poster, score).
 //
 // Cards are drawn purely from Shikimori data — no TMDB during list rendering. TMDB is resolved LAZILY, once,
 // only when the user clicks a card (see resolveTmdb), because the only thing that needs a TMDB id is opening
@@ -48,7 +48,7 @@ async function shikiGraphql(query) {
   return null;
 }
 
-// One GraphQL request → everything a card renders from (year/genres/poster/score) PLUS the keys we need later
+// One GraphQL request → everything a card renders from (year/poster/score) PLUS the keys we need later
 // to resolve TMDB on click (english/russian name, kind, imdb link). No screenshots — keeps list complexity low.
 export async function fetchAnimes(filters) {
   const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 50);
@@ -65,7 +65,7 @@ export async function fetchAnimes(filters) {
     animes(${args.join(', ')}) {
       id malId name russian english kind score
       airedOn { year }
-      genres { russian }
+      poster { originalUrl mainUrl }
       externalLinks { kind url }
     }
   }`;
@@ -95,12 +95,9 @@ function imdbFromLinks(anime) {
   return m ? m[1] : null;
 }
 
-// Subtitle "year • genres" straight from Shikimori — no TMDB genre map, no extra request.
-function buildSubtitle(year, genreNames) {
-  const parts = [];
-  if (year) parts.push(String(year));
-  if (genreNames && genreNames.length) parts.push(genreNames.slice(0, 2).join(', '));
-  return parts.join(' • ') || undefined;
+// Subtitle = year only (straight from Shikimori, no extra request).
+function buildSubtitle(year) {
+  return year ? String(year) : undefined;
 }
 
 // Shikimori anime → display card. Carries both the render fields AND the meta needed to resolve TMDB on click.
@@ -109,7 +106,6 @@ export function toCards(animes) {
   return (animes || []).map((anime) => {
     if (!anime || anime.id == null) return null;
     const year = anime.airedOn && anime.airedOn.year;
-    const genreNames = (anime.genres || []).map((g) => g && g.russian).filter(Boolean);
     return {
       // resolution meta (used lazily by resolveTmdb)
       shikiId: anime.id,
@@ -123,7 +119,7 @@ export function toCards(animes) {
       // display fields
       mediaType: mediaTypeFromKind(anime.kind),
       title: anime.russian || anime.name,
-      subtitle: buildSubtitle(year, genreNames),
+      subtitle: buildSubtitle(year),
       posterSrc: shikiPoster(anime),
       rating: anime.score ? Number(anime.score) : undefined,
     };
