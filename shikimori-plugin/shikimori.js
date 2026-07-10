@@ -160,7 +160,7 @@ async function searchTmdb(meta) {
 async function armIds(malId) {
   if (malId == null) return null;
   try {
-    const res = await PotokSDK.http.get(
+    const res = await PotokSDK.http.post(
       `https://arm.haglund.dev/api/v2/ids?source=myanimelist&id=${encodeURIComponent(malId)}&include=themoviedb,imdb`,
     );
     if (!res || res.status < 200 || res.status >= 300) return null;
@@ -172,7 +172,7 @@ async function armIds(malId) {
 
 // Secondary path, only when title search misses and Shikimori happens to expose an IMDb link.
 async function tmdbFromImdb(imdbId, kind) {
-  const res = unwrap(await PotokSDK.http.get(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
+  const res = unwrap(await PotokSDK.http.post(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
   if (!res) return null;
   const tv = Array.isArray(res.tv_results) ? res.tv_results[0] : null;
   const movie = Array.isArray(res.movie_results) ? res.movie_results[0] : null;
