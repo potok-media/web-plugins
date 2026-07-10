@@ -1,54 +1,72 @@
 import { PotokSDK } from 'potok-sdk';
 
-const GRAPHQL_URL = 'https://shikimori.one/api/graphql';
-const GENRES_URL = 'https://shikimori.one/api/genres?entry_type=Anime';
+// Shikimori keeps changing domains (one -> me -> io, blocked in RU by turns). Try them in order and
+// remember the one that answers. REST v1 is used instead of GraphQL: it's GET-only (no proxy POST/redirect
+// or CORS issues) and covers catalog browsing fully.
+const BASES = ['https://shikimori.io', 'https://shikimori.one', 'https://shikimori.me'];
 const ARM_URL = 'https://arm.haglund.dev/api/v2/ids?source=myanimelist&id=';
 // Shikimori requires a descriptive User-Agent; the host proxy forwards request headers.
-const HEADERS = { 'User-Agent': 'Potok-Shikimori', 'Content-Type': 'application/json' };
+const HEADERS = { 'User-Agent': 'Potok-Shikimori' };
+const BASE_CACHE_KEY = 'shiki:base';
 
 const ALLOWED_ORDER = ['popularity', 'ranked', 'aired_on', 'name', 'random'];
 const ALLOWED_KIND = ['tv', 'movie', 'ova', 'ona', 'special'];
 const ALLOWED_STATUS = ['anons', 'ongoing', 'released'];
+
+let activeBase = null;
 
 function unwrap(res) {
   if (!res || res.status < 200 || res.status >= 300) return null;
   return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
 }
 
-// Escape a value for safe inline use inside a GraphQL string literal.
-function gqlString(v) {
-  return String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+async function orderedBases() {
+  if (!activeBase) activeBase = await PotokSDK.storage.local.getItem(BASE_CACHE_KEY);
+  if (activeBase && BASES.includes(activeBase)) return [activeBase, ...BASES.filter((b) => b !== activeBase)];
+  return BASES;
 }
 
-// Build the animes() query inline (avoids declaring variable enum types).
-function buildAnimesQuery(f) {
-  const args = [`limit: ${Math.min(Math.max(parseInt(f.limit, 10) || 20, 1), 50)}`, `page: ${Math.max(parseInt(f.page, 10) || 1, 1)}`];
-  args.push(`order: ${ALLOWED_ORDER.includes(f.order) ? f.order : 'popularity'}`);
-  if (f.kind && ALLOWED_KIND.includes(f.kind)) args.push(`kind: "${f.kind}"`);
-  if (f.status && ALLOWED_STATUS.includes(f.status)) args.push(`status: "${f.status}"`);
-  if (f.genre) args.push(`genre: "${gqlString(f.genre)}"`);
-  if (f.season) args.push(`season: "${gqlString(f.season)}"`);
-  if (f.search) args.push(`search: "${gqlString(f.search)}"`);
-  return `{ animes(${args.join(', ')}) { id name russian kind status score poster { originalUrl mainUrl } } }`;
+// GET a Shikimori REST path, trying domains until one answers; persist the working base.
+async function shikiGet(path) {
+  for (const base of await orderedBases()) {
+    try {
+      const json = unwrap(await PotokSDK.http.get(`${base}${path}`, HEADERS));
+      if (json != null) {
+        if (activeBase !== base) {
+          activeBase = base;
+          await PotokSDK.storage.local.setItem(BASE_CACHE_KEY, base);
+        }
+        return json;
+      }
+    } catch (e) { /* try next domain */ }
+  }
+  return null;
+}
+
+function currentBase() {
+  return activeBase || BASES[0];
 }
 
 export async function fetchAnimes(filters) {
-  try {
-    const res = await PotokSDK.http.post(GRAPHQL_URL, { query: buildAnimesQuery(filters) }, HEADERS);
-    const json = unwrap(res);
-    return (json && json.data && json.data.animes) || [];
-  } catch (e) {
-    return [];
-  }
+  const params = new URLSearchParams();
+  params.set('limit', String(Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 50)));
+  params.set('page', String(Math.max(parseInt(filters.page, 10) || 1, 1)));
+  params.set('order', ALLOWED_ORDER.includes(filters.order) ? filters.order : 'popularity');
+  if (filters.kind && ALLOWED_KIND.includes(filters.kind)) params.set('kind', filters.kind);
+  if (filters.status && ALLOWED_STATUS.includes(filters.status)) params.set('status', filters.status);
+  if (filters.genre) params.set('genre', String(filters.genre));
+  if (filters.season) params.set('season', String(filters.season));
+  if (filters.search) params.set('search', String(filters.search));
+
+  const list = await shikiGet(`/api/animes?${params.toString()}`);
+  return Array.isArray(list) ? list : [];
 }
 
 export async function fetchGenres() {
-  try {
-    const list = unwrap(await PotokSDK.http.get(GENRES_URL, HEADERS));
-    return Array.isArray(list) ? list : [];
-  } catch (e) {
-    return [];
-  }
+  const list = await shikiGet('/api/genres');
+  if (!Array.isArray(list)) return [];
+  // v1 /api/genres returns both anime and manga genres.
+  return list.filter((g) => !g.kind || g.kind === 'anime');
 }
 
 function mediaTypeFromKind(kind) {
@@ -56,7 +74,9 @@ function mediaTypeFromKind(kind) {
 }
 
 function shikiPoster(anime) {
-  return (anime.poster && (anime.poster.mainUrl || anime.poster.originalUrl)) || undefined;
+  const path = anime.image && (anime.image.original || anime.image.preview);
+  if (!path) return undefined;
+  return /^https?:/.test(path) ? path : `${currentBase()}${path}`;
 }
 
 // Map a Shikimori anime (its id == MyAnimeList id) to a clickable Potok card {id: tmdbId, mediaType, ...}.
