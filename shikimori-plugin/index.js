@@ -76,7 +76,28 @@ async function loadItems(filters) {
   const animes = await fetchAnimes(filters);
   const cards = toCards(animes);
   cards.forEach(rememberCard);
-  return { items: cards.map(cardToItem), rawCount: animes.length };
+  return { items: cards.map(cardToItem), cards, rawCount: animes.length };
+}
+
+const SHELF_TTL = 1 * 24 * 60 * 60 * 1000;       // 1d — landing shelves refresh a few times a day
+const GENRES_TTL = 7 * 24 * 60 * 60 * 1000; // 7d — the genre list barely changes
+
+async function readCache(key, ttlMs) {
+  try {
+    const raw = await PotokSDK.storage.local.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.ts !== 'number' || Date.now() - parsed.ts > ttlMs) return null;
+    return parsed.data;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function writeCache(key, data) {
+  try {
+    await PotokSDK.storage.local.setItem(key, JSON.stringify({ ts: Date.now(), data }));
+  } catch (e) { /* storage full/unavailable → just refetch next time */ }
 }
 
 // --- collections landing ------------------------------------------------------------
@@ -124,19 +145,43 @@ function shelfSee(s) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const SHELF_REQUEST_DELAY = 250; // ms between shelf requests — Shikimori rate-limits fast bursts hard
 
-// Load shelves ONE AT A TIME with a delay between requests (bursting 10 gets us rate-limited/banned).
-// A shelf stays `undefined` until it lands → buildCollections shows a skeleton row for it in the meantime;
-// each finished shelf drops in progressively (or is skipped if it came back empty).
+// Load one shelf, preferring the persistent cache. Returns { items, fetched } — `fetched` = a real Shikimori
+// request happened (so the caller knows whether to space out the next one). Caches the full cards so a reload
+// also repopulates cardMeta (needed to resolve TMDB on click) without any network.
+async function loadShelf(s) {
+  const cacheKey = `shiki:shelf1:${s.id}`;
+  const cachedCards = await readCache(cacheKey, SHELF_TTL);
+  if (Array.isArray(cachedCards)) {
+    cachedCards.forEach(rememberCard);
+    return { items: cachedCards.map(cardToItem), fetched: false };
+  }
+  const filters = shelfFilters(s);
+  if (!filters) return { items: [], fetched: false };
+  const { items, cards } = await loadItems(filters);
+  await writeCache(cacheKey, cards);
+  return { items, fetched: true };
+}
+
+// Fill the landing. Cache hits are instant (no request, no delay); only ACTUAL requests are spaced out, so a
+// warm reload hits Shikimori zero times. A shelf stays `undefined` until it lands → skeleton row meanwhile.
 async function loadCollections() {
   state.shelves = {};
   for (const s of SHELVES) {
-    await sleep(SHELF_REQUEST_DELAY); // space out from the previous request (incl. the genres fetch)
-    const filters = shelfFilters(s);
-    const items = filters ? (await loadItems(filters)).items : [];
+    const { items, fetched } = await loadShelf(s);
     state.shelves = { ...state.shelves, [s.id]: items }; // new ref → re-render; row pops in
     if (s.id === 'popular') renderHomeContribution(); // native home row can update early
+    if (fetched) await sleep(SHELF_REQUEST_DELAY); // space out only real requests (rate-limit guard)
   }
   renderHomeContribution();
+}
+
+// Genres, also cached (they barely change) — one fewer Shikimori request on reload.
+async function loadGenres() {
+  const cached = await readCache('shiki:genres1', GENRES_TTL);
+  if (Array.isArray(cached)) return cached;
+  const genres = await fetchGenres();
+  if (genres.length) await writeCache('shiki:genres1', genres);
+  return genres;
 }
 
 // --- catalog (browse) ---------------------------------------------------------------
@@ -456,8 +501,8 @@ PotokSDK.i18n.registerTranslations({
   },
 });
 
-// Initial load: genres + collections.
+// Initial load: genres + collections (both served from the persistent cache when warm → no Shikimori hits).
 (async () => {
-  state.genres = await fetchGenres();
+  state.genres = await loadGenres();
   await loadCollections();
 })();
