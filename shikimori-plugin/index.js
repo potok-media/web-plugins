@@ -39,7 +39,24 @@ const state = PotokSDK.createState({
 
 // Shiki id → full card (resolution meta) so the click handler can turn it into a TMDB id on demand. The item
 // that round-trips the sandbox bridge only keeps the typed SDKContentItem fields, so we can't stash meta on it.
+// Bounded LRU so a long browsing session can't grow it without limit; the cap is far above what's on screen,
+// and access refreshes recency, so a card that's still visible/clickable is never the one evicted.
+const CARD_META_MAX = 1000;
 const cardMeta = new Map();
+
+function rememberCard(card) {
+  const key = String(card.shikiId);
+  cardMeta.delete(key); // re-insert at the end (most-recent)
+  cardMeta.set(key, card);
+  if (cardMeta.size > CARD_META_MAX) cardMeta.delete(cardMeta.keys().next().value); // evict oldest
+}
+
+function getCard(id) {
+  const key = String(id);
+  const card = cardMeta.get(key);
+  if (card) { cardMeta.delete(key); cardMeta.set(key, card); } // touch → most-recent
+  return card;
+}
 
 // SDKContentItem — the host renders it via the app's NATIVE MediaCard (rating pill, poster, type icon). Now
 // drawn entirely from Shikimori (subtitle "year • genres", poster, score). The id is the Shikimori id: TMDB is
@@ -58,7 +75,7 @@ function cardToItem(card) {
 async function loadItems(filters) {
   const animes = await fetchAnimes(filters);
   const cards = toCards(animes);
-  cards.forEach((c) => cardMeta.set(String(c.shikiId), c));
+  cards.forEach(rememberCard);
   return { items: cards.map(cardToItem), rawCount: animes.length };
 }
 
@@ -133,7 +150,10 @@ function catalogFilters(page) {
   };
 }
 
+let catalogToken = 0;
+
 async function loadCatalog(reset) {
+  const token = ++catalogToken; // any newer load (filter change, back/forward) invalidates this one
   if (reset) {
     state.page = 1;
     state.items = [];
@@ -144,6 +164,7 @@ async function loadCatalog(reset) {
   }
   const page = reset ? 1 : state.page + 1;
   const { items, rawCount } = await loadItems(catalogFilters(page));
+  if (token !== catalogToken) return; // superseded — drop this result so it can't clobber the current one
   state.items = reset ? items : state.items.concat(items);
   state.page = page;
   state.hasMore = rawCount >= CATALOG_LIMIT;
@@ -156,7 +177,7 @@ async function loadCatalog(reset) {
 let opening = false;
 async function openItem(item) {
   if (!item || item.id == null || opening) return;
-  const meta = cardMeta.get(String(item.id));
+  const meta = getCard(item.id);
   if (!meta) return;
   opening = true;
   try {
@@ -341,7 +362,7 @@ function homeRowLayout() {
   if (!items.length) return VStack().id('shiki-home-empty');
   return ContentRow().id('shiki-home-row').title(t('rows.popular')).items(items)
     .seeAllLabel(t('seeAll')).onCardClick(openItem)
-    .onSeeAllClick(() => PotokSDK.ui.navigateTo(`/extensions/${PAGE_ID}`));
+    .onSeeAllClick(() => PotokSDK.ui.navigateTo(PAGE_PATH));
 }
 
 function renderHomeContribution() {
@@ -368,7 +389,7 @@ PotokSDK.registerSlotContribution({
     const catalog = Button(t('sidebar.catalog'))
       .variant('sidebar-item')
       .icon('clapperboard')
-      .onClick(() => PotokSDK.ui.navigateTo(`/extensions/${PAGE_ID}`));
+      .onClick(() => PotokSDK.ui.navigateTo(PAGE_PATH));
     const layout = SidebarGroup
       ? SidebarGroup(t('sidebar.title')).child(catalog)
       : catalog;
@@ -394,19 +415,14 @@ PotokSDK.i18n.registerTranslations({
   en: {
     'potok-shikimori': {
       manifest: { name: 'Anime (Shikimori)' },
-      pageTitle: 'Anime — Shikimori',
       sidebar: { title: 'Anime', catalog: 'Shikimori' },
-      view: { collections: 'Collections', catalog: 'Catalog' },
       rows: {
         popular: 'Popular now', top: 'Top 10 by rating', ongoing: 'Airing now',
         fresh: 'Fresh releases', upcoming: 'Coming soon', movies: 'Anime movies',
         action: 'Action', comedy: 'Comedy', romance: 'Romance', fantasy: 'Fantasy', anime: 'Anime',
       },
-      watch: 'Watch',
-      details: 'Details',
       seeAll: 'See all',
       backToCollections: 'Collections',
-      loadMore: 'Load more',
       searchPlaceholder: 'Search anime…',
       empty: 'Nothing found',
       emptyHint: 'Try another query or genre.',
@@ -418,19 +434,14 @@ PotokSDK.i18n.registerTranslations({
   ru: {
     'potok-shikimori': {
       manifest: { name: 'Аниме (Shikimori)' },
-      pageTitle: 'Аниме — Shikimori',
       sidebar: { title: 'Аниме', catalog: 'Shikimori' },
-      view: { collections: 'Подборки', catalog: 'Каталог' },
       rows: {
         popular: 'Популярное сейчас', top: 'Топ-10 по рейтингу', ongoing: 'Онгоинги',
         fresh: 'Свежие релизы', upcoming: 'Скоро выйдет', movies: 'Аниме-фильмы',
         action: 'Экшен', comedy: 'Комедия', romance: 'Романтика', fantasy: 'Фэнтези', anime: 'Аниме',
       },
-      watch: 'Смотреть',
-      details: 'Подробнее',
       seeAll: 'Все',
       backToCollections: 'Подборки',
-      loadMore: 'Показать ещё',
       searchPlaceholder: 'Поиск аниме…',
       empty: 'Ничего не найдено',
       emptyHint: 'Попробуйте другой запрос или жанр.',
