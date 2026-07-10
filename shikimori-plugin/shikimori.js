@@ -32,7 +32,7 @@ async function orderedBases() {
 async function shikiGraphql(query) {
   for (const base of await orderedBases()) {
     try {
-      const res = await PotokSDK.http.get(`${base}/api/graphql`, { method: 'POST', body: { query }, headers: HEADERS });
+      const res = await PotokSDK.http.post(`${base}/api/graphql`, { query }, HEADERS);
       if (res && res.status >= 200 && res.status < 300) {
         const json = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
         if (json && json.data) {
@@ -160,7 +160,7 @@ async function searchTmdb(meta) {
 async function armIds(malId) {
   if (malId == null) return null;
   try {
-    const res = await PotokSDK.http.post(
+    const res = await PotokSDK.http.proxy(
       `https://arm.haglund.dev/api/v2/ids?source=myanimelist&id=${encodeURIComponent(malId)}&include=themoviedb,imdb`,
     );
     if (!res || res.status < 200 || res.status >= 300) return null;
@@ -172,7 +172,7 @@ async function armIds(malId) {
 
 // Secondary path, only when title search misses and Shikimori happens to expose an IMDb link.
 async function tmdbFromImdb(imdbId, kind) {
-  const res = unwrap(await PotokSDK.http.post(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
+  const res = unwrap(await PotokSDK.http.get(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
   if (!res) return null;
   const tv = Array.isArray(res.tv_results) ? res.tv_results[0] : null;
   const movie = Array.isArray(res.movie_results) ? res.movie_results[0] : null;
