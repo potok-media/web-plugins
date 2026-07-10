@@ -36,13 +36,17 @@ const state = PotokSDK.createState({
 
 // --- data → SDKContentItem adapters -------------------------------------------------
 
+// SDKContentItem — the host renders it via the app's NATIVE MediaCard (rating pill, poster, type icon).
+// Poster/backdrop/rating come from TMDB (see shikimori.js); year → subtitle; mediaType → native navigation.
 function cardToItem(card) {
   return {
     id: card.id,
     mediaType: card.mediaType,
     title: card.title,
+    subtitle: card.year ? String(card.year) : undefined,
     image: card.posterSrc,
-    badges: card.tmdbRating ? [{ text: '★ ' + Number(card.tmdbRating).toFixed(1), color: 'accent' }] : [],
+    wideImage: card.backdropSrc,
+    rating: card.tmdbRating,
   };
 }
 
@@ -162,17 +166,7 @@ function buildCollections() {
     children.push(
       Hero()
         .id('shiki-hero')
-        .items([{
-          id: state.featured.id,
-          title: state.featured.title,
-          subtitle: t('heroSubtitle'),
-          image: state.featured.image,
-          badges: state.featured.badges,
-        }])
-        .playLabel(t('watch'))
-        .detailsLabel(t('details'))
-        .onPlay(() => openItem(state.featured))
-        .onDetails(() => openItem(state.featured)),
+        .items([{ ...state.featured, subtitle: t('heroSubtitle') }]),
     );
   }
 
@@ -249,7 +243,6 @@ function buildCatalog() {
 
 function buildLayout() {
   return VStack().id('shiki-root').spacing(20).children([
-    HStack().alignItems('center').children([Heading(t('pageTitle')), Spacer()]),
     viewSwitch(),
     state.view === 'catalog' ? buildCatalog() : buildCollections(),
   ]);

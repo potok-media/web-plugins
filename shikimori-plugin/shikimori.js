@@ -79,10 +79,45 @@ function shikiPoster(anime) {
   return /^https?:/.test(path) ? path : `${currentBase()}${path}`;
 }
 
-// Map a Shikimori anime (its id == MyAnimeList id) to a clickable Potok card {id: tmdbId, mediaType, ...}.
-// Cached in local storage since the id relation is stable. Returns null when no TMDB match exists.
+// Shikimori exposes an IMDb link per anime. REST external_links is GET-only (proxy-safe, no CORS/POST),
+// so we read it instead of GraphQL. Returns "ttXXXXXXX" or null.
+async function fetchImdbId(animeId) {
+  const links = await shikiGet(`/api/animes/${animeId}/external_links`);
+  if (!Array.isArray(links)) return null;
+  const imdb = links.find((l) => l && l.kind === 'imdb' && typeof l.url === 'string');
+  if (!imdb) return null;
+  const m = imdb.url.match(/(tt\d+)/);
+  return m ? m[1] : null;
+}
+
+// Resolve an IMDb id -> full TMDB card via the gateway's TMDB API proxy (server key, host-relative, no CORS).
+// We pull the poster/title/year/rating/backdrop FROM TMDB (Shikimori is only identity + fallback), so posters
+// are always correct even when Shikimori lacks them.
+async function tmdbFromImdb(imdbId, kind) {
+  const res = unwrap(await PotokSDK.http.get(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
+  if (!res) return null;
+  const tv = Array.isArray(res.tv_results) ? res.tv_results[0] : null;
+  const movie = Array.isArray(res.movie_results) ? res.movie_results[0] : null;
+  const preferTv = kind !== 'movie';
+  const pick = preferTv ? (tv || movie) : (movie || tv);
+  if (!pick || !pick.id) return null;
+  const date = pick.first_air_date || pick.release_date || '';
+  return {
+    id: Number(pick.id),
+    mediaType: pick === tv ? 'tv' : 'movie',
+    title: pick.name || pick.title,
+    year: date ? date.slice(0, 4) : undefined,
+    rating: typeof pick.vote_average === 'number' && pick.vote_average > 0 ? pick.vote_average : undefined,
+    poster: pick.poster_path ? `https://image.tmdb.org/t/p/w500${pick.poster_path}` : undefined,
+    backdrop: pick.backdrop_path ? `https://image.tmdb.org/t/p/w1280${pick.backdrop_path}` : undefined,
+  };
+}
+
+// Map a Shikimori anime (its id == MyAnimeList id) to a clickable Potok card {id: tmdbId, mediaType}.
+// Priority: IMDb->TMDB (reliable) -> ARM (mal->tmdb) -> gateway title search (fuzzy). Cached in storage
+// since the relation is stable. Returns null when no TMDB match exists.
 async function resolveTmdb(anime) {
-  const cacheKey = `shiki:map:${anime.id}`;
+  const cacheKey = `shiki:map2:${anime.id}`; // v2: now stores full TMDB card (poster/title/year/rating)
   const cached = await PotokSDK.storage.local.getItem(cacheKey);
   if (cached != null) {
     const parsed = JSON.parse(cached);
@@ -90,19 +125,38 @@ async function resolveTmdb(anime) {
   }
 
   let mapped = null;
-  try {
-    const arm = unwrap(await PotokSDK.http.get(`${ARM_URL}${anime.id}`));
-    const tmdbId = arm && arm.themoviedb;
-    if (tmdbId) mapped = { id: Number(tmdbId), mediaType: mediaTypeFromKind(anime.kind) };
-  } catch (e) { /* fall through to search */ }
 
+  // 1) IMDb (from Shikimori) -> TMDB find. Most reliable + gives us the TMDB poster/title/year/rating.
+  try {
+    const imdbId = await fetchImdbId(anime.id);
+    if (imdbId) mapped = await tmdbFromImdb(imdbId, anime.kind);
+  } catch (e) { /* fall through */ }
+
+  // 2) Fallback: gateway title search (fuzzy) — also returns a TMDB card (poster/title/rating).
   if (!mapped) {
-    // Fallback: our gateway search resolves title -> TMDB card (host-relative, proxied with auth).
     try {
       const name = anime.russian || anime.name;
       const results = unwrap(await PotokSDK.http.get(`/api/media/search?query=${encodeURIComponent(name)}`));
       const first = Array.isArray(results) ? results[0] : null;
-      if (first && first.id) mapped = { id: first.id, mediaType: first.mediaType || mediaTypeFromKind(anime.kind), posterSrc: first.posterSrc };
+      if (first && first.id) {
+        mapped = {
+          id: first.id,
+          mediaType: first.mediaType || mediaTypeFromKind(anime.kind),
+          title: first.title,
+          poster: first.posterSrc,
+          backdrop: first.backdropSrc,
+          rating: first.tmdbRating,
+        };
+      }
+    } catch (e) { /* fall through */ }
+  }
+
+  // 3) Last resort: ARM (MyAnimeList id -> themoviedb) — id only, poster comes from Shikimori.
+  if (!mapped) {
+    try {
+      const arm = unwrap(await PotokSDK.http.get(`${ARM_URL}${anime.id}`));
+      const tmdbId = arm && arm.themoviedb;
+      if (tmdbId) mapped = { id: Number(tmdbId), mediaType: mediaTypeFromKind(anime.kind) };
     } catch (e) { /* no match */ }
   }
 
@@ -110,7 +164,8 @@ async function resolveTmdb(anime) {
   return mapped;
 }
 
-// Turn Shikimori anime into Potok cards, dropping ones with no TMDB match. Concurrency-limited by the host proxy.
+// Turn Shikimori anime into Potok cards, dropping ones with no TMDB match. Poster/title/rating come from
+// TMDB (via mapped); Shikimori only fills gaps. Concurrency-limited by the host proxy.
 export async function toCards(animes) {
   const cards = await Promise.all(animes.map(async (anime) => {
     const mapped = await resolveTmdb(anime);
@@ -118,9 +173,11 @@ export async function toCards(animes) {
     return {
       id: mapped.id,
       mediaType: mapped.mediaType,
-      title: anime.russian || anime.name,
-      posterSrc: mapped.posterSrc || shikiPoster(anime),
-      tmdbRating: anime.score ? Number(anime.score) : undefined,
+      title: mapped.title || anime.russian || anime.name,
+      posterSrc: mapped.poster || shikiPoster(anime),
+      backdropSrc: mapped.backdrop,
+      tmdbRating: mapped.rating != null ? mapped.rating : (anime.score ? Number(anime.score) : undefined),
+      year: mapped.year,
     };
   }));
   return cards.filter(Boolean);
