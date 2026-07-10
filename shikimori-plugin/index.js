@@ -233,8 +233,8 @@ function buildCatalog() {
   } else if (!state.items.length) {
     results = EmptyState().icon('search-x').title(t('empty')).description(t('emptyHint'));
   } else {
-    const grid = PosterGrid().id('shiki-grid').items(state.items).minWidth('10rem').onCardClick(openItem);
-    if (state.hasMore) grid.loadMoreLabel(t('loadMore')).onLoadMore(() => loadCatalog(false));
+    const grid = PosterGrid().id('shiki-grid').items(state.items).onCardClick(openItem);
+    if (state.hasMore) grid.onLoadMore(() => loadCatalog(false)); // auto-loads on scroll (SDK sentinel)
     results = grid;
   }
 
