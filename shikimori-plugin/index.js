@@ -243,7 +243,8 @@ function buildCatalog() {
 
 function buildLayout() {
   return VStack().id('shiki-root').spacing(20).children([
-    viewSwitch(),
+    // Compact mode switcher pinned to the top-right, out of the hero's way.
+    HStack().alignItems('center').children([Spacer(), viewSwitch()]),
     state.view === 'catalog' ? buildCatalog() : buildCollections(),
   ]);
 }
