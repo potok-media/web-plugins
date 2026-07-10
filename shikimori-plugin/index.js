@@ -279,15 +279,19 @@ function toolbar() {
 
   const left = [];
   if (isBrowsing()) {
-    left.push(Button(t('backToCollections')).variant('secondary').icon('arrow-left').onClick(goCollections));
+    left.push(Button(t('backToCollections')).variant('ghost').icon('arrow-left').onClick(goCollections));
   }
   left.push(searchBox);
 
+  // Layout: [← Home?] [search] ……… [sort] [genre] — filters pinned to the right (one Spacer), search left.
+  // resetValue = the default, so the glass "active filter" dot only lights up for a NON-default choice
+  // (otherwise "Популярное"/"Все" glow as if a filter were applied — misleading).
   return HStack().spacing(12).alignItems('center').children([
     ...left,
     Spacer(),
     Select('shiki-order').variant('glass').icon('arrow-down-wide-narrow')
       .value(state.order)
+      .resetValue('popularity')
       .options([
         { value: 'popularity', label: t('order.popularity') },
         { value: 'ranked', label: t('order.ranked') },
@@ -296,9 +300,9 @@ function toolbar() {
       .onChange((v) => setOrder(Array.isArray(v) ? v[0] : v)),
     Select('shiki-genre').variant('glass').icon('tag')
       .value(state.genre)
+      .resetValue('')
       .options(genreOptions)
       .onChange((v) => setGenre(Array.isArray(v) ? v[0] : v)),
-    Spacer(),
   ]);
 }
 
@@ -422,7 +426,7 @@ PotokSDK.i18n.registerTranslations({
         action: 'Action', comedy: 'Comedy', romance: 'Romance', fantasy: 'Fantasy', anime: 'Anime',
       },
       seeAll: 'See all',
-      backToCollections: 'Collections',
+      backToCollections: 'Home',
       searchPlaceholder: 'Search anime…',
       empty: 'Nothing found',
       emptyHint: 'Try another query or genre.',
@@ -441,7 +445,7 @@ PotokSDK.i18n.registerTranslations({
         action: 'Экшен', comedy: 'Комедия', romance: 'Романтика', fantasy: 'Фэнтези', anime: 'Аниме',
       },
       seeAll: 'Все',
-      backToCollections: 'Подборки',
+      backToCollections: 'Главная',
       searchPlaceholder: 'Поиск аниме…',
       empty: 'Ничего не найдено',
       emptyHint: 'Попробуйте другой запрос или жанр.',
