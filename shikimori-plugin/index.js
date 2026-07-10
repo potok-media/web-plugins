@@ -1,5 +1,5 @@
 import { PotokSDK } from 'potok-sdk';
-import { fetchAnimes, fetchGenres, toCards } from './shikimori.js';
+import { fetchAnimes, fetchGenres, toCards, resolveTmdb } from './shikimori.js';
 
 const PAGE_ID = 'potok-shikimori';
 const HOME_ID = 'potok-shikimori-home';
@@ -36,24 +36,28 @@ const state = PotokSDK.createState({
 
 // --- data → SDKContentItem adapters -------------------------------------------------
 
-// SDKContentItem — the host renders it via the app's NATIVE MediaCard (rating pill, poster, type icon,
-// hover glow). All display data (subtitle "year • genres", poster, backdrop, rating) is the gateway's native
-// MediaCard (see shikimori.js), so plugin cards are identical to the home page.
+// Shiki id → full card (resolution meta) so the click handler can turn it into a TMDB id on demand. The item
+// that round-trips the sandbox bridge only keeps the typed SDKContentItem fields, so we can't stash meta on it.
+const cardMeta = new Map();
+
+// SDKContentItem — the host renders it via the app's NATIVE MediaCard (rating pill, poster, type icon). Now
+// drawn entirely from Shikimori (subtitle "year • genres", poster, score). The id is the Shikimori id: TMDB is
+// unknown until the user clicks (see openItem), so default /media/<type>/<id> navigation must NOT fire here.
 function cardToItem(card) {
   return {
-    id: card.id,
+    id: card.shikiId,
     mediaType: card.mediaType,
     title: card.title,
     subtitle: card.subtitle,
     image: card.posterSrc,
-    wideImage: card.backdropSrc,
-    rating: card.tmdbRating,
+    rating: card.rating,
   };
 }
 
 async function loadItems(filters) {
   const animes = await fetchAnimes(filters);
-  const cards = await toCards(animes);
+  const cards = toCards(animes);
+  cards.forEach((c) => cardMeta.set(String(c.shikiId), c));
   return { items: cards.map(cardToItem), rawCount: animes.length };
 }
 
@@ -102,8 +106,24 @@ async function loadCatalog(reset) {
   state.loadingMore = false;
 }
 
-function openItem(item) {
-  if (item && item.id) PotokSDK.ui.navigateTo(`/media/${item.mediaType || 'tv'}/${item.id}`);
+// Click = resolve TMDB for THIS one title (cached after first time), then open the native page. The only place
+// a TMDB request happens. Guarded so a double-tap doesn't fire two lookups.
+let opening = false;
+async function openItem(item) {
+  if (!item || item.id == null || opening) return;
+  const meta = cardMeta.get(String(item.id));
+  if (!meta) return;
+  opening = true;
+  try {
+    const tmdb = await resolveTmdb(meta);
+    if (tmdb && tmdb.id != null) {
+      PotokSDK.ui.navigateTo(`/media/${tmdb.mediaType || meta.mediaType}/${tmdb.id}`);
+    } else {
+      PotokSDK.ui.showHUD('warning', t('notFound'));
+    }
+  } finally {
+    opening = false;
+  }
 }
 
 function goCatalog(preset) {
@@ -167,7 +187,9 @@ function buildCollections() {
     children.push(
       Hero()
         .id('shiki-hero')
-        .items([{ ...state.featured, subtitle: t('heroSubtitle') }]),
+        .items([{ ...state.featured, subtitle: t('heroSubtitle') }])
+        .onPlay(openItem)
+        .onDetails(openItem),
     );
   }
 
@@ -321,6 +343,7 @@ PotokSDK.i18n.registerTranslations({
       searchPlaceholder: 'Search anime…',
       empty: 'Nothing found',
       emptyHint: 'Try another query or genre.',
+      notFound: 'No match found for this title',
       filters: { anyGenre: 'All' },
       order: { popularity: 'Popular', ranked: 'Rating', aired: 'Newest' },
     },
@@ -340,6 +363,7 @@ PotokSDK.i18n.registerTranslations({
       searchPlaceholder: 'Поиск аниме…',
       empty: 'Ничего не найдено',
       emptyHint: 'Попробуйте другой запрос или жанр.',
+      notFound: 'Не нашли совпадение для этого тайтла',
       filters: { anyGenre: 'Все' },
       order: { popularity: 'Популярное', ranked: 'Рейтинг', aired: 'Новинки' },
     },

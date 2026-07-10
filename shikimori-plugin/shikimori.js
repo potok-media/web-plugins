@@ -1,11 +1,13 @@
 import { PotokSDK } from 'potok-sdk';
 
 // Shikimori blocks cross-origin browser requests (no CORS) and rate-limits hard. So we:
-//  1) go through the gateway's server-side proxy (/api/proxy?url=) — host-relative, no CORS;
-//  2) use ONE GraphQL request per row that returns the list + each anime's IMDb link at once,
-//     instead of a REST list + N per-anime external_links calls (which got us rate-limit banned).
-const BASES = ['https://shikimori.one', 'https://shikimori.io', 'https://shikimori.me'];
-const ARM_URL = 'https://arm.haglund.dev/api/v2/ids?source=myanimelist&id=';
+//  1) go through the gateway's server-side proxy (/api/graphql via PotokSDK.http.proxy) — host-relative, no CORS;
+//  2) use ONE GraphQL request per row that returns EVERYTHING a card needs (title, year, genres, poster, score).
+//
+// Cards are drawn purely from Shikimori data — no TMDB during list rendering. TMDB is resolved LAZILY, once,
+// only when the user clicks a card (see resolveTmdb), because the only thing that needs a TMDB id is opening
+// the native /media/<type>/<id> page. This collapses a home load from ~50 requests to 4.
+const BASES = ['https://shikimori.io'];
 const HEADERS = { 'User-Agent': 'Potok-Shikimori' };
 const BASE_CACHE_KEY = 'shiki:base';
 
@@ -46,7 +48,8 @@ async function shikiGraphql(query) {
   return null;
 }
 
-// One GraphQL request → animes with id/malId/name/kind/score/poster AND their external links (IMDb).
+// One GraphQL request → everything a card renders from (year/genres/poster/score) PLUS the keys we need later
+// to resolve TMDB on click (english/russian name, kind, imdb link). No screenshots — keeps list complexity low.
 export async function fetchAnimes(filters) {
   const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 50);
   const page = Math.max(parseInt(filters.page, 10) || 1, 1);
@@ -60,8 +63,9 @@ export async function fetchAnimes(filters) {
 
   const query = `{
     animes(${args.join(', ')}) {
-      id malId name russian kind score
-      poster { originalUrl mainUrl }
+      id malId name russian english kind score
+      airedOn { year }
+      genres { russian }
       externalLinks { kind url }
     }
   }`;
@@ -91,85 +95,96 @@ function imdbFromLinks(anime) {
   return m ? m[1] : null;
 }
 
-// IMDb id -> TMDB {id, mediaType} via the gateway's TMDB API proxy (server key, host-relative, no CORS).
-async function tmdbIdFromImdb(imdbId, kind) {
+// Subtitle "year • genres" straight from Shikimori — no TMDB genre map, no extra request.
+function buildSubtitle(year, genreNames) {
+  const parts = [];
+  if (year) parts.push(String(year));
+  if (genreNames && genreNames.length) parts.push(genreNames.slice(0, 2).join(', '));
+  return parts.join(' • ') || undefined;
+}
+
+// Shikimori anime → display card. Carries both the render fields AND the meta needed to resolve TMDB on click.
+// Synchronous and network-free: the whole row is already in hand from fetchAnimes.
+export function toCards(animes) {
+  return (animes || []).map((anime) => {
+    if (!anime || anime.id == null) return null;
+    const year = anime.airedOn && anime.airedOn.year;
+    const genreNames = (anime.genres || []).map((g) => g && g.russian).filter(Boolean);
+    return {
+      // resolution meta (used lazily by resolveTmdb)
+      shikiId: anime.id,
+      malId: anime.malId,
+      kind: anime.kind,
+      name: anime.name,
+      english: anime.english,
+      russian: anime.russian,
+      year,
+      imdb: imdbFromLinks(anime),
+      // display fields
+      mediaType: mediaTypeFromKind(anime.kind),
+      title: anime.russian || anime.name,
+      subtitle: buildSubtitle(year, genreNames),
+      posterSrc: shikiPoster(anime),
+      rating: anime.score ? Number(anime.score) : undefined,
+    };
+  }).filter(Boolean);
+}
+
+// --- TMDB resolution: LAZY, on click only -------------------------------------------
+
+function pickBest(list, meta) {
+  const want = mediaTypeFromKind(meta.kind);
+  return (list.find((r) => r && r.id != null && r.mediaType === want)
+    || list.find((r) => r && r.id != null)
+    || null);
+}
+
+// Primary path for anime: title search (english first — far more reliable than IMDb, whose Shikimori link,
+// when present at all, points at the whole franchise rather than this season). One request per name tried.
+async function searchTmdb(meta) {
+  const names = [];
+  for (const n of [meta.english, meta.russian, meta.name]) {
+    const name = n && String(n).trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  for (const name of names) {
+    let results = null;
+    try {
+      results = unwrap(await PotokSDK.http.get(`/api/media/search?query=${encodeURIComponent(name)}`));
+    } catch (e) { continue; }
+    const list = Array.isArray(results) ? results : [];
+    const pick = pickBest(list, meta);
+    if (pick) return { id: Number(pick.id), mediaType: pick.mediaType || mediaTypeFromKind(meta.kind) };
+  }
+  return null;
+}
+
+// Secondary path, only when title search misses and Shikimori happens to expose an IMDb link.
+async function tmdbFromImdb(imdbId, kind) {
   const res = unwrap(await PotokSDK.http.get(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
   if (!res) return null;
   const tv = Array.isArray(res.tv_results) ? res.tv_results[0] : null;
   const movie = Array.isArray(res.movie_results) ? res.movie_results[0] : null;
   const preferTv = kind !== 'movie';
   const pick = preferTv ? (tv || movie) : (movie || tv);
-  if (!pick || !pick.id) return null;
+  if (!pick || pick.id == null) return null;
   return { id: Number(pick.id), mediaType: pick === tv ? 'tv' : 'movie' };
 }
 
-// Fetch the FULL native MediaCard from the gateway by TMDB id — same backend mapping the home page uses, so
-// the card is byte-identical (subtitle "year • genres", poster, rating). Host-relative, no CORS.
-async function fetchTmdbCard(tmdbId, mediaType) {
-  const results = unwrap(await PotokSDK.http.get(`/api/media/search?query=tmdb:${tmdbId}`));
-  if (!Array.isArray(results)) return null;
-  const card = results.find((r) => r && r.mediaType === mediaType) || results[0];
-  return card && card.id ? card : null;
-}
-
-// Priority: IMDb->TMDB (reliable) -> gateway title search (fuzzy) -> ARM (mal->tmdb). Returns the native
-// gateway MediaCard (identical to home). Cached in storage since the relation is stable.
-async function resolveTmdb(anime) {
-  const cacheKey = `shiki:map3:${anime.id}`; // v3: stores the full native MediaCard
+// Resolve a Shikimori card → { id, mediaType } for /media/<type>/<id>. Cached in storage (relation is stable),
+// so a title is resolved at most once ever. Returns null (and caches the miss) when nothing matches.
+export async function resolveTmdb(meta) {
+  if (!meta || meta.shikiId == null) return null;
+  const cacheKey = `shiki:tmdb:${meta.shikiId}`;
   const cached = await PotokSDK.storage.local.getItem(cacheKey);
-  if (cached != null) {
-    const parsed = JSON.parse(cached);
-    return parsed || null;
+  if (cached != null) return JSON.parse(cached) || null;
+
+  let hit = null;
+  try { hit = await searchTmdb(meta); } catch (e) { /* fall through */ }
+  if (!hit && meta.imdb) {
+    try { hit = await tmdbFromImdb(meta.imdb, meta.kind); } catch (e) { /* no match */ }
   }
 
-  let card = null;
-
-  // 1) IMDb (from the batched externalLinks) -> TMDB id -> full native card.
-  const imdbId = imdbFromLinks(anime);
-  if (imdbId) {
-    try {
-      const found = await tmdbIdFromImdb(imdbId, anime.kind);
-      if (found) card = await fetchTmdbCard(found.id, found.mediaType);
-    } catch (e) { /* fall through */ }
-  }
-
-  // 2) Fallback: gateway title search (fuzzy) — already returns a full native card.
-  if (!card) {
-    try {
-      const name = anime.russian || anime.name;
-      const results = unwrap(await PotokSDK.http.get(`/api/media/search?query=${encodeURIComponent(name)}`));
-      const first = Array.isArray(results) ? results[0] : null;
-      if (first && first.id) card = first;
-    } catch (e) { /* fall through */ }
-  }
-
-  // 3) Last resort: ARM (MyAnimeList id -> themoviedb) via proxy -> full native card.
-  if (!card && anime.malId) {
-    try {
-      const arm = unwrap(await PotokSDK.http.proxy(`${ARM_URL}${anime.malId}`));
-      if (arm && arm.themoviedb) card = await fetchTmdbCard(Number(arm.themoviedb), mediaTypeFromKind(anime.kind));
-    } catch (e) { /* no match */ }
-  }
-
-  await PotokSDK.storage.local.setItem(cacheKey, JSON.stringify(card || false));
-  return card;
-}
-
-// Turn Shikimori anime into the native card shape. The card IS the gateway MediaCard (subtitle "year • genres",
-// poster, rating) — Shikimori only fills gaps. Concurrency-limited by the host proxy.
-export async function toCards(animes) {
-  const cards = await Promise.all(animes.map(async (anime) => {
-    const card = await resolveTmdb(anime);
-    if (!card) return null;
-    return {
-      id: card.id,
-      mediaType: card.mediaType,
-      title: card.title || anime.russian || anime.name,
-      subtitle: card.subtitle,
-      posterSrc: card.posterSrc || shikiPoster(anime),
-      backdropSrc: card.backdropSrc,
-      tmdbRating: card.tmdbRating != null ? card.tmdbRating : (anime.score ? Number(anime.score) : undefined),
-    };
-  }));
-  return cards.filter(Boolean);
+  await PotokSDK.storage.local.setItem(cacheKey, JSON.stringify(hit || false));
+  return hit;
 }
