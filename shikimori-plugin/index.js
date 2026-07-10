@@ -36,14 +36,15 @@ const state = PotokSDK.createState({
 
 // --- data → SDKContentItem adapters -------------------------------------------------
 
-// SDKContentItem — the host renders it via the app's NATIVE MediaCard (rating pill, poster, type icon).
-// Poster/backdrop/rating come from TMDB (see shikimori.js); year → subtitle; mediaType → native navigation.
+// SDKContentItem — the host renders it via the app's NATIVE MediaCard (rating pill, poster, type icon,
+// hover glow). All display data (subtitle "year • genres", poster, backdrop, rating) is the gateway's native
+// MediaCard (see shikimori.js), so plugin cards are identical to the home page.
 function cardToItem(card) {
   return {
     id: card.id,
     mediaType: card.mediaType,
     title: card.title,
-    subtitle: card.year ? String(card.year) : undefined,
+    subtitle: card.subtitle,
     image: card.posterSrc,
     wideImage: card.backdropSrc,
     rating: card.tmdbRating,
