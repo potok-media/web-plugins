@@ -155,6 +155,21 @@ async function searchTmdb(meta) {
   return null;
 }
 
+// malId → cross-reference ids (themoviedb / imdb) via the ARM service (github.com/manami-project data).
+// ONE proxied request per title, and — unlike a fuzzy TMDB title search — an exact mapping for anime.
+async function armIds(malId) {
+  if (malId == null) return null;
+  try {
+    const res = await PotokSDK.http.proxy(
+      `https://arm.haglund.dev/api/v2/ids?source=myanimelist&id=${encodeURIComponent(malId)}&include=themoviedb,imdb`,
+    );
+    if (!res || res.status < 200 || res.status >= 300) return null;
+    return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Secondary path, only when title search misses and Shikimori happens to expose an IMDb link.
 async function tmdbFromImdb(imdbId, kind) {
   const res = unwrap(await PotokSDK.http.get(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
@@ -169,16 +184,32 @@ async function tmdbFromImdb(imdbId, kind) {
 
 // Resolve a Shikimori card → { id, mediaType } for /media/<type>/<id>. Cached in storage (relation is stable),
 // so a title is resolved at most once ever. Returns null (and caches the miss) when nothing matches.
+//
+// Priority: malId → ARM → tmdb id (exact) ▸ imdb → tmdb find ▸ fuzzy title search (last resort). The old
+// title-search-first path matched the wrong title for a lot of anime, hence the malId-first mapping.
 export async function resolveTmdb(meta) {
   if (!meta || meta.shikiId == null) return null;
-  const cacheKey = `shiki:tmdb:${meta.shikiId}`;
+  const cacheKey = `shiki:tmdb2:${meta.shikiId}`; // v2: malId→ARM resolution (invalidates the old fuzzy cache)
   const cached = await PotokSDK.storage.local.getItem(cacheKey);
   if (cached != null) return JSON.parse(cached) || null;
 
   let hit = null;
-  try { hit = await searchTmdb(meta); } catch (e) { /* fall through */ }
-  if (!hit && meta.imdb) {
-    try { hit = await tmdbFromImdb(meta.imdb, meta.kind); } catch (e) { /* no match */ }
+
+  // 1) malId → ARM. themoviedb is a bare id with no type, so infer movie/tv from the Shikimori kind.
+  const ids = await armIds(meta.malId);
+  if (ids && ids.themoviedb) {
+    hit = { id: Number(ids.themoviedb), mediaType: mediaTypeFromKind(meta.kind) };
+  }
+  // 2) imdb (ARM's, else Shikimori's link) → tmdb find.
+  if (!hit) {
+    const imdbId = (ids && typeof ids.imdb === 'string' ? ids.imdb : null) || meta.imdb;
+    if (imdbId) {
+      try { hit = await tmdbFromImdb(imdbId, meta.kind); } catch (e) { /* fall through */ }
+    }
+  }
+  // 3) last resort: fuzzy title search.
+  if (!hit) {
+    try { hit = await searchTmdb(meta); } catch (e) { /* no match */ }
   }
 
   await PotokSDK.storage.local.setItem(cacheKey, JSON.stringify(hit || false));

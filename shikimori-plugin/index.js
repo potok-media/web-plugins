@@ -2,8 +2,12 @@ import { PotokSDK } from 'potok-sdk';
 import { fetchAnimes, fetchGenres, toCards, resolveTmdb } from './shikimori.js';
 
 const PAGE_ID = 'potok-shikimori';
+const PAGE_PATH = `/extensions/${PAGE_ID}`;
 const HOME_ID = 'potok-shikimori-home';
 const CATALOG_LIMIT = 30;
+const ORDER_VALUES = ['popularity', 'ranked', 'aired_on'];
+const STATUS_VALUES = ['anons', 'ongoing', 'released'];
+const KIND_VALUES = ['tv', 'movie', 'ova', 'ona', 'special'];
 
 const {
   VStack, HStack, Spacer, ContentRow, TopTenRow, PosterGrid,
@@ -16,14 +20,14 @@ const t = (key, opts) => PotokSDK.i18n.t(`potok-shikimori:${key}`, opts);
 const state = PotokSDK.createState({
   // collections landing (shown by default, when no filter is active)
   colLoading: true,
-  popular: [],
-  top: [],
-  ongoing: [],
-  movies: [],
-  // catalog
+  shelves: {}, // shelf id -> items[] (see SHELVES); filled progressively as each row loads
+  // catalog / browse filters (mirror of the URL — see applyRoute)
   query: '',
   order: 'popularity',
   genre: '',
+  status: '',
+  kind: '',
+  browse: false, // true = show the catalog grid (any URL filter present); false = collections landing
   page: 1,
   items: [],
   catLoading: false,
@@ -61,19 +65,68 @@ async function loadItems(filters) {
 
 // --- collections landing ------------------------------------------------------------
 
+// Landing shelves — each is ONE simple fetchAnimes call (order/status/kind/genre only). `see` is the filter
+// the shelf's "see all →" opens in the catalog; genre shelves resolve their id from the loaded genre list.
+// `top: true` renders the ranked Top-10 row. Order here = order on the page.
+const SHELVES = [
+  { id: 'popular',  key: 'rows.popular',  filters: { order: 'popularity' },                       see: { order: 'popularity' } },
+  { id: 'top',      key: 'rows.top',      filters: { order: 'ranked', limit: 10 }, top: true,      see: { order: 'ranked' } },
+  { id: 'ongoing',  key: 'rows.ongoing',  filters: { order: 'popularity', status: 'ongoing' },     see: { status: 'ongoing' } },
+  { id: 'fresh',    key: 'rows.fresh',    filters: { order: 'aired_on', status: 'released' },       see: { order: 'aired_on' } },
+  { id: 'upcoming', key: 'rows.upcoming', filters: { order: 'popularity', status: 'anons' },        see: { status: 'anons' } },
+  { id: 'movies',   key: 'rows.movies',   filters: { order: 'popularity', kind: 'movie', status: 'released' }, see: { kind: 'movie', status: 'released' } },
+  { id: 'action',   key: 'rows.action',   genre: 'Action' },
+  { id: 'comedy',   key: 'rows.comedy',   genre: 'Comedy' },
+  { id: 'romance',  key: 'rows.romance',  genre: 'Romance' },
+  { id: 'fantasy',  key: 'rows.fantasy',  genre: 'Fantasy' },
+];
+
+// Resolve a Shikimori genre id from its English name (from the loaded genres list).
+function genreId(name) {
+  const g = state.genres.find((x) => x && String(x.name || '').toLowerCase() === name.toLowerCase());
+  return g ? String(g.id) : null;
+}
+
+// fetchAnimes filters for a shelf (null → skip, e.g. a genre we couldn't resolve).
+function shelfFilters(s) {
+  if (s.genre) {
+    const id = genreId(s.genre);
+    return id ? { order: 'popularity', genre: id, limit: 12 } : null;
+  }
+  return { limit: 12, ...s.filters };
+}
+
+// The filter override a shelf's "see all →" navigates to.
+function shelfSee(s) {
+  if (s.genre) {
+    const id = genreId(s.genre);
+    return id ? { genre: id } : {};
+  }
+  return s.see || {};
+}
+
+// Run async work with bounded concurrency (Shikimori rate-limits ~5 rps, so we cap at 3 in flight).
+async function mapLimit(items, limit, fn) {
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i;
+      i += 1;
+      await fn(items[idx], idx);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 async function loadCollections() {
   state.colLoading = true;
-  const [popular, top, ongoing, movies] = await Promise.all([
-    loadItems({ order: 'popularity', limit: 12 }),
-    loadItems({ order: 'ranked', limit: 10 }),
-    loadItems({ order: 'popularity', status: 'ongoing', limit: 12 }),
-    loadItems({ order: 'popularity', kind: 'movie', status: 'released', limit: 12 }),
-  ]);
-  state.popular = popular.items;
-  state.top = top.items;
-  state.ongoing = ongoing.items;
-  state.movies = movies.items;
-  state.colLoading = false;
+  state.shelves = {};
+  await mapLimit(SHELVES, 3, async (s) => {
+    const filters = shelfFilters(s);
+    const items = filters ? (await loadItems(filters)).items : [];
+    state.shelves = { ...state.shelves, [s.id]: items }; // new ref → re-render; row pops in as it lands
+    state.colLoading = false; // reveal the feed as soon as the first shelf arrives
+  });
   renderHomeContribution();
 }
 
@@ -82,7 +135,10 @@ async function loadCollections() {
 let searchTimer = null;
 
 function catalogFilters(page) {
-  return { order: state.order, genre: state.genre, search: state.query, page, limit: CATALOG_LIMIT };
+  return {
+    order: state.order, genre: state.genre, search: state.query,
+    status: state.status, kind: state.kind, page, limit: CATALOG_LIMIT,
+  };
 }
 
 async function loadCatalog(reset) {
@@ -123,26 +179,75 @@ async function openItem(item) {
   }
 }
 
-// The single tab shows the collections landing by default and flips to the catalog grid the moment any
-// filter is active — i.e. a search query, a picked genre, or any order other than the default "popular".
+// Collections landing vs catalog grid. Browsing = the URL carries any filter (see applyRoute); the bare
+// page path (/extensions/potok-shikimori) is the landing. Reached via the sidebar, browser Back, or the
+// "back to collections" button.
 function isBrowsing() {
-  return !!state.query || !!state.genre || state.order !== 'popularity';
+  return state.browse;
+}
+
+// --- URL as the source of truth for filters -----------------------------------------
+// Filter state lives in the page URL (?q=&order=&genre=&status=&kind=), NOT only in local state — so browser
+// back/forward move between catalog states, and category "see all" is just a navigation to a filtered URL.
+// Changing a filter navigates (pushing a history entry); the host feeds the new query back as slot props,
+// and applyRoute() mirrors it into state before each render.
+
+function filtersUrl(f) {
+  const parts = [];
+  if (f.query) parts.push(`q=${encodeURIComponent(f.query)}`);
+  if (f.order) parts.push(`order=${encodeURIComponent(f.order)}`);
+  if (f.genre) parts.push(`genre=${encodeURIComponent(String(f.genre))}`);
+  if (f.status) parts.push(`status=${encodeURIComponent(f.status)}`);
+  if (f.kind) parts.push(`kind=${encodeURIComponent(f.kind)}`);
+  return parts.length ? `${PAGE_PATH}?${parts.join('&')}` : PAGE_PATH;
+}
+
+// Navigate to the grid with the given filter overrides on top of the current ones (pushes history).
+function navigateFilters(overrides) {
+  const next = {
+    query: state.query, order: state.order, genre: state.genre,
+    status: state.status, kind: state.kind, ...overrides,
+  };
+  PotokSDK.ui.navigateTo(filtersUrl(next));
+}
+
+// Navigate to the plain landing (curated collections).
+function goCollections() {
+  PotokSDK.ui.navigateTo(PAGE_PATH);
+}
+
+// Sync state from the URL query the host passes in props; kick off a catalog load when the (browsing)
+// filters actually changed. Called at the top of every slot render — including on back/forward.
+function applyRoute(props) {
+  const q = (props && props.query) || {};
+  const query = typeof q.q === 'string' ? q.q : '';
+  const order = ORDER_VALUES.includes(q.order) ? q.order : 'popularity';
+  const genre = q.genre != null && q.genre !== '' ? String(q.genre) : '';
+  const status = STATUS_VALUES.includes(q.status) ? q.status : '';
+  const kind = KIND_VALUES.includes(q.kind) ? q.kind : '';
+  const browse = !!(q.q || q.order || q.genre || q.status || q.kind);
+  const changed = query !== state.query || order !== state.order || genre !== state.genre
+    || status !== state.status || kind !== state.kind;
+  state.query = query;
+  state.order = order;
+  state.genre = genre;
+  state.status = status;
+  state.kind = kind;
+  state.browse = browse;
+  if (browse && changed) loadCatalog(true);
 }
 
 function onSearch(value) {
-  state.query = value;
   if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { if (isBrowsing()) loadCatalog(true); }, 400);
+  searchTimer = setTimeout(() => navigateFilters({ query: value }), 400);
 }
 
 function setOrder(order) {
-  state.order = order;
-  if (isBrowsing()) loadCatalog(true); // popular + no query/genre → back to the collections landing
+  navigateFilters({ order });
 }
 
 function setGenre(id) {
-  state.genre = id || '';
-  if (isBrowsing()) loadCatalog(true);
+  navigateFilters({ genre: id || '' });
 }
 
 // --- view builders ------------------------------------------------------------------
@@ -192,25 +297,16 @@ function buildCollections() {
   if (state.colLoading) return collectionsSkeleton();
 
   const children = [];
-
-  if (state.popular.length) {
+  // Render shelves in SHELVES order; each "see all →" opens the catalog filtered to that category.
+  SHELVES.forEach((s) => {
+    const items = state.shelves[s.id] || [];
+    if (!items.length) return;
+    const Row = s.top ? TopTenRow : ContentRow;
     children.push(
-      ContentRow().id('shiki-popular').title(t('rows.popular')).items(state.popular).onCardClick(openItem),
+      Row().id(`shiki-${s.id}`).title(t(s.key)).items(items).onCardClick(openItem)
+        .seeAllLabel(t('seeAll')).onSeeAllClick(() => navigateFilters(shelfSee(s))),
     );
-  }
-  if (state.top.length) {
-    children.push(TopTenRow().id('shiki-top').title(t('rows.top')).items(state.top).onCardClick(openItem));
-  }
-  if (state.ongoing.length) {
-    children.push(
-      ContentRow().id('shiki-ongoing').title(t('rows.ongoing')).items(state.ongoing).onCardClick(openItem),
-    );
-  }
-  if (state.movies.length) {
-    children.push(
-      ContentRow().id('shiki-movies').title(t('rows.movies')).items(state.movies).onCardClick(openItem),
-    );
-  }
+  });
 
   return VStack().spacing(24).children(children);
 }
@@ -231,16 +327,25 @@ function buildCatalogResults() {
 }
 
 function buildLayout() {
-  return VStack().id('shiki-root').spacing(20).children([
-    toolbar(),
-    isBrowsing() ? buildCatalogResults() : buildCollections(),
-  ]);
+  const children = [toolbar()];
+  if (isBrowsing()) {
+    children.push(
+      HStack().alignItems('center').children([
+        Button(t('backToCollections')).variant('secondary').icon('arrow-left').onClick(goCollections),
+        Spacer(),
+      ]),
+    );
+    children.push(buildCatalogResults());
+  } else {
+    children.push(buildCollections());
+  }
+  return VStack().id('shiki-root').spacing(20).children(children);
 }
 
 // --- home-page contribution (Phase 3): a "popular anime" row on the native home ------
 
 function homeRowLayout() {
-  const items = state.popular.slice(0, 12);
+  const items = (state.shelves.popular || []).slice(0, 12);
   if (!items.length) return VStack().id('shiki-home-empty');
   return ContentRow().id('shiki-home-row').title(t('rows.popular')).items(items)
     .seeAllLabel(t('seeAll')).onCardClick(openItem)
@@ -256,7 +361,8 @@ function renderHomeContribution() {
 PotokSDK.registerSlotContribution({
   id: PAGE_ID,
   slotName: 'extension-page',
-  render() {
+  render(props) {
+    applyRoute(props);
     return { label: t('manifest.name'), layout: buildLayout() };
   },
 });
@@ -299,10 +405,15 @@ PotokSDK.i18n.registerTranslations({
       pageTitle: 'Anime — Shikimori',
       sidebar: { title: 'Anime', catalog: 'Shikimori' },
       view: { collections: 'Collections', catalog: 'Catalog' },
-      rows: { popular: 'Popular now', top: 'Top 10 by rating', ongoing: 'Airing now', movies: 'Anime movies', anime: 'Anime' },
+      rows: {
+        popular: 'Popular now', top: 'Top 10 by rating', ongoing: 'Airing now',
+        fresh: 'Fresh releases', upcoming: 'Coming soon', movies: 'Anime movies',
+        action: 'Action', comedy: 'Comedy', romance: 'Romance', fantasy: 'Fantasy', anime: 'Anime',
+      },
       watch: 'Watch',
       details: 'Details',
       seeAll: 'See all',
+      backToCollections: 'Collections',
       loadMore: 'Load more',
       searchPlaceholder: 'Search anime…',
       empty: 'Nothing found',
@@ -318,10 +429,15 @@ PotokSDK.i18n.registerTranslations({
       pageTitle: 'Аниме — Shikimori',
       sidebar: { title: 'Аниме', catalog: 'Shikimori' },
       view: { collections: 'Подборки', catalog: 'Каталог' },
-      rows: { popular: 'Популярное сейчас', top: 'Топ-10 по рейтингу', ongoing: 'Онгоинги', movies: 'Аниме-фильмы', anime: 'Аниме' },
+      rows: {
+        popular: 'Популярное сейчас', top: 'Топ-10 по рейтингу', ongoing: 'Онгоинги',
+        fresh: 'Свежие релизы', upcoming: 'Скоро выйдет', movies: 'Аниме-фильмы',
+        action: 'Экшен', comedy: 'Комедия', romance: 'Романтика', fantasy: 'Фэнтези', anime: 'Аниме',
+      },
       watch: 'Смотреть',
       details: 'Подробнее',
       seeAll: 'Все',
+      backToCollections: 'Подборки',
       loadMore: 'Показать ещё',
       searchPlaceholder: 'Поиск аниме…',
       empty: 'Ничего не найдено',
