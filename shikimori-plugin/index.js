@@ -495,12 +495,23 @@ async function resetCache() {
 }
 
 function settingsLayout() {
-  return Card().title(t('settings.title')).subtitle(t('settings.subtitle')).child(
-    VStack().spacing(12).children([
-      Text(t('settings.cacheDesc')).variant('secondary'),
-      Button(t('settings.clearCache')).variant('secondary').icon('trash-2').onClick(resetCache),
-    ]),
-  );
+  // Spacing is owned by the plugin via SDK style props (.padding / .spacing / .width) — NO host CSS needed.
+  // These serialize to inline --sdk-* vars that override the component's default styling.
+  return Card()
+    .padding([20, 22])            // comfy inner padding (overrides .potok-card default)
+    .width('100%')
+    .title(t('settings.title'))
+    .subtitle(t('settings.subtitle'))
+    .child(
+      VStack().spacing(16).children([
+        Text(t('settings.cacheDesc')).variant('secondary'),
+        // Wrap in an HStack so the button sizes to its content (a VStack stretches children full-width → an
+        // ugly edge-to-edge bar).
+        HStack().children([
+          Button(t('settings.clearCache')).variant('secondary').icon('trash-2').onClick(resetCache),
+        ]),
+      ]),
+    );
 }
 
 PotokSDK.registerSlotContribution({
