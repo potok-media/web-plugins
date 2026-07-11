@@ -1,5 +1,8 @@
 import { PotokSDK } from 'potok-sdk';
-import { fetchAnimes, fetchGenres, toCards, resolveTmdb } from './shikimori.js';
+import {
+  fetchAnimes, fetchGenres, toCards,
+  resolveTmdbOpen, hasCachedTmdb, cacheTmdbChoice,
+} from './shikimori.js';
 
 const PAGE_ID = 'potok-shikimori';
 const PAGE_PATH = `/extensions/${PAGE_ID}`;
@@ -12,7 +15,7 @@ const KIND_VALUES = ['tv', 'movie', 'ova', 'ona', 'special'];
 const {
   VStack, HStack, Spacer, ContentRow, TopTenRow, PosterGrid,
   Scroller, SearchBar, Select, Skeleton, EmptyState,
-  SidebarGroup, Button, Card, Text,
+  SidebarGroup, Button, Card, Text, Modal, List,
 } = PotokSDK.ui.components;
 
 const t = (key, opts) => PotokSDK.i18n.t(`potok-shikimori:${key}`, opts);
@@ -33,7 +36,12 @@ const state = PotokSDK.createState({
   loadingMore: false,
   hasMore: true,
   genres: [],
+  pickerOpen: false,
+  pickerItems: [],
+  pickerShikiId: null,
 });
+
+const RESOLVE_HUD_MS = 20000;
 
 // --- data → SDKContentItem adapters -------------------------------------------------
 
@@ -231,6 +239,47 @@ async function debugTmdbTitle(mediaType, id) {
   }
 }
 
+function navigateToTmdb(hit, fallbackMediaType) {
+  if (!hit || hit.id == null) return;
+  PotokSDK.ui.navigateTo(`/media/${hit.mediaType || fallbackMediaType}/${hit.id}`);
+}
+
+function closePicker() {
+  state.pickerOpen = false;
+  state.pickerItems = [];
+  state.pickerShikiId = null;
+}
+
+async function onPickerSelect(listItem) {
+  const pick = state.pickerItems.find((c) => `${c.mediaType}:${c.id}` === listItem.id);
+  if (!pick) return;
+  const shikiId = state.pickerShikiId;
+  await cacheTmdbChoice(shikiId, pick);
+  closePicker();
+  navigateToTmdb(pick);
+}
+
+function buildPickerModal() {
+  if (!state.pickerOpen || !state.pickerItems.length) return null;
+  return Modal()
+    .open(true)
+    .title(t('picker.title'))
+    .variant('sheet')
+    .closeOnBackdrop(true)
+    .onClose(closePicker)
+    .child(
+      List()
+        .items(state.pickerItems.map((c) => ({
+          id: `${c.mediaType}:${c.id}`,
+          title: c.title || `#${c.id}`,
+          subtitle: c.subtitle,
+          badge: c.mediaType === 'movie' ? 'MOVIE' : 'TV',
+          trailingIcon: 'chevron-right',
+        })))
+        .onItemClick(onPickerSelect),
+    );
+}
+
 // Click = resolve TMDB for THIS one title (cached after first time), then open the native page. The only place
 // a TMDB request happens. Guarded so a double-tap doesn't fire two lookups.
 let opening = false;
@@ -240,21 +289,35 @@ async function openItem(item) {
   if (!meta) return;
   opening = true;
   try {
-    const tmdb = await resolveTmdb(meta);
+    const cached = await hasCachedTmdb(meta.shikiId);
+    if (!cached) {
+      PotokSDK.ui.showHUD('info', t('resolving'), { durationMs: RESOLVE_HUD_MS });
+    }
+
+    const result = await resolveTmdbOpen(meta);
+
     if (DEBUG_RESOLVE) {
       const chain = {
         shikiId: meta.shikiId, malId: meta.malId, kind: meta.kind,
         ru: meta.russian, en: meta.english, name: meta.name,
-        resolved: tmdb,
+        kind: result.kind,
+        fromCache: result.fromCache || false,
+        candidatesCount: result.candidates ? result.candidates.length : 0,
+        hit: result.hit || null,
       };
-      if (tmdb && tmdb.id != null) {
-        chain.tmdbTitle = await debugTmdbTitle(tmdb.mediaType || meta.mediaType, tmdb.id);
+      if (result.kind === 'direct' && result.hit && result.hit.id != null) {
+        chain.tmdbTitle = await debugTmdbTitle(result.hit.mediaType || meta.mediaType, result.hit.id);
       }
       // eslint-disable-next-line no-console
       console.log('[shikimori] resolve', chain);
     }
-    if (tmdb && tmdb.id != null) {
-      PotokSDK.ui.navigateTo(`/media/${tmdb.mediaType || meta.mediaType}/${tmdb.id}`);
+
+    if (result.kind === 'direct' && result.hit) {
+      navigateToTmdb(result.hit, meta.mediaType);
+    } else if (result.kind === 'choose' && result.candidates.length) {
+      state.pickerShikiId = meta.shikiId;
+      state.pickerItems = result.candidates;
+      state.pickerOpen = true;
     } else {
       PotokSDK.ui.showHUD('warning', t('notFound'));
     }
@@ -312,13 +375,15 @@ function applyRoute(props) {
   const browse = !!(q.q || q.order || q.genre || q.status || q.kind);
   const changed = query !== state.query || order !== state.order || genre !== state.genre
     || status !== state.status || kind !== state.kind;
+  // Landing → catalog with default filters (e.g. ?order=popularity) leaves changed=false — still load.
+  const enteringBrowse = browse && !state.browse;
   state.query = query;
   state.order = order;
   state.genre = genre;
   state.status = status;
   state.kind = kind;
   state.browse = browse;
-  if (browse && changed) loadCatalog(true);
+  if (browse && (changed || enteringBrowse)) loadCatalog(true);
 }
 
 function onSearch(value) {
@@ -347,7 +412,7 @@ function toolbar() {
 
   const left = [];
   if (isBrowsing()) {
-    left.push(Button(t('backToCollections')).variant('ghost').icon('arrow-left').onClick(goCollections));
+    left.push(Button(t('backToCollections')).variant('glass').icon('arrow-left').onClick(goCollections));
   }
   left.push(search);
 
@@ -421,22 +486,33 @@ function buildCatalogResults() {
 }
 
 function buildLayout() {
-  return VStack().id('shiki-root').spacing(20).children([
+  const children = [
     toolbar(),
     isBrowsing() ? buildCatalogResults() : buildCollections(),
-  ]);
+  ];
+  const picker = buildPickerModal();
+  if (picker) children.push(picker);
+  return VStack().id('shiki-root').spacing(20).children(children);
 }
 
 // --- home-page contribution (Phase 3): a "popular anime" row on the native home ------
 
 function homeRowLayout() {
   const items = (state.shelves.popular || []).slice(0, 12);
-  if (!items.length) return VStack().id('shiki-home-empty');
-  // On the NATIVE home the row is branded "Shikimori" so its "see all →" clearly leads to the plugin's
-  // home page (not a "Popular" filter). The plugin's own page keeps the "Популярное сейчас" shelf as-is.
-  return ContentRow().id('shiki-home-row').title(t('homeRow')).items(items)
-    .seeAllLabel(t('seeAll')).onCardClick(openItem)
-    .onSeeAllClick(() => PotokSDK.ui.navigateTo(PAGE_PATH));
+  if (!items.length && !state.pickerOpen) return VStack().id('shiki-home-empty');
+  const children = [];
+  if (items.length) {
+    // On the NATIVE home the row is branded "Shikimori" so its "see all →" clearly leads to the plugin's
+    // home page (not a "Popular" filter). The plugin's own page keeps the "Популярное сейчас" shelf as-is.
+    children.push(
+      ContentRow().id('shiki-home-row').title(t('homeRow')).items(items)
+        .seeAllLabel(t('seeAll')).onCardClick(openItem)
+        .onSeeAllClick(() => PotokSDK.ui.navigateTo(PAGE_PATH)),
+    );
+  }
+  const picker = buildPickerModal();
+  if (picker) children.push(picker);
+  return VStack().id('shiki-home-wrap').children(children);
 }
 
 function renderHomeContribution() {
@@ -521,6 +597,7 @@ PotokSDK.registerSlotContribution({
 
 state.$subscribe(() => {
   PotokSDK.ui.render(buildLayout(), PAGE_ID);
+  renderHomeContribution();
 });
 
 PotokSDK.i18n.registerTranslations({
@@ -547,6 +624,8 @@ PotokSDK.i18n.registerTranslations({
       empty: 'Nothing found',
       emptyHint: 'Try another query or genre.',
       notFound: 'No match found for this title',
+      resolving: 'Looking for a match, please wait…',
+      picker: { title: 'Choose a match' },
       filters: { anyGenre: 'All' },
       order: { popularity: 'Popular', ranked: 'Rating', aired: 'Newest' },
     },
@@ -574,6 +653,8 @@ PotokSDK.i18n.registerTranslations({
       empty: 'Ничего не найдено',
       emptyHint: 'Попробуйте другой запрос или жанр.',
       notFound: 'Не нашли совпадение для этого тайтла',
+      resolving: 'Ищем совпадение, подождите…',
+      picker: { title: 'Выберите совпадение' },
       filters: { anyGenre: 'Все' },
       order: { popularity: 'Популярное', ranked: 'Рейтинг', aired: 'Новинки' },
     },

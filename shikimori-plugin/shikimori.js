@@ -104,31 +104,82 @@ export function toCards(animes) {
 
 // --- TMDB resolution: LAZY, on click only -------------------------------------------
 
-function pickBest(list, meta) {
-  const want = mediaTypeFromKind(meta.kind);
-  return (list.find((r) => r && r.id != null && r.mediaType === want)
-    || list.find((r) => r && r.id != null)
-    || null);
+function tmdbCacheKey(shikiId) {
+  return `shiki:tmdb:${shikiId}`;
 }
 
-// Primary path for anime: title search (english first — far more reliable than IMDb, whose Shikimori link,
-// when present at all, points at the whole franchise rather than this season). One request per name tried.
-async function searchTmdb(meta) {
+export async function hasCachedTmdb(shikiId) {
+  if (shikiId == null) return false;
+  const cached = await PotokSDK.storage.local.getItem(tmdbCacheKey(shikiId));
+  if (cached == null) return false;
+  try {
+    const hit = JSON.parse(cached);
+    return !!(hit && hit.id != null);
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function cacheTmdbChoice(shikiId, hit) {
+  if (shikiId == null || !hit || hit.id == null) return;
+  await PotokSDK.storage.local.setItem(tmdbCacheKey(shikiId), JSON.stringify({
+    id: Number(hit.id),
+    mediaType: hit.mediaType,
+  }));
+}
+
+function toCandidate(item, meta) {
+  if (!item || item.id == null) return null;
+  return {
+    id: Number(item.id),
+    mediaType: item.mediaType || mediaTypeFromKind(meta.kind),
+    title: item.title || item.originalTitle || item.englishTitle || '',
+    subtitle: item.subtitle || item.originalTitle || undefined,
+  };
+}
+
+function dedupeCandidates(list) {
+  const seen = new Set();
+  const out = [];
+  for (const c of list) {
+    const key = `${c.mediaType}:${c.id}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+function sortCandidates(list, meta) {
+  const want = mediaTypeFromKind(meta.kind);
+  return [...list].sort((a, b) => {
+    const aMatch = a.mediaType === want ? 0 : 1;
+    const bMatch = b.mediaType === want ? 0 : 1;
+    return aMatch - bMatch;
+  });
+}
+
+// Fuzzy title search — english → russian → name; merges unique hits from every query tried.
+export async function searchTmdbCandidates(meta) {
   const names = [];
   for (const n of [meta.english, meta.russian, meta.name]) {
     const name = n && String(n).trim();
     if (name && !names.includes(name)) names.push(name);
   }
+  const collected = [];
   for (const name of names) {
     let results = null;
     try {
       results = unwrap(await PotokSDK.http.get(`/api/media/search?query=${encodeURIComponent(name)}`));
     } catch (e) { continue; }
     const list = Array.isArray(results) ? results : [];
-    const pick = pickBest(list, meta);
-    if (pick) return { id: Number(pick.id), mediaType: pick.mediaType || mediaTypeFromKind(meta.kind) };
+    for (const item of list) {
+      const c = toCandidate(item, meta);
+      if (c) collected.push(c);
+    }
   }
-  return null;
+  return sortCandidates(dedupeCandidates(collected), meta);
 }
 
 // malId → cross-reference ids (themoviedb + imdb) via the ARM service (github.com/manami-project data).
@@ -158,44 +209,62 @@ async function tmdbFromImdb(imdbId, kind) {
   return { id: Number(pick.id), mediaType: pick === tv ? 'tv' : 'movie' };
 }
 
-// Resolve a Shikimori card → { id, mediaType } for /media/<type>/<id>. Cached in storage (relation is stable),
-// so a title is resolved at most once ever. Returns null (and caches the miss) when nothing matches.
-//
-// Priority: malId → ARM themoviedb (exact) ▸ ARM imdb → tmdb find ▸ fuzzy title search (last resort).
-// ARM usually hands back tmdb directly; when it only has an imdb mapping we resolve that to a tmdb id.
-export async function resolveTmdb(meta) {
-  if (!meta || meta.shikiId == null) return null;
-  const cacheKey = `shiki:tmdb:${meta.shikiId}`; // v3: invalidate entries poisoned by the CORS-era fuzzy fallback
-  const cached = await PotokSDK.storage.local.getItem(cacheKey);
-  if (cached != null) return JSON.parse(cached) || null;
-
+async function resolveExact(meta) {
   const ids = await armIds(meta.malId);
-  // DEBUG: ARM maps malId → a BARE themoviedb id with no movie/tv type; we guess the type from Shikimori kind.
-  // If a wrong title opens, this line shows whether ARM's id (or our type guess) is the culprit.
   // eslint-disable-next-line no-console
   console.log('[shikimori] ARM', { malId: meta.malId, ru: meta.russian, kind: meta.kind, ids });
 
-  let hit = null;
-  let confident = false; // only persist ARM-derived resolutions — a fuzzy guess must never poison the cache
-  // 1) ARM themoviedb — a bare id with no type, so infer movie/tv from the Shikimori kind.
   if (ids && ids.themoviedb) {
-    hit = { id: Number(ids.themoviedb), mediaType: mediaTypeFromKind(meta.kind) };
-    confident = true;
+    return {
+      hit: { id: Number(ids.themoviedb), mediaType: mediaTypeFromKind(meta.kind) },
+      confident: true,
+    };
   }
-  // 2) themoviedb was null → try ARM's imdb via tmdb find (type comes from TMDB here).
-  if (!hit && ids && typeof ids.imdb === 'string') {
-    try { hit = await tmdbFromImdb(ids.imdb, meta.kind); } catch (e) { /* fall through */ }
-    if (hit) confident = true;
+  if (ids && typeof ids.imdb === 'string') {
+    try {
+      const hit = await tmdbFromImdb(ids.imdb, meta.kind);
+      if (hit) return { hit, confident: true };
+    } catch (e) { /* fall through */ }
   }
-  // 3) last resort: fuzzy title search — low-confidence, so NOT cached (retries next time).
-  if (!hit) {
-    try { hit = await searchTmdb(meta); } catch (e) { /* no match */ }
+  return null;
+}
+
+// Resolve for navigation: direct (0–1 hit), choose (fuzzy multi-match), or none.
+// Priority: cache ▸ malId → ARM themoviedb ▸ ARM imdb → tmdb find ▸ fuzzy search.
+export async function resolveTmdbOpen(meta) {
+  if (!meta || meta.shikiId == null) return { kind: 'none' };
+
+  const cacheKey = tmdbCacheKey(meta.shikiId);
+  const cached = await PotokSDK.storage.local.getItem(cacheKey);
+  if (cached != null) {
+    try {
+      const hit = JSON.parse(cached);
+      if (hit && hit.id != null) return { kind: 'direct', hit, fromCache: true };
+    } catch (e) { /* re-resolve */ }
   }
 
-  // Persist ONLY a confident ARM hit. Fuzzy matches, misses and ARM failures aren't cached, so they retry
-  // next time (and can never poison the cache the way the CORS-era fuzzy fallback did).
-  if (confident && hit) {
-    await PotokSDK.storage.local.setItem(cacheKey, JSON.stringify(hit));
+  const exact = await resolveExact(meta);
+  if (exact && exact.hit) {
+    if (exact.confident) {
+      await PotokSDK.storage.local.setItem(cacheKey, JSON.stringify(exact.hit));
+    }
+    return { kind: 'direct', hit: exact.hit };
   }
-  return hit;
+
+  let candidates = [];
+  try {
+    candidates = await searchTmdbCandidates(meta);
+  } catch (e) { /* no match */ }
+
+  if (candidates.length === 0) return { kind: 'none' };
+  if (candidates.length === 1) return { kind: 'direct', hit: candidates[0] };
+  return { kind: 'choose', candidates };
+}
+
+// Thin wrapper — returns first hit or null (no user picker).
+export async function resolveTmdb(meta) {
+  const result = await resolveTmdbOpen(meta);
+  if (result.kind === 'direct') return result.hit;
+  if (result.kind === 'choose' && result.candidates.length) return result.candidates[0];
+  return null;
 }
