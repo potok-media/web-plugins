@@ -336,23 +336,20 @@ function setGenre(id) {
 
 // --- view builders ------------------------------------------------------------------
 
-// Toolbar (always on top): search on the left (compact, like the page's main search), order + genre selects
-// centered. The SDK search hard-sets width:100%, so we cap it by nesting in a fixed-width box; the flanking
-// Spacers (flex-grow:1) center the two selects in the space to its right.
+// Toolbar (always on top): compact search on the left, order + genre selects pinned right (one Spacer between).
+// The search is sized directly via .width() — the SDK now honours it, no wrapper box needed.
 function toolbar() {
   const genreOptions = [{ value: '', label: t('filters.anyGenre') }];
   state.genres.forEach((g) => genreOptions.push({ value: String(g.id), label: g.russian || g.name }));
 
-  const searchBox = HStack().width('28rem').children([
-    SearchBar('shiki-search').placeholder(t('searchPlaceholder')).value(state.query)
-      .onChange(onSearch).onClear(() => onSearch('')),
-  ]);
+  const search = SearchBar('shiki-search').placeholder(t('searchPlaceholder')).value(state.query)
+    .onChange(onSearch).onClear(() => onSearch('')).width('28rem');
 
   const left = [];
   if (isBrowsing()) {
     left.push(Button(t('backToCollections')).variant('ghost').icon('arrow-left').onClick(goCollections));
   }
-  left.push(searchBox);
+  left.push(search);
 
   // Layout: [← Home?] [search] ……… [sort] [genre] — filters pinned to the right (one Spacer), search left.
   // resetValue = the default, so the glass "active filter" dot only lights up for a NON-default choice
