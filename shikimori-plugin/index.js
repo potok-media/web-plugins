@@ -15,7 +15,7 @@ const KIND_VALUES = ['tv', 'movie', 'ova', 'ona', 'special'];
 const {
   VStack, HStack, Spacer, ContentRow, TopTenRow, PosterGrid,
   Scroller, SearchBar, Select, Skeleton, EmptyState,
-  SidebarGroup, Button, Card, Text, Modal, List,
+  SidebarGroup, Button, Card, Text, Heading, Modal,
 } = PotokSDK.ui.components;
 
 const t = (key, opts) => PotokSDK.i18n.t(`potok-shikimori:${key}`, opts);
@@ -250,8 +250,22 @@ function closePicker() {
   state.pickerShikiId = null;
 }
 
-async function onPickerSelect(listItem) {
-  const pick = state.pickerItems.find((c) => `${c.mediaType}:${c.id}` === listItem.id);
+function candidateToPickerItem(c) {
+  return {
+    id: c.id,
+    mediaType: c.mediaType,
+    title: c.title || `#${c.id}`,
+    subtitle: c.subtitle,
+    image: c.posterSrc,
+    rating: c.tmdbRating || c.imdbRating || c.kpRating,
+  };
+}
+
+async function onPickerSelect(card) {
+  if (!card || card.id == null) return;
+  const pick = state.pickerItems.find(
+    (c) => c.id === Number(card.id) && c.mediaType === (card.mediaType || 'tv'),
+  );
   if (!pick) return;
   const shikiId = state.pickerShikiId;
   await cacheTmdbChoice(shikiId, pick);
@@ -259,24 +273,34 @@ async function onPickerSelect(listItem) {
   navigateToTmdb(pick);
 }
 
+function pickerHint() {
+  const type = state.pickerItems[0] && state.pickerItems[0].mediaType;
+  return type === 'movie' ? t('picker.hintMovie') : t('picker.hintTv');
+}
+
 function buildPickerModal() {
   if (!state.pickerOpen || !state.pickerItems.length) return null;
+  // Host Modal = empty shell (backdrop + panel + ESC). All chrome and layout live in the plugin tree.
   return Modal()
     .open(true)
-    .title(t('picker.title'))
-    .variant('sheet')
+    .variant('modal')
     .closeOnBackdrop(true)
     .onClose(closePicker)
     .child(
-      List()
-        .items(state.pickerItems.map((c) => ({
-          id: `${c.mediaType}:${c.id}`,
-          title: c.title || `#${c.id}`,
-          subtitle: c.subtitle,
-          badge: c.mediaType === 'movie' ? 'MOVIE' : 'TV',
-          trailingIcon: 'chevron-right',
-        })))
-        .onItemClick(onPickerSelect),
+      VStack().spacing(12).width('100%').children([
+        Heading(t('picker.title')).level(3),
+        Text(pickerHint()).variant('secondary'),
+        Scroller()
+          .orientation('vertical')
+          .height('min(58vh, 38rem)')
+          .width('100%')
+          .child(
+            PosterGrid()
+              .items(state.pickerItems.map(candidateToPickerItem))
+              .minWidth('9.5rem')
+              .onCardClick(onPickerSelect),
+          ),
+      ]),
     );
 }
 
@@ -625,7 +649,11 @@ PotokSDK.i18n.registerTranslations({
       emptyHint: 'Try another query or genre.',
       notFound: 'No match found for this title',
       resolving: 'Looking for a match, please wait…',
-      picker: { title: 'Choose a match' },
+      picker: {
+        title: 'Choose a match',
+        hintTv: 'Several TV series found — pick the one that fits this title.',
+        hintMovie: 'Several movies found — pick the one that fits this title.',
+      },
       filters: { anyGenre: 'All' },
       order: { popularity: 'Popular', ranked: 'Rating', aired: 'Newest' },
     },
@@ -654,7 +682,11 @@ PotokSDK.i18n.registerTranslations({
       emptyHint: 'Попробуйте другой запрос или жанр.',
       notFound: 'Не нашли совпадение для этого тайтла',
       resolving: 'Ищем совпадение, подождите…',
-      picker: { title: 'Выберите совпадение' },
+      picker: {
+        title: 'Выберите совпадение',
+        hintTv: 'Найдено несколько сериалов — выберите подходящий к этому тайтлу.',
+        hintMovie: 'Найдено несколько фильмов — выберите подходящий к этому тайтлу.',
+      },
       filters: { anyGenre: 'Все' },
       order: { popularity: 'Популярное', ranked: 'Рейтинг', aired: 'Новинки' },
     },

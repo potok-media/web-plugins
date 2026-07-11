@@ -134,7 +134,11 @@ function toCandidate(item, meta) {
     id: Number(item.id),
     mediaType: item.mediaType || mediaTypeFromKind(meta.kind),
     title: item.title || item.originalTitle || item.englishTitle || '',
-    subtitle: item.subtitle || item.originalTitle || undefined,
+    subtitle: item.subtitle || undefined,
+    posterSrc: item.posterSrc,
+    tmdbRating: item.tmdbRating,
+    imdbRating: item.imdbRating,
+    kpRating: item.kpRating,
   };
 }
 
@@ -151,13 +155,14 @@ function dedupeCandidates(list) {
   return out;
 }
 
-function sortCandidates(list, meta) {
-  const want = mediaTypeFromKind(meta.kind);
-  return [...list].sort((a, b) => {
-    const aMatch = a.mediaType === want ? 0 : 1;
-    const bMatch = b.mediaType === want ? 0 : 1;
-    return aMatch - bMatch;
-  });
+/** Shikimori kind → the only TMDB bucket we consider (no mixed movie/tv picker). */
+function expectedMediaType(meta) {
+  return mediaTypeFromKind(meta.kind);
+}
+
+function filterByKind(candidates, meta) {
+  const want = expectedMediaType(meta);
+  return candidates.filter((c) => c.mediaType === want);
 }
 
 // Fuzzy title search — english → russian → name; merges unique hits from every query tried.
@@ -179,7 +184,7 @@ export async function searchTmdbCandidates(meta) {
       if (c) collected.push(c);
     }
   }
-  return sortCandidates(dedupeCandidates(collected), meta);
+  return filterByKind(dedupeCandidates(collected), meta);
 }
 
 // malId → cross-reference ids (themoviedb + imdb) via the ARM service (github.com/manami-project data).
@@ -199,14 +204,15 @@ async function armIds(malId) {
 
 // imdb id → tmdb { id, mediaType } via the gateway's TMDB find. Fallback when ARM has no themoviedb mapping.
 async function tmdbFromImdb(imdbId, kind) {
+  const want = mediaTypeFromKind(kind);
   const res = unwrap(await PotokSDK.http.get(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
   if (!res) return null;
-  const tv = Array.isArray(res.tv_results) ? res.tv_results[0] : null;
-  const movie = Array.isArray(res.movie_results) ? res.movie_results[0] : null;
-  const preferTv = kind !== 'movie';
-  const pick = preferTv ? (tv || movie) : (movie || tv);
+  const list = want === 'movie'
+    ? (Array.isArray(res.movie_results) ? res.movie_results : [])
+    : (Array.isArray(res.tv_results) ? res.tv_results : []);
+  const pick = list[0];
   if (!pick || pick.id == null) return null;
-  return { id: Number(pick.id), mediaType: pick === tv ? 'tv' : 'movie' };
+  return { id: Number(pick.id), mediaType: want };
 }
 
 async function resolveExact(meta) {
@@ -216,7 +222,7 @@ async function resolveExact(meta) {
 
   if (ids && ids.themoviedb) {
     return {
-      hit: { id: Number(ids.themoviedb), mediaType: mediaTypeFromKind(meta.kind) },
+      hit: { id: Number(ids.themoviedb), mediaType: expectedMediaType(meta) },
       confident: true,
     };
   }
@@ -229,7 +235,8 @@ async function resolveExact(meta) {
   return null;
 }
 
-// Resolve for navigation: direct (0–1 hit), choose (fuzzy multi-match), or none.
+// Resolve for navigation: direct (single same-type hit), choose (2+ same-type fuzzy hits), or none.
+// Shikimori kind pins TMDB mediaType on ARM/imdb hits; fuzzy results are filtered to that type only.
 // Priority: cache ▸ malId → ARM themoviedb ▸ ARM imdb → tmdb find ▸ fuzzy search.
 export async function resolveTmdbOpen(meta) {
   if (!meta || meta.shikiId == null) return { kind: 'none' };
