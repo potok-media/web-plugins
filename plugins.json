@@ -1,0 +1,20 @@
+[
+  {
+    "id": "potok-shikimori",
+    "name": "Аниме (Shikimori)",
+    "author": "potok",
+    "description": "Каталог аниме: подборки, поиск и жанры.",
+    "category": "catalog",
+    "url": "https://potok-media.github.io/web-plugins/shikimori-plugin",
+    "official": true
+  },
+  {
+    "id": "potok-torrents",
+    "name": "Поиск торрентов",
+    "author": "potok",
+    "description": "Источник раздач для встроенного плеера.",
+    "category": "sources",
+    "url": "https://potok-media.github.io/web-plugins/torrents-plugin",
+    "official": true
+  }
+]
