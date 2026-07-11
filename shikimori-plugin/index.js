@@ -41,7 +41,7 @@ const state = PotokSDK.createState({
   pickerShikiId: null,
 });
 
-const RESOLVE_HUD_MS = 20000;
+const RESOLVE_HUD_MS = 3000;
 
 // --- data → SDKContentItem adapters -------------------------------------------------
 
