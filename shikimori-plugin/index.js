@@ -217,6 +217,20 @@ async function loadCatalog(reset) {
   state.loadingMore = false;
 }
 
+// Flip to false to silence the resolution tracing once the mapping is trusted.
+const DEBUG_RESOLVE = true;
+
+// Fetch the resolved TMDB title so we can eyeball whether malId→tmdb landed on the right thing.
+async function debugTmdbTitle(mediaType, id) {
+  try {
+    const res = await PotokSDK.http.get(`/api/media/detail/${mediaType}/${id}?language=ru`);
+    const d = res && (typeof res.data === 'string' ? JSON.parse(res.data) : res.data);
+    return d ? (d.title || d.name || d.originalTitle || d.originalName || '(no title)') : '(empty)';
+  } catch (e) {
+    return `(detail fetch failed: ${e && e.message})`;
+  }
+}
+
 // Click = resolve TMDB for THIS one title (cached after first time), then open the native page. The only place
 // a TMDB request happens. Guarded so a double-tap doesn't fire two lookups.
 let opening = false;
@@ -227,6 +241,18 @@ async function openItem(item) {
   opening = true;
   try {
     const tmdb = await resolveTmdb(meta);
+    if (DEBUG_RESOLVE) {
+      const chain = {
+        shikiId: meta.shikiId, malId: meta.malId, kind: meta.kind,
+        ru: meta.russian, en: meta.english, name: meta.name,
+        resolved: tmdb,
+      };
+      if (tmdb && tmdb.id != null) {
+        chain.tmdbTitle = await debugTmdbTitle(tmdb.mediaType || meta.mediaType, tmdb.id);
+      }
+      // eslint-disable-next-line no-console
+      console.log('[shikimori] resolve', chain);
+    }
     if (tmdb && tmdb.id != null) {
       PotokSDK.ui.navigateTo(`/media/${tmdb.mediaType || meta.mediaType}/${tmdb.id}`);
     } else {
@@ -409,7 +435,9 @@ function buildLayout() {
 function homeRowLayout() {
   const items = (state.shelves.popular || []).slice(0, 12);
   if (!items.length) return VStack().id('shiki-home-empty');
-  return ContentRow().id('shiki-home-row').title(t('rows.popular')).items(items)
+  // On the NATIVE home the row is branded "Shikimori" so its "see all →" clearly leads to the plugin's
+  // home page (not a "Popular" filter). The plugin's own page keeps the "Популярное сейчас" shelf as-is.
+  return ContentRow().id('shiki-home-row').title(t('homeRow')).items(items)
     .seeAllLabel(t('seeAll')).onCardClick(openItem)
     .onSeeAllClick(() => PotokSDK.ui.navigateTo(PAGE_PATH));
 }
@@ -451,7 +479,7 @@ if (typeof PotokSDK.registerHomeSection === 'function') {
     id: HOME_ID,
     position: 'top',
     render() {
-      return { label: t('rows.popular'), layout: homeRowLayout() };
+      return { label: t('homeRow'), layout: homeRowLayout() };
     },
   });
 }
@@ -471,6 +499,7 @@ PotokSDK.i18n.registerTranslations({
         action: 'Action', comedy: 'Comedy', romance: 'Romance', fantasy: 'Fantasy', anime: 'Anime',
       },
       seeAll: 'See all',
+      homeRow: 'Shikimori',
       backToCollections: 'Home',
       searchPlaceholder: 'Search anime…',
       empty: 'Nothing found',
@@ -490,6 +519,7 @@ PotokSDK.i18n.registerTranslations({
         action: 'Экшен', comedy: 'Комедия', romance: 'Романтика', fantasy: 'Фэнтези', anime: 'Аниме',
       },
       seeAll: 'Все',
+      homeRow: 'Shikimori',
       backToCollections: 'Главная',
       searchPlaceholder: 'Поиск аниме…',
       empty: 'Ничего не найдено',

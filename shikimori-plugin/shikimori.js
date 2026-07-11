@@ -170,6 +170,10 @@ export async function resolveTmdb(meta) {
   if (cached != null) return JSON.parse(cached) || null;
 
   const ids = await armIds(meta.malId);
+  // DEBUG: ARM maps malId → a BARE themoviedb id with no movie/tv type; we guess the type from Shikimori kind.
+  // If a wrong title opens, this line shows whether ARM's id (or our type guess) is the culprit.
+  // eslint-disable-next-line no-console
+  console.log('[shikimori] ARM', { malId: meta.malId, ru: meta.russian, kind: meta.kind, ids });
   // 1) ARM themoviedb — a bare id with no type, so infer movie/tv from the Shikimori kind.
   let hit = ids && ids.themoviedb ? { id: Number(ids.themoviedb), mediaType: mediaTypeFromKind(meta.kind) } : null;
   // 2) themoviedb was null → try ARM's imdb via tmdb find.
