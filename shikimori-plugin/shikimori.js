@@ -258,8 +258,6 @@ async function resolveDirect(meta) {
   }
 
   const ids = await armIds(meta.malId);
-  // eslint-disable-next-line no-console
-  console.log('[shikimori] ARM', { malId: meta.malId, ru: meta.russian, kind: meta.kind, ids });
 
   if (ids && ids.themoviedb) {
     const armHit = { id: Number(ids.themoviedb), mediaType: expectedMediaType(meta) };
