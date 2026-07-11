@@ -36,7 +36,7 @@ async function shikiGraphql(query) {
 // One GraphQL request → everything a card renders from (year/poster/score) PLUS the keys we need later
 // to resolve TMDB on click (malId + english/russian name, kind). No screenshots — keeps list complexity low.
 export async function fetchAnimes(filters) {
-  const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 50);
+  const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 100);
   const page = Math.max(parseInt(filters.page, 10) || 1, 1);
   const order = ALLOWED_ORDER.includes(filters.order) ? filters.order : 'popularity';
 
@@ -128,6 +128,33 @@ export async function cacheTmdbChoice(shikiId, hit) {
   }));
 }
 
+export async function clearCachedTmdb(shikiId) {
+  if (shikiId == null) return;
+  await PotokSDK.storage.local.removeItem(tmdbCacheKey(shikiId));
+}
+
+/** Gate before navigation/cache — ARM ids with a forced mediaType can 404 on TMDB detail. */
+export async function verifyTmdbHit(hit) {
+  if (!hit || hit.id == null || !hit.mediaType) return false;
+  try {
+    const res = await PotokSDK.http.get(`/api/media/detail/${hit.mediaType}/${hit.id}`);
+    if (!res || res.status < 200 || res.status >= 300) return false;
+    const d = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+    return !!(d && d.id != null);
+  } catch (e) {
+    return false;
+  }
+}
+
+async function commitDirectHit(meta, hit, { cache = false, fromCache = false } = {}) {
+  if (!await verifyTmdbHit(hit)) {
+    if (fromCache) await clearCachedTmdb(meta.shikiId);
+    return null;
+  }
+  if (cache) await cacheTmdbChoice(meta.shikiId, hit);
+  return hit;
+}
+
 function toCandidate(item, meta) {
   if (!item || item.id == null) return null;
   return {
@@ -165,13 +192,14 @@ function filterByKind(candidates, meta) {
   return candidates.filter((c) => c.mediaType === want);
 }
 
-// Fuzzy title search — english → russian → name; merges unique hits from every query tried.
+// Fallback title search on TMDB — Shikimori names only, same-type filter. Runs ONLY when resolveDirect() missed.
 export async function searchTmdbCandidates(meta) {
   const names = [];
-  for (const n of [meta.english, meta.russian, meta.name]) {
+  for (const n of [meta.russian, meta.title, meta.english, meta.name]) {
     const name = n && String(n).trim();
     if (name && !names.includes(name)) names.push(name);
   }
+  if (!names.length) return [];
   const collected = [];
   for (const name of names) {
     let results = null;
@@ -215,47 +243,50 @@ async function tmdbFromImdb(imdbId, kind) {
   return { id: Number(pick.id), mediaType: want };
 }
 
-async function resolveExact(meta) {
-  const ids = await armIds(meta.malId);
-  // eslint-disable-next-line no-console
-  console.log('[shikimori] ARM', { malId: meta.malId, ru: meta.russian, kind: meta.kind, ids });
-
-  if (ids && ids.themoviedb) {
-    return {
-      hit: { id: Number(ids.themoviedb), mediaType: expectedMediaType(meta) },
-      confident: true,
-    };
-  }
-  if (ids && typeof ids.imdb === 'string') {
-    try {
-      const hit = await tmdbFromImdb(ids.imdb, meta.kind);
-      if (hit) return { hit, confident: true };
-    } catch (e) { /* fall through */ }
-  }
-  return null;
-}
-
-// Resolve for navigation: direct (single same-type hit), choose (2+ same-type fuzzy hits), or none.
-// Shikimori kind pins TMDB mediaType on ARM/imdb hits; fuzzy results are filtered to that type only.
-// Priority: cache ▸ malId → ARM themoviedb ▸ ARM imdb → tmdb find ▸ fuzzy search.
-export async function resolveTmdbOpen(meta) {
-  if (!meta || meta.shikiId == null) return { kind: 'none' };
-
+// Immediate mapping: cache → ARM themoviedb → ARM imdb→tmdb. No title search here.
+async function resolveDirect(meta) {
   const cacheKey = tmdbCacheKey(meta.shikiId);
   const cached = await PotokSDK.storage.local.getItem(cacheKey);
   if (cached != null) {
     try {
       const hit = JSON.parse(cached);
-      if (hit && hit.id != null) return { kind: 'direct', hit, fromCache: true };
+      if (hit && hit.id != null) {
+        const verified = await commitDirectHit(meta, hit, { fromCache: true });
+        if (verified) return { hit: verified, fromCache: true };
+      }
     } catch (e) { /* re-resolve */ }
   }
 
-  const exact = await resolveExact(meta);
-  if (exact && exact.hit) {
-    if (exact.confident) {
-      await PotokSDK.storage.local.setItem(cacheKey, JSON.stringify(exact.hit));
-    }
-    return { kind: 'direct', hit: exact.hit };
+  const ids = await armIds(meta.malId);
+  // eslint-disable-next-line no-console
+  console.log('[shikimori] ARM', { malId: meta.malId, ru: meta.russian, kind: meta.kind, ids });
+
+  if (ids && ids.themoviedb) {
+    const armHit = { id: Number(ids.themoviedb), mediaType: expectedMediaType(meta) };
+    const verified = await commitDirectHit(meta, armHit, { cache: true });
+    if (verified) return { hit: verified };
+  }
+
+  if (ids && typeof ids.imdb === 'string') {
+    try {
+      const imdbHit = await tmdbFromImdb(ids.imdb, meta.kind);
+      if (imdbHit) {
+        const verified = await commitDirectHit(meta, imdbHit, { cache: true });
+        if (verified) return { hit: verified };
+      }
+    } catch (e) { /* fall through to title search */ }
+  }
+
+  return null;
+}
+
+// Phase 1: direct id mapping. Phase 2 (only if phase 1 missed): TMDB title search by Shikimori names.
+export async function resolveTmdbOpen(meta) {
+  if (!meta || meta.shikiId == null) return { kind: 'none' };
+
+  const direct = await resolveDirect(meta);
+  if (direct) {
+    return { kind: 'direct', hit: direct.hit, fromCache: !!direct.fromCache };
   }
 
   let candidates = [];
@@ -264,7 +295,11 @@ export async function resolveTmdbOpen(meta) {
   } catch (e) { /* no match */ }
 
   if (candidates.length === 0) return { kind: 'none' };
-  if (candidates.length === 1) return { kind: 'direct', hit: candidates[0] };
+  if (candidates.length === 1) {
+    const verified = await commitDirectHit(meta, candidates[0], { cache: true });
+    if (verified) return { kind: 'direct', hit: verified };
+    return { kind: 'none' };
+  }
   return { kind: 'choose', candidates };
 }
 

@@ -1,13 +1,14 @@
 import { PotokSDK } from 'potok-sdk';
 import {
   fetchAnimes, fetchGenres, toCards,
-  resolveTmdbOpen, hasCachedTmdb, cacheTmdbChoice,
+  resolveTmdbOpen, hasCachedTmdb, cacheTmdbChoice, verifyTmdbHit,
 } from './shikimori.js';
 
 const PAGE_ID = 'potok-shikimori';
 const PAGE_PATH = `/extensions/${PAGE_ID}`;
 const HOME_ID = 'potok-shikimori-home';
-const CATALOG_LIMIT = 30;
+/** Shikimori GraphQL page size for catalog infinite scroll (one request per page). */
+const CATALOG_LIMIT = 100;
 const ORDER_VALUES = ['popularity', 'ranked', 'aired_on'];
 const STATUS_VALUES = ['anons', 'ongoing', 'released'];
 const KIND_VALUES = ['tv', 'movie', 'ova', 'ona', 'special'];
@@ -206,6 +207,8 @@ function catalogFilters(page) {
 let catalogToken = 0;
 
 async function loadCatalog(reset) {
+  if (!reset && (state.loadingMore || !state.hasMore)) return;
+
   const token = ++catalogToken; // any newer load (filter change, back/forward) invalidates this one
   if (reset) {
     state.page = 1;
@@ -215,14 +218,20 @@ async function loadCatalog(reset) {
   } else {
     state.loadingMore = true;
   }
+
   const page = reset ? 1 : state.page + 1;
-  const { items, rawCount } = await loadItems(catalogFilters(page));
-  if (token !== catalogToken) return; // superseded — drop this result so it can't clobber the current one
-  state.items = reset ? items : state.items.concat(items);
-  state.page = page;
-  state.hasMore = rawCount >= CATALOG_LIMIT;
-  state.catLoading = false;
-  state.loadingMore = false;
+  try {
+    const { items, rawCount } = await loadItems(catalogFilters(page));
+    if (token !== catalogToken) return; // superseded — drop so it can't clobber the current filter
+    state.items = reset ? items : state.items.concat(items);
+    state.page = page;
+    state.hasMore = rawCount >= CATALOG_LIMIT;
+  } finally {
+    if (token === catalogToken) {
+      state.catLoading = false;
+      state.loadingMore = false;
+    }
+  }
 }
 
 // Flip to false to silence the resolution tracing once the mapping is trusted.
@@ -242,6 +251,10 @@ async function debugTmdbTitle(mediaType, id) {
 function navigateToTmdb(hit, fallbackMediaType) {
   if (!hit || hit.id == null) return;
   PotokSDK.ui.navigateTo(`/media/${hit.mediaType || fallbackMediaType}/${hit.id}`);
+}
+
+function showNotFound() {
+  PotokSDK.ui.showHUD('warning', t('notFound'));
 }
 
 function closePicker() {
@@ -268,6 +281,10 @@ async function onPickerSelect(card) {
   );
   if (!pick) return;
   const shikiId = state.pickerShikiId;
+  if (!await verifyTmdbHit(pick)) {
+    showNotFound();
+    return;
+  }
   await cacheTmdbChoice(shikiId, pick);
   closePicker();
   navigateToTmdb(pick);
@@ -318,7 +335,13 @@ async function openItem(item) {
       PotokSDK.ui.showHUD('info', t('resolving'), { durationMs: RESOLVE_HUD_MS });
     }
 
-    const result = await resolveTmdbOpen(meta);
+    let result;
+    try {
+      result = await resolveTmdbOpen(meta);
+    } catch (e) {
+      showNotFound();
+      return;
+    }
 
     if (DEBUG_RESOLVE) {
       const chain = {
@@ -343,7 +366,7 @@ async function openItem(item) {
       state.pickerItems = result.candidates;
       state.pickerOpen = true;
     } else {
-      PotokSDK.ui.showHUD('warning', t('notFound'));
+      showNotFound();
     }
   } finally {
     opening = false;
@@ -502,11 +525,18 @@ function catalogSkeletonGrid() {
 
 // The catalog grid (results only — the toolbar lives above it, shared with the collections view).
 function buildCatalogResults() {
-  if (state.catLoading) return catalogSkeletonGrid();
+  if (state.catLoading && !state.items.length) return catalogSkeletonGrid();
   if (!state.items.length) return EmptyState().icon('search-x').title(t('empty')).description(t('emptyHint'));
+
   const grid = PosterGrid().id('shiki-grid').items(state.items).onCardClick(openItem);
-  if (state.hasMore) grid.onLoadMore(() => loadCatalog(false)); // auto-loads on scroll (SDK sentinel)
-  return grid;
+  // Sentinel auto-fires near the bottom; next GraphQL page (up to CATALOG_LIMIT) appends in place.
+  if (state.hasMore && !state.loadingMore) grid.onLoadMore(() => loadCatalog(false));
+
+  if (!state.loadingMore) return grid;
+  return VStack().spacing(16).children([
+    grid,
+    catalogSkeletonGrid(),
+  ]);
 }
 
 function buildLayout() {
