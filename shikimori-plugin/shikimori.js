@@ -165,7 +165,7 @@ async function tmdbFromImdb(imdbId, kind) {
 // ARM usually hands back tmdb directly; when it only has an imdb mapping we resolve that to a tmdb id.
 export async function resolveTmdb(meta) {
   if (!meta || meta.shikiId == null) return null;
-  const cacheKey = `shiki:tmdb2:${meta.shikiId}`; // v2: malId→ARM resolution (invalidates the old fuzzy cache)
+  const cacheKey = `shiki:tmdb:${meta.shikiId}`; // v3: invalidate entries poisoned by the CORS-era fuzzy fallback
   const cached = await PotokSDK.storage.local.getItem(cacheKey);
   if (cached != null) return JSON.parse(cached) || null;
 
@@ -174,17 +174,28 @@ export async function resolveTmdb(meta) {
   // If a wrong title opens, this line shows whether ARM's id (or our type guess) is the culprit.
   // eslint-disable-next-line no-console
   console.log('[shikimori] ARM', { malId: meta.malId, ru: meta.russian, kind: meta.kind, ids });
+
+  let hit = null;
+  let confident = false; // only persist ARM-derived resolutions — a fuzzy guess must never poison the cache
   // 1) ARM themoviedb — a bare id with no type, so infer movie/tv from the Shikimori kind.
-  let hit = ids && ids.themoviedb ? { id: Number(ids.themoviedb), mediaType: mediaTypeFromKind(meta.kind) } : null;
-  // 2) themoviedb was null → try ARM's imdb via tmdb find.
+  if (ids && ids.themoviedb) {
+    hit = { id: Number(ids.themoviedb), mediaType: mediaTypeFromKind(meta.kind) };
+    confident = true;
+  }
+  // 2) themoviedb was null → try ARM's imdb via tmdb find (type comes from TMDB here).
   if (!hit && ids && typeof ids.imdb === 'string') {
     try { hit = await tmdbFromImdb(ids.imdb, meta.kind); } catch (e) { /* fall through */ }
+    if (hit) confident = true;
   }
-  // 3) last resort: fuzzy title search.
+  // 3) last resort: fuzzy title search — low-confidence, so NOT cached (retries next time).
   if (!hit) {
     try { hit = await searchTmdb(meta); } catch (e) { /* no match */ }
   }
 
-  await PotokSDK.storage.local.setItem(cacheKey, JSON.stringify(hit || false));
+  // Persist ONLY a confident ARM hit. Fuzzy matches, misses and ARM failures aren't cached, so they retry
+  // next time (and can never poison the cache the way the CORS-era fuzzy fallback did).
+  if (confident && hit) {
+    await PotokSDK.storage.local.setItem(cacheKey, JSON.stringify(hit));
+  }
   return hit;
 }

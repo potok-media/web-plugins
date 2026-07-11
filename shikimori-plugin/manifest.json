@@ -13,6 +13,11 @@
       "id": "potok-shikimori",
       "slotName": "extension-page",
       "title": ""
+    },
+    {
+      "id": "potok-shikimori-settings",
+      "slotName": "settings-tabs",
+      "title": "Shikimori"
     }
   ]
 }

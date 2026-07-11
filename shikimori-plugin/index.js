@@ -12,7 +12,7 @@ const KIND_VALUES = ['tv', 'movie', 'ova', 'ona', 'special'];
 const {
   VStack, HStack, Spacer, ContentRow, TopTenRow, PosterGrid,
   Scroller, SearchBar, Select, Skeleton, EmptyState,
-  SidebarGroup, Button,
+  SidebarGroup, Button, Card, Text,
 } = PotokSDK.ui.components;
 
 const t = (key, opts) => PotokSDK.i18n.t(`potok-shikimori:${key}`, opts);
@@ -484,6 +484,33 @@ if (typeof PotokSDK.registerHomeSection === 'function') {
   });
 }
 
+// Settings tab: a manual cache reset (shelves + genres + TMDB resolutions live in storage.local).
+async function resetCache() {
+  await PotokSDK.storage.local.clear();
+  cardMeta.clear();
+  state.shelves = {};                    // → skeletons on the page until refetch lands
+  state.genres = await loadGenres();     // cache cleared → refetches
+  await loadCollections();               // refetches all shelves
+  PotokSDK.ui.showHUD('success', t('settings.cacheCleared'));
+}
+
+function settingsLayout() {
+  return Card().title(t('settings.title')).subtitle(t('settings.subtitle')).child(
+    VStack().spacing(12).children([
+      Text(t('settings.cacheDesc')).variant('secondary'),
+      Button(t('settings.clearCache')).variant('secondary').icon('trash-2').onClick(resetCache),
+    ]),
+  );
+}
+
+PotokSDK.registerSlotContribution({
+  id: 'potok-shikimori-settings',
+  slotName: 'settings-tabs',
+  render() {
+    return { label: t('settings.title'), layout: settingsLayout() };
+  },
+});
+
 state.$subscribe(() => {
   PotokSDK.ui.render(buildLayout(), PAGE_ID);
 });
@@ -501,6 +528,13 @@ PotokSDK.i18n.registerTranslations({
       seeAll: 'See all',
       homeRow: 'Shikimori',
       backToCollections: 'Home',
+      settings: {
+        title: 'Shikimori',
+        subtitle: 'Plugin cache',
+        cacheDesc: 'Shelves, genres and title→TMDB mappings are cached locally. Clear it if a title opens the wrong page or the feed looks stale.',
+        clearCache: 'Clear cache',
+        cacheCleared: 'Shikimori cache cleared',
+      },
       searchPlaceholder: 'Search anime…',
       empty: 'Nothing found',
       emptyHint: 'Try another query or genre.',
@@ -521,6 +555,13 @@ PotokSDK.i18n.registerTranslations({
       seeAll: 'Все',
       homeRow: 'Shikimori',
       backToCollections: 'Главная',
+      settings: {
+        title: 'Shikimori',
+        subtitle: 'Кэш плагина',
+        cacheDesc: 'Полки, жанры и сопоставления тайтл→TMDB кэшируются локально. Сбрось, если тайтл открывает не ту страницу или лента выглядит устаревшей.',
+        clearCache: 'Сбросить кэш',
+        cacheCleared: 'Кэш Shikimori очищен',
+      },
       searchPlaceholder: 'Поиск аниме…',
       empty: 'Ничего не найдено',
       emptyHint: 'Попробуйте другой запрос или жанр.',
