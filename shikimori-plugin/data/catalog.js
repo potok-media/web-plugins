@@ -17,8 +17,6 @@ function catalogFilters(page) {
 }
 
 export async function loadCatalog(reset) {
-  if (!reset && (state.loadingMore || !state.hasMore)) return;
-
   const token = ++catalogToken;
   if (reset) {
     state.page = 1;
@@ -30,16 +28,11 @@ export async function loadCatalog(reset) {
   }
 
   const page = reset ? 1 : state.page + 1;
-  try {
-    const { items, rawCount } = await loadItems(catalogFilters(page));
-    if (token !== catalogToken) return;
-    state.items = reset ? items : state.items.concat(items);
-    state.page = page;
-    state.hasMore = rawCount >= CATALOG_LIMIT;
-  } finally {
-    if (token === catalogToken) {
-      state.catLoading = false;
-      state.loadingMore = false;
-    }
-  }
+  const { items, rawCount } = await loadItems(catalogFilters(page));
+  if (token !== catalogToken) return;
+  state.items = reset ? items : state.items.concat(items);
+  state.page = page;
+  state.hasMore = rawCount >= CATALOG_LIMIT;
+  state.catLoading = false;
+  state.loadingMore = false;
 }

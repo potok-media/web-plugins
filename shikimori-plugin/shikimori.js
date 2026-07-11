@@ -1,4 +1,5 @@
 import { PotokSDK } from 'potok-sdk';
+import { CATALOG_LIMIT } from './constants.js';
 
 // Shikimori blocks cross-origin browser requests (no CORS) and rate-limits hard. So we:
 //  1) go through the gateway's server-side proxy (/api/graphql via PotokSDK.http.proxy) — host-relative, no CORS;
@@ -36,7 +37,7 @@ async function shikiGraphql(query) {
 // One GraphQL request → everything a card renders from (year/poster/score) PLUS the keys we need later
 // to resolve TMDB on click (malId + english/russian name, kind). No screenshots — keeps list complexity low.
 export async function fetchAnimes(filters) {
-  const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 100);
+  const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), CATALOG_LIMIT);
   const page = Math.max(parseInt(filters.page, 10) || 1, 1);
   const order = ALLOWED_ORDER.includes(filters.order) ? filters.order : 'popularity';
 

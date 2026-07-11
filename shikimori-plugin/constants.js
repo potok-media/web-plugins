@@ -2,8 +2,8 @@ export const PAGE_ID = 'potok-shikimori';
 export const PAGE_PATH = `/extensions/${PAGE_ID}`;
 export const HOME_ID = 'potok-shikimori-home';
 
-/** Shikimori GraphQL page size for catalog infinite scroll (one request per page). */
-export const CATALOG_LIMIT = 100;
+/** Shikimori GraphQL max page size (API returns up to 50 per request). */
+export const CATALOG_LIMIT = 50;
 
 export const ORDER_VALUES = ['popularity', 'ranked', 'aired_on'];
 export const STATUS_VALUES = ['anons', 'ongoing', 'released'];
