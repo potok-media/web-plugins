@@ -1,4 +1,6 @@
 import { PotokSDK } from 'potok-sdk';
+import { parseJson } from './http.js';
+import { logger } from './logger.js';
 
 /**
  * Fetch TMDB episode stills, actual names, and air dates to normalize file lists beautifully!
@@ -13,7 +15,7 @@ export async function applyTMDBMetadata(epList, mediaId, mediaType) {
       try {
         const res = await PotokSDK.http.get(`/api/media/tmdb/tv/${mediaId}/season/${sNum}`);
         if (res && res.status === 200) {
-          const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+          const data = parseJson(res);
           if (data && data.episodes) {
             data.episodes.forEach((ep) => {
               const epNum = ep.episodeNumber || ep.episode_number || 1;
@@ -27,7 +29,7 @@ export async function applyTMDBMetadata(epList, mediaId, mediaType) {
           }
         }
       } catch (err) {
-        console.warn("[TorrentsPlugin] Failed to fetch TMDB metadata for season:", sNum, err);
+        logger.warn("Failed to fetch TMDB metadata for season:", sNum, err);
       }
     }));
 
@@ -41,7 +43,7 @@ export async function applyTMDBMetadata(epList, mediaId, mediaType) {
       };
     });
   } catch (err) {
-    console.warn("[TorrentsPlugin] Failed to apply TMDB metadata:", err);
+    logger.warn("Failed to apply TMDB metadata:", err);
     return epList;
   }
 }
