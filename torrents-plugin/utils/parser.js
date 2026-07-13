@@ -7,7 +7,14 @@ export class TorrentParser {
   // Cyrillic-safe: JS `\b` is ASCII-only and never matches before Cyrillic, so Cyrillic markers use a manual
   // boundary `(?:^|[^a-zа-яё0-9])`. Separator-flexible ("Сезон: 4", "ТВ-2", "5 сезон"). Season is never ≤ 0.
   static extractSeasonEpisode(title) {
-    const s = (title || "").replace(/_/g, " ");
+    // Strip resolution tokens FIRST. «1920x1080» / «1280x720» would otherwise be read by the NxM heuristics
+    // below as season 20 + episode 108 (etc.), collapsing every same-resolution file onto one episode. We do
+    // NOT cap the NxM number range low — a season can hold ~100 episodes — so resolutions are removed by their
+    // 3-4-digit dimensions instead: real anime NxM markers («05x01») are 1-2 digits per side and survive.
+    const s = (title || "")
+      .replace(/_/g, " ")
+      .replace(/\b\d{3,4}\s*[x×]\s*\d{3,4}\b/gi, " ")   // 1920x1080 / 1280×720 → gone
+      .replace(/\b(?:2160|1080|720|576|480)[pi]\b/gi, " "); // 1080p / 720i → gone
     let episode, kind, ovaNumber;
 
     // --- episodes first (so a range never leaks into the season) ---
@@ -16,14 +23,18 @@ export class TorrentParser {
       || s.match(/(?:^|[^a-zа-яё0-9])(?:ep|episode|эпизод)\s*[:.№]?\s*(\d{1,3})/i)         // Ep 3 / эпизод 5
       || s.match(/(\d{1,3})\s*(?:из|of)\s*\d{1,3}/i)                                       // 11 из 11
       || s.match(/(\d{1,3})\s*сери[ияйю]/i)                                               // 5 серия
-      || s.match(/(?:^|[^a-zа-яё0-9])s\d{1,2}[\s._-]*e(\d{1,3})/i);                        // S04E01 / S04.E01 → episode 1
+      || s.match(/(?:^|[^a-zа-яё0-9])s\d{1,2}[\s._-]*e(\d{1,3})/i)                         // S04E01 / S04.E01 → episode 1
+      || s.match(/[\s._]-\s*(\d{1,3})(?:v\d+)?(?=[\s._([]|$)/i);                           // «Name - 01» / «Name - 01v2 (» (fansub style)
     if (em) episode = parseInt(em[1], 10);
 
+    // --- specials → season 0. Creditless OP/ED (NCOP/NCED/NCBD), SP/Special(s), OVA/OAD/ONA, RU «спэшл /
+    //     спецвыпуск», bonus/extra. Detected BEFORE seasons so their «wo! 3» / «3 Bonus Stage» is never read
+    //     as a TV season. These carry no TMDB season, so we map them to season 0 (the specials bucket). ---
+    const isSpecial = /(?:^|[^a-zа-яё0-9])(?:nc(?:op|ed|bd)|ova|oad|ona|specials?|sp\s*\d|спэшл|спешл|спецвыпуск|бонус)(?![a-zа-яё])/i.test(s);
     // --- kind: OVA/special vs Movie vs TV. Anime specials come as ОВА-3 / OVA-3 / [OVA] / [2025, OVA,…],
     //     mixed across languages in one title. Cyrillic «ова» + Latin «ova» (NOT «она»/«ona» — «она» is a
     //     common RU word); optional trailing number = the OVA index. The leading boundary skips surnames
-    //     («Иванова»), the lookahead skips «ovation». Detected BEFORE seasons so an OVA's «wo! 3» / «3 Bonus
-    //     Stage» is never mistaken for a TV season. OVA is NOT a TV season → `season` stays undefined. ---
+    //     («Иванова»), the lookahead skips «ovation». OVA is NOT a TV season → handled as a special below. ---
     const ovaM = s.match(/(?:^|[^a-zа-яё0-9])(?:ова|ova)(?:[\s._:()-]*(\d{1,2}))?(?![a-zа-яё])/i);
     if (ovaM) {
       kind = "ova";
@@ -36,20 +47,27 @@ export class TorrentParser {
 
     // --- seasons (TV only), precedence: digit-before → digit-after → ТВ-N → S01 → NxM, then a conservative
     //     «!»-anchored bare-number fallback («…wo! 3» / «…мир! 3» → S3). Group 2 is the RANGE END, so packs
-    //     ("S01-05", "1-4 сезон") expand to a full seasons[] array. Skipped entirely for OVA/movie kinds. ---
+    //     ("S01-05", "1-4 сезон") expand to a full seasons[] array. ---
     let season, seasonEnd, m;
+    // STRONG explicit markers («N сезон» / «Сезон: N» / «Nrd Season») win even on a special-tagged title — a
+    // pack «1 сезон … + спэшл» is season 1, NOT a special-0. Skipped only for OVA/movie (a real OVA is not a
+    // TV season). Non-OVA specials (NCED/спэшл) run these so their explicit season, if any, survives.
     if (kind !== "ova" && kind !== "movie") {
       if ((m = s.match(/(\d{1,2})\s*(?:[-–]\s*(\d{1,2})\s*)?сезон/i))) { season = +m[1]; seasonEnd = m[2] ? +m[2] : undefined; } // 5 сезон / 1-4 сезон
       else if ((m = s.match(/(?:сезон|season)\s*[:.№]?\s*(\d{1,2})/i))) { season = +m[1]; }                                     // Сезон: 4 / season 5
       else if ((m = s.match(/(\d{1,2})(?:st|nd|rd|th)\s+season/i))) { season = +m[1]; }                                          // «2nd Season» / «3rd Season» (AniLibria)
-      else if ((m = s.match(/(?:^|[^a-zа-яё0-9])(?:тв|tv)[\s._-]*(\d{1,2})/i))) { season = +m[1]; }                              // ТВ-2 / TV 2
+    }
+    // WEAKER markers (ТВ-N / S01 / NxM / «!»-anchored bare number): ambiguous on OVA/special titles where a bare
+    // number is usually noise, so they stay skipped there. Only fill a season not already found above.
+    if (kind !== "ova" && kind !== "movie" && !isSpecial && season === undefined) {
+      if ((m = s.match(/(?:^|[^a-zа-яё0-9])(?:тв|tv)[\s._-]*(\d{1,2})/i))) { season = +m[1]; }                                    // ТВ-2 / TV 2
       else if ((m = s.match(/(?:^|[^a-zа-яё0-9])s(\d{1,2})(?:\s*[-–]\s*s?(\d{1,2}))?/i))) { season = +m[1]; seasonEnd = m[2] ? +m[2] : undefined; } // S01 / S01-05 (S01E05-safe: no trailing anchor)
       else if ((m = s.match(/(\d{1,2})x\d{1,3}/i))) { season = +m[1]; }                                                          // 05x01 → season 5
       else if ((m = s.match(/[!！]\s+(\d{1,2})(?=\s|:|$|\/|\[|,)/))) { season = +m[1]; }                                          // «…wo! 3» / «…мир! 3 [»
     }
 
-    if (episode === undefined) { const xm = s.match(/\d{1,2}x(\d{1,3})/i); if (xm) episode = parseInt(xm[1], 10); }
-    if (season !== undefined && season <= 0) { season = undefined; seasonEnd = undefined; } // seasons are never 0 or negative
+    if (episode === undefined) { const xm = s.match(/(?:^|[^\d])\d{1,2}x(\d{1,3})/i); if (xm) episode = parseInt(xm[1], 10); }
+    if (season !== undefined && season <= 0) { season = undefined; seasonEnd = undefined; } // seasons are never 0 or negative (0 is reserved for specials, set below)
 
     // Expand a valid range into the full array; single season → [N]; nothing → undefined.
     let seasons;
@@ -61,6 +79,11 @@ export class TorrentParser {
         seasons = [season];
       }
     }
+
+    // Specials land in season 0 (the TMDB specials bucket) unless a real season was already found. Done AFTER
+    // the «season <= 0» guard so this intentional 0 survives, and after expansion so it's a clean single season.
+    if (isSpecial && season === undefined) { season = 0; seasons = [0]; kind = kind || "special"; }
+
     return { kind, season, seasons, episode, ovaNumber };
   }
 

@@ -8,8 +8,10 @@ export async function getSeasonsMetadata(stream, context) {
   const detailRes = await PotokSDK.http.get(`/api/media/detail/${context.type === "tv" ? "tv" : "movie"}/${context.tmdbId}`);
   const totalSeasons = (parseJson(detailRes) || {}).numberOfSeasons || 1;
 
+  // Start at 0 so specials (TMDB season/0) can be picked as an override target. Seasons with no episodes
+  // (404 → empty) are skipped by the picker UI, so a show without specials just won't render a season-0 group.
   const promises = [];
-  for (let i = 1; i <= totalSeasons; i++) {
+  for (let i = 0; i <= totalSeasons; i++) {
     promises.push(
       PotokSDK.http.get(`/api/media/tmdb/tv/${context.tmdbId}/season/${i}`)
         .then(parseJson)

@@ -7,7 +7,8 @@ import { logger } from './logger.js';
  */
 export async function applyTMDBMetadata(epList, mediaId, mediaType) {
   if (epList.length === 0 || mediaType !== "tv") return epList;
-  const seasonsToFetch = Array.from(new Set(epList.map((f) => f.season))).filter(Boolean);
+  // NB: keep season 0 (specials) — `filter(Boolean)` would drop it since 0 is falsy.
+  const seasonsToFetch = Array.from(new Set(epList.map((f) => f.season))).filter((s) => s != null);
   const metadataMap = {};
 
   try {

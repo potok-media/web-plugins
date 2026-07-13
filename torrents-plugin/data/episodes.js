@@ -49,7 +49,7 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
 // season), then apply the map entry for that key: displayedEpisode = parsedEpisode + offset. The offset was
 // computed by the UI on RAW parsed episodes so it never compounds; files with no parsed episode fall back to
 // sequential numbering WITHIN their key group. Each file keeps its RAW parsed season/episode.
-function remapFiles(rawFiles, seasonMap, context, stream, loadedTotalSeasons) {
+function remapFiles(rawFiles, seasonMap, context, stream, loadedTotalSeasons, titleSeason) {
   const groupCounts = {};
   return rawFiles.map((file) => {
     let filePath = file.path || file.title || "";
@@ -67,7 +67,12 @@ function remapFiles(rawFiles, seasonMap, context, stream, loadedTotalSeasons) {
       season = entry.season;
       episode = parsed.episode !== undefined ? parsed.episode + entry.offset : (1 + entry.offset + idxInGroup);
     } else {
-      season = parsed.season !== undefined ? parsed.season : (context.type === "tv" ? 1 : 0);
+      // Season fallback for files that carry no parseable season: prefer the season DECLARED in the torrent
+      // title (e.g. «ТВ-3» / «3rd Season» → 3) over a blind default of 1 — fixes releases whose file names
+      // only carry the episode («… Seikatsu III - 01»), not the season.
+      season = parsed.season !== undefined
+        ? parsed.season
+        : (context.type === "tv" ? (titleSeason && titleSeason > 0 ? titleSeason : 1) : 0);
       episode = parsed.episode !== undefined ? parsed.episode : (1 + idxInGroup);
     }
     return {
@@ -108,10 +113,26 @@ export async function getEpisodes(stream, context) {
   const hash = streamHash(stream);
   const { rawFiles, authHash, seasonMap, loadedTotalSeasons } = await fetchTorrentData(stream, context, cleanTorrUrl, hash);
 
-  const refinedFiles = remapFiles(rawFiles, seasonMap, context, stream, loadedTotalSeasons);
+  // Season declared in the torrent TITLE (not the file names). Used both as a fallback for season-less files
+  // and to judge whether the parse is trustworthy (see parsingSuspect below). Parser stays plugin-owned.
+  const titleSeason = context.type === "tv"
+    ? TorrentParser.extractSeasonEpisode(stream.title || "").season
+    : undefined;
+
+  const refinedFiles = remapFiles(rawFiles, seasonMap, context, stream, loadedTotalSeasons, titleSeason);
   const cleanedFiles = TorrentParser.cleanTitles(refinedFiles);
   let episodes = mapEpisodes(cleanedFiles, cleanTorrUrl, authHash);
   episodes = await applyTMDBMetadata(episodes, context.tmdbId, context.type);
 
-  return { episodes, tmdbSeasonsCount: loadedTotalSeasons, seasonMap };
+  // Parse-quality verdict, computed where the parser + title live (the host stays regex-free). Suspect when the
+  // title clearly declares a season the files never resolved to — i.e. the file-name parse disagrees with the
+  // release's own stated season. Skipped when the user has a manual override (their mapping is authoritative).
+  const resolvedSeasons = new Set(episodes.map((e) => e.season));
+  const parsingSuspect =
+    context.type === "tv" &&
+    Object.keys(seasonMap).length === 0 &&
+    titleSeason !== undefined && titleSeason > 0 &&
+    !resolvedSeasons.has(titleSeason);
+
+  return { episodes, tmdbSeasonsCount: loadedTotalSeasons, seasonMap, parsingSuspect };
 }
