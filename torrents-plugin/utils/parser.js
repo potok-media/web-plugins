@@ -30,7 +30,11 @@ export class TorrentParser {
     // --- specials → season 0. Creditless OP/ED (NCOP/NCED/NCBD), SP/Special(s), OVA/OAD/ONA, RU «спэшл /
     //     спецвыпуск», bonus/extra. Detected BEFORE seasons so their «wo! 3» / «3 Bonus Stage» is never read
     //     as a TV season. These carry no TMDB season, so we map them to season 0 (the specials bucket). ---
-    const isSpecial = /(?:^|[^a-zа-яё0-9])(?:nc(?:op|ed|bd)|ova|oad|ona|specials?|sp\s*\d|спэшл|спешл|спецвыпуск|бонус)(?![a-zа-яё])/i.test(s);
+    const isSpecial =
+      /(?:^|[^a-zа-яё0-9])(?:nc(?:op|ed|bd)|ova|oad|ona|specials?|sp\s*\d|спэшл|спешл|спецвыпуск|бонус)(?![a-zа-яё])/i.test(s)
+      // Fractional episode «… - 24.5 …» = a recap/special that sits between numbered episodes. Anchored to the
+      // «- N.M» slot so it never fires on audio-channel notation (5.1 / 7.1) elsewhere in the name.
+      || /[\s._]-\s*\d{1,3}\.\d+(?=[\s._([]|$)/.test(s);
     // --- kind: OVA/special vs Movie vs TV. Anime specials come as ОВА-3 / OVA-3 / [OVA] / [2025, OVA,…],
     //     mixed across languages in one title. Cyrillic «ова» + Latin «ova» (NOT «она»/«ona» — «она» is a
     //     common RU word); optional trailing number = the OVA index. The leading boundary skips surnames
@@ -141,6 +145,14 @@ export class TorrentParser {
     if (folderName && info.season === undefined) {
       const fromFolder = TorrentParser.extractSeasonEpisode(folderName);
       if (fromFolder.season !== undefined) { info.season = fromFolder.season; info.seasons = fromFolder.seasons; }
+    }
+
+    // 2b. Folder-signal specials: a file living under an NC / Specials / OVA / Extras / … folder is a special →
+    // season 0. A whole-segment match (anchored) so the show's own folder («[Moozzi2] Tensei Shitara Slime …»)
+    // never matches. Applied only when the file name itself didn't resolve a concrete positive season.
+    if (info.season === undefined || info.season === 0) {
+      const SPECIAL_FOLDER = /^\[?\(?(?:nc|ncop|nced|ncbd|op|ed|sp|specials?|extras?|bonus(?:es)?|ova|oad|ona|menus?|pv|cm|scans?)\)?\]?(?:[\s._-].*)?$/i;
+      if (parts.slice(0, -1).some((seg) => SPECIAL_FOLDER.test(seg.trim()))) info.season = 0;
     }
 
     // Default season for non-serials or if missing

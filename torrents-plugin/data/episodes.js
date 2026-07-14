@@ -40,17 +40,23 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
   }
 
   const authHash = cleanHash(resJson.hash) || hash;
-  const seasonMap = (overrideRes && overrideRes.status === 200 && (parseJson(overrideRes) || {}).seasonMap) || {};
+  const overrideJson = (overrideRes && overrideRes.status === 200 && parseJson(overrideRes)) || {};
+  const seasonMap = overrideJson.seasonMap || {};
+  const fileMap = overrideJson.fileMap || {};
   const loadedTotalSeasons = (detailRes && detailRes.status === 200 && (parseJson(detailRes) || {}).numberOfSeasons) || 1;
-  return { rawFiles, authHash, seasonMap, loadedTotalSeasons };
+  return { rawFiles, authHash, seasonMap, fileMap, loadedTotalSeasons };
 }
 
-// Per-SOURCE-season remap. Parse each file by NAME only, group by its RAW source-season key (sentinel "_" = no
-// season), then apply the map entry for that key: displayedEpisode = parsedEpisode + offset. The offset was
-// computed by the UI on RAW parsed episodes so it never compounds; files with no parsed episode fall back to
-// sequential numbering WITHIN their key group. Each file keeps its RAW parsed season/episode.
-function remapFiles(rawFiles, seasonMap, context, stream, loadedTotalSeasons, titleSeason) {
+// Remap files to (season, episode). Priority per file, walked in TORRENT ORDER so anchor runs can carry state:
+//   1. file_map PIN     — this one file is fixed at (season, episode); does NOT advance the anchor run (specials).
+//   2. file_map ANCHOR  — «from this file: SxEy»; starts a run, each following non-overridden file increments.
+//   3. active anchor run — inherits the run's season, episode = base + count.
+//   4. season_map        — coarse per-source-season offset (displayedEpisode = parsedEpisode + offset).
+//   5. auto-parse        — the file's own parsed season/episode, with the title-season fallback + sequential fill.
+// Each file always keeps its RAW parsed season/episode (the override editor computes offsets against that raw).
+function remapFiles(rawFiles, seasonMap, fileMap, context, stream, loadedTotalSeasons, titleSeason) {
   const groupCounts = {};
+  let anchor = null; // active anchor run: { season, baseEp, seen }
   return rawFiles.map((file) => {
     let filePath = file.path || file.title || "";
     if (!filePath.includes("/")) {
@@ -61,9 +67,22 @@ function remapFiles(rawFiles, seasonMap, context, stream, loadedTotalSeasons, ti
     const idxInGroup = (groupCounts[key] = (groupCounts[key] ?? 0));
     groupCounts[key] = idxInGroup + 1;
 
+    const fileOv = fileMap[String(file.id)];
     const entry = seasonMap[key];
     let season, episode;
-    if (entry) {
+    if (fileOv && fileOv.mode === "pin") {
+      // Point override — the run keeps counting AS IF this file weren't there (pulled-out special).
+      season = fileOv.season;
+      episode = fileOv.episode;
+    } else if (fileOv && fileOv.mode === "anchor") {
+      anchor = { season: fileOv.season, baseEp: fileOv.episode, seen: 1 };
+      season = fileOv.season;
+      episode = fileOv.episode;
+    } else if (anchor) {
+      season = anchor.season;
+      episode = anchor.baseEp + anchor.seen;
+      anchor.seen += 1;
+    } else if (entry) {
       season = entry.season;
       episode = parsed.episode !== undefined ? parsed.episode + entry.offset : (1 + entry.offset + idxInGroup);
     } else {
@@ -88,6 +107,15 @@ function remapFiles(rawFiles, seasonMap, context, stream, loadedTotalSeasons, ti
   });
 }
 
+// Human-readable file size. Specials are visually ~10× smaller than main episodes, so surfacing this in the
+// row is a strong at-a-glance "this isn't a full episode" cue. Decimal units to match typical torrent UIs.
+function formatSize(bytes) {
+  if (!bytes || bytes <= 0) return undefined;
+  const gb = bytes / 1e9;
+  if (gb >= 1) return `${gb.toFixed(gb >= 10 ? 0 : 1)} GB`;
+  return `${Math.round(bytes / 1e6)} MB`;
+}
+
 // Build the episode descriptors the host/player consume (each carries its authoritative HLS url).
 function mapEpisodes(cleanedFiles, cleanTorrUrl, authHash) {
   const fileLabel = PotokSDK.i18n.t("potok-torrents:ui.file");
@@ -99,6 +127,7 @@ function mapEpisodes(cleanedFiles, cleanTorrUrl, authHash) {
     rawEpisode: f.rawEpisode,
     title: f.title || `${fileLabel} ${f.id}`,
     fileName: f.fileName,
+    sizeLabel: formatSize(f.sizeBytes),
     isWatched: false,
     torrentHash: authHash,
     url: TorrentParser.buildHlsUrl(cleanTorrUrl, authHash, String(f.id))
@@ -111,7 +140,7 @@ export async function getEpisodes(stream, context) {
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noTorrUrl"));
   }
   const hash = streamHash(stream);
-  const { rawFiles, authHash, seasonMap, loadedTotalSeasons } = await fetchTorrentData(stream, context, cleanTorrUrl, hash);
+  const { rawFiles, authHash, seasonMap, fileMap, loadedTotalSeasons } = await fetchTorrentData(stream, context, cleanTorrUrl, hash);
 
   // Season declared in the torrent TITLE (not the file names). Used both as a fallback for season-less files
   // and to judge whether the parse is trustworthy (see parsingSuspect below). Parser stays plugin-owned.
@@ -119,7 +148,7 @@ export async function getEpisodes(stream, context) {
     ? TorrentParser.extractSeasonEpisode(stream.title || "").season
     : undefined;
 
-  const refinedFiles = remapFiles(rawFiles, seasonMap, context, stream, loadedTotalSeasons, titleSeason);
+  const refinedFiles = remapFiles(rawFiles, seasonMap, fileMap, context, stream, loadedTotalSeasons, titleSeason);
   const cleanedFiles = TorrentParser.cleanTitles(refinedFiles);
   let episodes = mapEpisodes(cleanedFiles, cleanTorrUrl, authHash);
   episodes = await applyTMDBMetadata(episodes, context.tmdbId, context.type);
@@ -131,8 +160,9 @@ export async function getEpisodes(stream, context) {
   const parsingSuspect =
     context.type === "tv" &&
     Object.keys(seasonMap).length === 0 &&
+    Object.keys(fileMap).length === 0 &&
     titleSeason !== undefined && titleSeason > 0 &&
     !resolvedSeasons.has(titleSeason);
 
-  return { episodes, tmdbSeasonsCount: loadedTotalSeasons, seasonMap, parsingSuspect };
+  return { episodes, tmdbSeasonsCount: loadedTotalSeasons, seasonMap, fileMap, parsingSuspect };
 }

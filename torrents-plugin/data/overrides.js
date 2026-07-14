@@ -52,3 +52,35 @@ export async function clearSeasonOverride(stream, context, sourceSeason) {
     throw new Error(`Reset override failed with status ${res.status}`);
   }
 }
+
+// Phase 2: upsert ONE file's override. mode "anchor" = renumber the run from this file; "pin" = fix just this
+// file (specials) without shifting neighbours. Keyed by the torrent file id.
+export async function saveFileOverride(stream, context, fileId, season, episode, mode) {
+  const searchEngineUrl = await resolveSearchEngineUrl();
+  if (!searchEngineUrl) {
+    throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
+  }
+  const hash = streamHash(stream);
+  const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/file`, {
+    fileId: String(fileId),
+    season,
+    episode,
+    mode: mode === "pin" ? "pin" : "anchor"
+  });
+  if (res.status !== 200) {
+    throw new Error(`Save file override failed with status ${res.status}`);
+  }
+}
+
+// Reset ONE file's override (delete the entry → that file falls back to season_map / auto-parse).
+export async function clearFileOverride(stream, context, fileId) {
+  const searchEngineUrl = await resolveSearchEngineUrl();
+  if (!searchEngineUrl) {
+    throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
+  }
+  const hash = streamHash(stream);
+  const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/file/remove?fileId=${encodeURIComponent(fileId)}`, {});
+  if (res.status !== 200) {
+    throw new Error(`Reset file override failed with status ${res.status}`);
+  }
+}

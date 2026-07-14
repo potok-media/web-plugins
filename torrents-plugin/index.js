@@ -3,7 +3,7 @@ import './i18n.js';
 import { registerSidebarStatus } from './utils/status.js';
 import { search } from './data/search.js';
 import { getEpisodes } from './data/episodes.js';
-import { getSeasonsMetadata, saveSeasonOverride, clearSeasonOverride } from './data/overrides.js';
+import { getSeasonsMetadata, saveSeasonOverride, clearSeasonOverride, saveFileOverride, clearFileOverride } from './data/overrides.js';
 import { getPlaybackInfo, getPlaybackMetadata } from './data/playback.js';
 
 // Torrent stream source: search → episodes → playback, plus per-season override editing. Pure data provider —
@@ -17,6 +17,8 @@ PotokSDK.streams.registerStreamSource({
   getSeasonsMetadata,
   saveSeasonOverride,
   clearSeasonOverride,
+  saveFileOverride,
+  clearFileOverride,
   getPlaybackInfo,
   getPlaybackMetadata,
 });
