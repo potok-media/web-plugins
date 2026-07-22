@@ -32,6 +32,23 @@ function buildSubtitleLabel(t, i) {
   return codec ? `${primary} (${codec})` : primary;
 }
 
+// extractExternalQuery pulls the external-track params (xa=/xs=) off an episode's HLS url. getEpisodes bakes
+// them there; resolvePlaybackBase re-attaches xa to the rebuilt stream url (it survives the player's resume /
+// autoplay round-trip verbatim), and getPlaybackMetadata reads xs to fetch external subtitle tracks.
+function extractExternalQuery(url) {
+  const out = { xa: "", xs: "", raw: "" };
+  if (!url) return out;
+  const qi = url.indexOf("?");
+  if (qi < 0) return out;
+  const keep = [];
+  for (const kv of url.slice(qi + 1).split("&")) {
+    if (kv.startsWith("xa=")) { out.xa = kv.slice(3); keep.push(kv); }
+    else if (kv.startsWith("xs=")) { out.xs = kv.slice(3); keep.push(kv); }
+  }
+  out.raw = keep.join("&");
+  return out;
+}
+
 // --- descriptor resolution --------------------------------------------------
 // The SYNCHRONOUS half of a playback descriptor (no I/O): hash, fileIndex, HLS url, session/thumbnails — all
 // derivable from the stream/episode alone. getPlaybackInfo returns this instantly so the player opens with its
@@ -44,9 +61,15 @@ async function resolvePlaybackBase(stream, episode) {
     parseHashFromUrl(episode && episode.url) ||
     stream.hash || stream.url || stream.magnet || ""
   );
-  const hlsUrl = (cleanTorrUrl && fileIndex)
+  const external = extractExternalQuery(episode && episode.url);
+  let hlsUrl = (cleanTorrUrl && fileIndex)
     ? TorrentParser.buildHlsUrl(cleanTorrUrl, hash, fileIndex)
     : ((episode && episode.url) || stream.url || stream.streamUrl || "");
+  // The rebuilt url drops the query — re-attach the sidecar params so external dubs (?xa=) reach the HLS master
+  // even on the resume / autoplay paths that reconstruct from episode.url.
+  if (external.raw && cleanTorrUrl && fileIndex) {
+    hlsUrl += (hlsUrl.includes("?") ? "&" : "?") + external.raw;
+  }
   const hasBackend = !!(cleanTorrUrl && fileIndex && hash);
   const session = hasBackend
     ? {
@@ -64,15 +87,17 @@ async function resolvePlaybackBase(stream, episode) {
   const thumbnails = hasBackend
     ? { urlTemplate: `${TorrentParser.buildThumbnailBaseUrl(cleanTorrUrl, hash, fileIndex)}?time={time}`, intervalSec: 5 }
     : undefined;
-  return { cleanTorrUrl, fileIndex, hash, hlsUrl, hasBackend, session, thumbnails };
+  return { cleanTorrUrl, fileIndex, hash, hlsUrl, hasBackend, session, thumbnails, externalSubs: external.xs };
 }
 
 // The DEFERRED slow half: probe TorrentGo /metadata for subtitle tracks + duration (needs the container header
-// resident, so cold-start slow). Returns {} on any failure (degraded: player keeps playing, no menus).
-async function fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex) {
+// resident, so cold-start slow). `xs` (external subtitle FILE indices) is passed through so /metadata also
+// returns those sidecar tracks. Returns {} on any failure (degraded: player keeps playing, no menus).
+async function fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex, xs) {
   if (!cleanTorrUrl || !fileIndex) return {};
   try {
-    const metadataUrl = `${cleanTorrUrl}/api/torrents/${hash}/files/${fileIndex}/metadata`;
+    let metadataUrl = `${cleanTorrUrl}/api/torrents/${hash}/files/${fileIndex}/metadata`;
+    if (xs) metadataUrl += `?xs=${xs}`;
     const metadataResponse = await PotokSDK.http.get(metadataUrl);
     const metadata = (metadataResponse && metadataResponse.status === 200) ? parseJson(metadataResponse) : null;
     if (!metadata) return {};
@@ -80,18 +105,22 @@ async function fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex) {
     const duration = (typeof metadata.duration === 'number') ? metadata.duration : undefined;
     let subtitles = undefined;
     if (Array.isArray(metadata.tracks)) {
-      // Audio tracks are NOT listed here (HLS master carries them). Only external subtitle tracks need the
-      // plugin↔backend windowed path.
+      // Audio tracks are NOT listed here (HLS master carries them). Subtitle tracks are either embedded
+      // (windowed extraction) or EXTERNAL files (sourceFile>0 → the whole-file endpoint).
       subtitles = metadata.tracks
         .filter(t => t.type === 'subtitle')
         .map((t, i) => {
           const rel = (typeof t.relIndex === 'number') ? t.relIndex : i;
           const codec = (t.codec || '').toLowerCase();
           const format = (codec === 'ass' || codec === 'ssa') ? 'ass' : 'vtt';
+          const external = typeof t.sourceFile === 'number' && t.sourceFile > 0;
           return {
-            id: String(rel),
-            // Base URL only — the player appends `?format=&start=<bucket>` per window.
-            src: TorrentParser.buildSubtitleBaseUrl(cleanTorrUrl, hash, fileIndex, rel),
+            id: external ? `x${t.sourceFile}` : String(rel),
+            // Embedded: base URL, player appends `?format=&start=<bucket>` per window. External: whole-file
+            // endpoint keyed by the sidecar's torrent index (it ignores ?start=, returns the full doc).
+            src: external
+              ? TorrentParser.buildExternalSubtitleUrl(cleanTorrUrl, hash, t.sourceFile)
+              : TorrentParser.buildSubtitleBaseUrl(cleanTorrUrl, hash, fileIndex, rel),
             label: buildSubtitleLabel(t, i),
             language: t.language || t.languageCode || '',
             format,
@@ -148,6 +177,6 @@ export async function getPlaybackInfo(stream, episode, context) {
 // Deferred slow half of the descriptor: probe TorrentGo /metadata for subtitle tracks + duration. The host
 // calls this right after opening the player, then merges the result into the live playback.
 export async function getPlaybackMetadata(stream, episode) {
-  const { cleanTorrUrl, fileIndex, hash } = await resolvePlaybackBase(stream, episode);
-  return fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex);
+  const { cleanTorrUrl, fileIndex, hash, externalSubs } = await resolvePlaybackBase(stream, episode);
+  return fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex, externalSubs);
 }

@@ -4,6 +4,7 @@ import { parseJson } from '../utils/http.js';
 import { cleanHash, streamHash } from '../utils/hash.js';
 import { resolveTorrUrl, resolveSearchEngineUrl } from '../utils/config.js';
 import { applyTMDBMetadata } from '../utils/metadata.js';
+import { attachExternalTracks } from './externalTracks.js';
 
 const SENTINEL = "_"; // group key for files with no parseable season
 
@@ -40,11 +41,15 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
   }
 
   const authHash = cleanHash(resJson.hash) || hash;
+  // External (sidecar) dub/subtitle files for "ext" releases — separate lists the backend returns alongside the
+  // video items. Empty for normal releases.
+  const audioFiles = resJson.audioFiles || [];
+  const subtitleFiles = resJson.subtitleFiles || [];
   const overrideJson = (overrideRes && overrideRes.status === 200 && parseJson(overrideRes)) || {};
   const seasonMap = overrideJson.seasonMap || {};
   const fileMap = overrideJson.fileMap || {};
   const loadedTotalSeasons = (detailRes && detailRes.status === 200 && (parseJson(detailRes) || {}).numberOfSeasons) || 1;
-  return { rawFiles, authHash, seasonMap, fileMap, loadedTotalSeasons };
+  return { rawFiles, audioFiles, subtitleFiles, authHash, seasonMap, fileMap, loadedTotalSeasons };
 }
 
 // Remap files to (season, episode). Priority per file, walked in TORRENT ORDER so anchor runs can carry state:
@@ -116,7 +121,8 @@ function formatSize(bytes) {
   return `${Math.round(bytes / 1e6)} MB`;
 }
 
-// Build the episode descriptors the host/player consume (each carries its authoritative HLS url).
+// Build the episode descriptors the host/player consume (each carries its authoritative HLS url). `f.externalTracks`
+// ({audio,subs} torrent indices) is folded into the url as ?xa=/?xs= so the backend surfaces the sidecar dubs/subs.
 function mapEpisodes(cleanedFiles, cleanTorrUrl, authHash) {
   const fileLabel = PotokSDK.i18n.t("potok-torrents:ui.file");
   return cleanedFiles.map((f) => ({
@@ -130,7 +136,7 @@ function mapEpisodes(cleanedFiles, cleanTorrUrl, authHash) {
     sizeLabel: formatSize(f.sizeBytes),
     isWatched: false,
     torrentHash: authHash,
-    url: TorrentParser.buildHlsUrl(cleanTorrUrl, authHash, String(f.id))
+    url: TorrentParser.buildHlsUrl(cleanTorrUrl, authHash, String(f.id), f.externalTracks)
   }));
 }
 
@@ -140,7 +146,7 @@ export async function getEpisodes(stream, context) {
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noTorrUrl"));
   }
   const hash = streamHash(stream);
-  const { rawFiles, authHash, seasonMap, fileMap, loadedTotalSeasons } = await fetchTorrentData(stream, context, cleanTorrUrl, hash);
+  const { rawFiles, audioFiles, subtitleFiles, authHash, seasonMap, fileMap, loadedTotalSeasons } = await fetchTorrentData(stream, context, cleanTorrUrl, hash);
 
   // Season declared in the torrent TITLE (not the file names). Used both as a fallback for season-less files
   // and to judge whether the parse is trustworthy (see parsingSuspect below). Parser stays plugin-owned.
@@ -150,7 +156,15 @@ export async function getEpisodes(stream, context) {
 
   const refinedFiles = remapFiles(rawFiles, seasonMap, fileMap, context, stream, loadedTotalSeasons, titleSeason);
   const cleanedFiles = TorrentParser.cleanTitles(refinedFiles);
-  let episodes = mapEpisodes(cleanedFiles, cleanTorrUrl, authHash);
+
+  // Pair external (sidecar) dub/subtitle files to each video file by raw parsed (season, episode). A single-video
+  // torrent (movie / one file) takes ALL sidecars regardless of how their names parse.
+  const hasExternal = audioFiles.length > 0 || subtitleFiles.length > 0;
+  const filesWithExternal = hasExternal
+    ? attachExternalTracks(cleanedFiles, audioFiles, subtitleFiles, context, stream, loadedTotalSeasons)
+    : cleanedFiles;
+
+  let episodes = mapEpisodes(filesWithExternal, cleanTorrUrl, authHash);
   episodes = await applyTMDBMetadata(episodes, context.tmdbId, context.type);
 
   // Parse-quality verdict, computed where the parser + title live (the host stays regex-free). Suspect when the

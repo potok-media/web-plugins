@@ -218,9 +218,25 @@ export class TorrentParser {
 
   // The player is "dumb" — it plays whatever URL/streamType we hand it. These build the READY TorrentGo
   // HLS/subtitle URLs so the player never has to reverse-engineer them from a stream ref.
-  static buildHlsUrl(baseUrl, hash, index) {
+  static buildHlsUrl(baseUrl, hash, index, ext) {
     const cleanBase = baseUrl.replace(/\/+$/, "");
-    return `${cleanBase}/api/torrents/${hash.toLowerCase()}/files/${index}/hls/master.m3u8`;
+    let url = `${cleanBase}/api/torrents/${hash.toLowerCase()}/files/${index}/hls/master.m3u8`;
+    // External ("ext" release) sidecar tracks: dub audio files (?xa=) fold into the HLS master as extra
+    // EXT-X-MEDIA audio renditions; external subtitle files (?xs=) are read by getPlaybackMetadata off the
+    // same URL. Values are plain numeric torrent indices — no encoding needed, tiny, and they survive the
+    // player's stream-URL round-trip (resume / autoplay) verbatim.
+    const params = [];
+    if (ext && ext.audio && ext.audio.length) params.push(`xa=${ext.audio.join(",")}`);
+    if (ext && ext.subs && ext.subs.length) params.push(`xs=${ext.subs.join(",")}`);
+    if (params.length) url += `?${params.join("&")}`;
+    return url;
+  }
+
+  // External subtitle FILE endpoint (a separate file in the torrent, "ext" releases): serves the whole file as
+  // VTT/ASS. Distinct from buildSubtitleBaseUrl (which extracts an embedded track from the video container).
+  static buildExternalSubtitleUrl(baseUrl, hash, fileIndex) {
+    const cleanBase = baseUrl.replace(/\/+$/, "");
+    return `${cleanBase}/api/torrents/${hash.toLowerCase()}/files/${fileIndex}/subtitle-file`;
   }
 
   // Base subtitle endpoint (canonical /api path). The player appends `?format=<fmt>&start=<bucket>` per
