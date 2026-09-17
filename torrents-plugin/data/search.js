@@ -96,14 +96,19 @@ export async function search(query) {
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
   }
 
-  const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/search`, {
-    query: query.title,
-    mediaType: query.type === "tv" ? "tv" : "movie",
-    id: Number(query.tmdbId),
-    season: query.season,
-    episode: query.episode,
-    forceSearch: !!query.forceSearch
-  });
+  const res = await PotokSDK.http.post(
+    `${searchEngineUrl}/api/v1/torrents/search`,
+    {
+      query: query.title,
+      mediaType: query.type === "tv" ? "tv" : "movie",
+      id: Number(query.tmdbId),
+      season: query.season,
+      episode: query.episode,
+      forceSearch: !!query.forceSearch
+    },
+    undefined,
+    90_000,
+  );
   if (res.status !== 200) {
     throw new Error(`Status code: ${res.status}`);
   }

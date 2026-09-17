@@ -26,7 +26,7 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
     : Promise.resolve(null);
 
   const [filesResponse, overrideRes, detailRes] = await Promise.all([
-    PotokSDK.http.post(filesUrl, requestBody),
+    PotokSDK.http.post(filesUrl, requestBody, undefined, 90_000),
     overridePromise,
     PotokSDK.http.get(`/api/media/detail/${context.type === "tv" ? "tv" : "movie"}/${context.tmdbId}`).catch(() => null)
   ]);
