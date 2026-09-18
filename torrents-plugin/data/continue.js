@@ -57,6 +57,7 @@ function normalizeCursor(raw) {
     title: raw.title || raw.Title || stream.title || "",
     posterSrc: raw.posterSrc || raw.PosterSrc,
     backdropSrc: raw.backdropSrc || raw.BackdropSrc,
+    stillSrc: raw.stillSrc || raw.StillSrc,
     stream: { ...stream, title: stream.title || raw.title || "", hash: hash || stream.hash },
     fileIndex: String(raw.fileIndex ?? raw.FileIndex ?? ""),
     season: raw.season ?? raw.Season,
@@ -93,6 +94,7 @@ function toApiBody(cursor) {
     durationSeconds: cursor.durationSeconds,
     posterSrc: cursor.posterSrc,
     backdropSrc: cursor.backdropSrc,
+    stillSrc: cursor.stillSrc,
     season: cursor.season,
     episode: cursor.episode,
     audioName: cursor.audioName,
@@ -101,19 +103,9 @@ function toApiBody(cursor) {
   };
 }
 
-let persistTimer = null;
-let persistKey = null;
-
-function schedulePersist(key) {
-  persistKey = key;
-  if (persistTimer) clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    const keyNow = persistKey;
-    persistKey = null;
-    const cursor = keyNow ? loadLedger()[keyNow] : null;
-    if (cursor) continueApi("", { method: "POST", body: toApiBody(cursor) });
-  }, 4000);
+function persistNow(key) {
+  const cursor = loadLedger()[key];
+  if (cursor) continueApi("", { method: "POST", body: toApiBody(cursor) });
 }
 
 async function hydrateFromSearchEngine() {
@@ -127,6 +119,9 @@ async function hydrateFromSearchEngine() {
     ledger[titleKey(cursor.mediaType, cursor.tmdbId)] = cursor;
   }
   saveLedger(ledger);
+  for (const [key, cursor] of Object.entries(ledger)) {
+    if (cursor.mediaType !== "movie" && !cursor.stillSrc) fillEpisodeStill(key, cursor);
+  }
 }
 
 export function listContinueCursors() {
@@ -158,12 +153,16 @@ export function applyProgressPayload(payload) {
     title: src.title || payload.title || "",
     hash: payload.streamHash,
   };
+  const prev = ledger[key];
+  const sameEpisode = prev && prev.season === payload.season && prev.episode === payload.episode;
+  const stillSrc = payload.stillSrc || (sameEpisode ? prev.stillSrc : undefined);
   ledger[key] = {
     mediaType,
     tmdbId,
     title: (payload.title || stream.title || "").replace(/\s+-\s+S\d+E\d+.*$/, "") || stream.title,
     posterSrc: payload.posterSrc,
     backdropSrc: payload.backdropSrc,
+    stillSrc,
     stream,
     fileIndex: String(payload.fileIndex),
     season: payload.season,
@@ -178,7 +177,37 @@ export function applyProgressPayload(payload) {
   );
   for (const extra of ordered.slice(MAX_ITEMS)) delete ledger[extra];
   saveLedger(ledger);
-  schedulePersist(key);
+  persistNow(key);
+  if (mediaType !== "movie" && !stillSrc) {
+    fillEpisodeStill(key, ledger[key]);
+  }
+}
+
+async function fetchEpisodeStill(tmdbId, season, episode) {
+  if (tmdbId == null || season == null || episode == null) return "";
+  try {
+    const res = await PotokSDK.http.get(`/api/media/tmdb/tv/${tmdbId}/season/${season}`);
+    if (!res || res.status !== 200) return "";
+    const data = parseJson(res);
+    const eps = data && data.episodes;
+    if (!Array.isArray(eps)) return "";
+    const match = eps.find((ep) => Number(ep.episodeNumber || ep.episode_number) === Number(episode));
+    if (!match) return "";
+    return match.stillPath || (match.still_path ? `https://image.tmdb.org/t/p/w300${match.still_path}` : "") || "";
+  } catch {
+    return "";
+  }
+}
+
+async function fillEpisodeStill(key, cursor) {
+  const still = await fetchEpisodeStill(cursor.tmdbId, cursor.season, cursor.episode);
+  if (!still) return;
+  const ledger = loadLedger();
+  if (!ledger[key]) return;
+  ledger[key] = { ...ledger[key], stillSrc: still };
+  saveLedger(ledger);
+  persistNow(key);
+  refreshContinueItems();
 }
 
 export function toContentItem(cursor) {
@@ -192,8 +221,10 @@ export function toContentItem(cursor) {
     id: cursor.tmdbId,
     title: cursor.title,
     subtitle: label,
-    image: cursor.posterSrc,
-    wideImage: cursor.backdropSrc || cursor.posterSrc,
+    image: cursor.mediaType !== "movie" && cursor.stillSrc ? cursor.stillSrc : cursor.posterSrc,
+    wideImage: cursor.mediaType !== "movie" && cursor.stillSrc
+      ? cursor.stillSrc
+      : (cursor.backdropSrc || cursor.posterSrc),
     progress,
     mediaType: cursor.mediaType,
     lastSeason: cursor.season,
@@ -235,6 +266,7 @@ export async function continueWatching(cursor) {
     voice: cursor.audioName,
     posterSrc: cursor.posterSrc,
     backdropSrc: cursor.backdropSrc,
+    stillSrc: cursor.stillSrc,
     playlist,
     playlistIndex: Math.max(0, episodes.indexOf(start)),
     sourceStream: cursor.stream,
