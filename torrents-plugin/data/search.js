@@ -46,7 +46,9 @@ function baseTorrent(t) {
     tags: Array.isArray(t.tags) ? [...t.tags] : [],
     publishDate: t.publishDate || "",
     hash,
-    kind: "torrent"
+    kind: "torrent",
+    // Present when SearchEngine attached maps; omitted/undefined on older engines.
+    override: t.override
   };
 }
 

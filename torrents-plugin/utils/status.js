@@ -3,10 +3,17 @@ import { resolveTorrUrl } from './config.js';
 
 const { VStack, StatusRow } = PotokSDK.ui.components;
 
+const FAIL_THRESHOLD = 3;
+const LATENCY_JITTER_MS = 20;
+const HEALTH_TIMEOUT_MS = 20000;
+
 const statusState = PotokSDK.createState({
   searchEngine: { configured: false, online: false, latency: -1 },
   torrServer: { configured: false, online: false, latency: -1 }
 });
+
+const failCounts = { searchEngine: 0, torrServer: 0 };
+let pingTimerStarted = false;
 
 function getStatusLabel(info) {
   if (!info.configured) return PotokSDK.i18n.t("potok-torrents:status.off");
@@ -17,9 +24,8 @@ function getStatusLabel(info) {
 function getStatusColor(info) {
   if (!info.configured) return "offline";
   if (!info.online || info.latency < 0) return "error";
-  if (info.latency <= 100) return "success";
-  if (info.latency <= 300) return "warning";
-  return "error";
+  if (info.latency <= 400) return "success";
+  return "warning";
 }
 
 function buildStatusLayout() {
@@ -33,6 +39,39 @@ function buildStatusLayout() {
         .status(getStatusColor(statusState.torrServer))
         .value(getStatusLabel(statusState.torrServer))
     ]);
+}
+
+function statusesEqual(prev, next) {
+  if (prev.configured !== next.configured || prev.online !== next.online) return false;
+  if (getStatusColor(prev) !== getStatusColor(next)) return false;
+  return Math.abs(prev.latency - next.latency) <= LATENCY_JITTER_MS;
+}
+
+function commitStatus(key, next) {
+  if (statusesEqual(statusState[key], next)) return;
+  statusState[key] = next;
+}
+
+function applyPing(key, ping) {
+  if (!ping.configured) {
+    failCounts[key] = 0;
+    commitStatus(key, ping);
+    return;
+  }
+  if (ping.online) {
+    failCounts[key] = 0;
+    commitStatus(key, ping);
+    return;
+  }
+  failCounts[key] += 1;
+  if (failCounts[key] < FAIL_THRESHOLD) {
+    const prev = statusState[key];
+    if (prev.online && prev.latency >= 0) {
+      commitStatus(key, { configured: true, online: true, latency: prev.latency });
+    }
+    return;
+  }
+  commitStatus(key, ping);
 }
 
 async function pingService(baseUrl, path = "/health") {
@@ -49,7 +88,7 @@ async function pingService(baseUrl, path = "/health") {
 
   const startTime = Date.now();
   try {
-    const res = await PotokSDK.http.get(url);
+    const res = await PotokSDK.http.get(url, undefined, HEALTH_TIMEOUT_MS);
     const latency = Date.now() - startTime;
     if (res.status >= 200 && res.status < 400) {
       return { configured: true, online: true, latency };
@@ -73,8 +112,8 @@ async function checkPings() {
     pingService(torrUrl, "/health")
   ]);
 
-  statusState.searchEngine = searchRes;
-  statusState.torrServer = torrRes;
+  applyPing("searchEngine", searchRes);
+  applyPing("torrServer", torrRes);
 }
 
 export function registerSidebarStatus() {
@@ -89,10 +128,13 @@ export function registerSidebarStatus() {
     }
   });
 
-  statusState.$subscribe(() => {
-    PotokSDK.ui.render(buildStatusLayout(), "torrents-sidebar-status");
-  });
+  if (!pingTimerStarted) {
+    pingTimerStarted = true;
+    statusState.$subscribe(() => {
+      PotokSDK.ui.render(buildStatusLayout(), "torrents-sidebar-status");
+    });
+    setInterval(checkPings, 30000);
+  }
 
   checkPings();
-  setInterval(checkPings, 30000);
 }

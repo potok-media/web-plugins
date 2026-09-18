@@ -5,6 +5,7 @@ import { search } from './data/search.js';
 import { getEpisodes } from './data/episodes.js';
 import { getSeasonsMetadata, saveSeasonOverride, clearSeasonOverride, saveFileOverride, clearFileOverride } from './data/overrides.js';
 import { getPlaybackInfo, getPlaybackMetadata } from './data/playback.js';
+import { registerContinueWatching } from './data/continue.js';
 
 // Torrent stream source: search → episodes → playback, plus per-season override editing. Pure data provider —
 // the streams/episodes UI is native. Network/look-up logic lives in ./data, pure helpers in ./utils.
@@ -25,6 +26,7 @@ PotokSDK.streams.registerStreamSource({
 
 // Sidebar status service (SearchEngine / TorrentGo health).
 registerSidebarStatus();
+registerContinueWatching();
 
 // "Watch" button on the media details page → the native torrents watch route.
 PotokSDK.registerSlotContribution({
