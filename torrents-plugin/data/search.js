@@ -17,14 +17,24 @@ function relevanceTokens(s) {
     .filter(w => w.length >= 3 && !RELEVANCE_STOPWORDS.has(w) && !/^\d+$/.test(w));
 }
 
-export function filterRelevantResults(results, queryTitle) {
-  const expected = new Set(relevanceTokens(queryTitle));
+export function filterRelevantResults(results, ...queryTitles) {
+  const expected = new Set(queryTitles.flatMap(relevanceTokens));
   if (expected.size < 2) return results; // too short/ambiguous → don't risk false drops
   return results.filter(t => {
     const res = relevanceTokens(t.title);
     for (const w of res) if (expected.has(w)) return true; // ≥1 shared significant token → keep
     return false; // zero overlap → a different show
   });
+}
+
+function alternateTitle(query) {
+  const local = (query.title || "").trim();
+  for (const candidate of [query.englishTitle, query.originalTitle]) {
+    const value = (candidate || "").trim();
+    if (value && value.toLowerCase() !== local.toLowerCase())
+      return value;
+  }
+  return "";
 }
 
 // --- result mapping ---------------------------------------------------------
@@ -98,10 +108,14 @@ export async function search(query) {
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
   }
 
+  const originalTitle = alternateTitle(query);
   const res = await PotokSDK.http.post(
     `${searchEngineUrl}/api/v1/torrents/search`,
     {
       query: query.title,
+      title: query.title,
+      originalTitle: originalTitle || undefined,
+      englishTitle: originalTitle || undefined,
       mediaType: query.type === "tv" ? "tv" : "movie",
       id: Number(query.tmdbId),
       season: query.season,
@@ -116,7 +130,7 @@ export async function search(query) {
   }
 
   const data = parseJson(res);
-  const relevant = filterRelevantResults(data.results || [], query.title);
+  const relevant = filterRelevantResults(data.results || [], query.title, originalTitle);
   let mapped = relevant.map(t => enrichFromTitle(baseTorrent(t), t.title));
   if (query.season !== undefined && query.season !== null) {
     mapped = applySeasonFilter(mapped, query.season);
