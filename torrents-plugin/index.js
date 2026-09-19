@@ -26,7 +26,7 @@ PotokSDK.streams.registerStreamSource({
 
 // Sidebar status service (SearchEngine / TorrentGo health).
 registerSidebarStatus();
-registerContinueWatching();
+//registerContinueWatching();
 
 // "Watch" button on the media details page → the native torrents watch route.
 PotokSDK.registerSlotContribution({
