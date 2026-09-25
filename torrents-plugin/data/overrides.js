@@ -84,3 +84,29 @@ export async function clearFileOverride(stream, context, fileId) {
     throw new Error(`Reset file override failed with status ${res.status}`);
   }
 }
+
+// Canonical picker result. Raw file identity and the chosen ARM placement remain
+// separate; a scoped anchor renumbers only the exact files the user selected.
+export async function saveEpisodeBinding(stream, context, override) {
+  const searchEngineUrl = await resolveSearchEngineUrl();
+  if (!searchEngineUrl) throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
+  const target = override?.armTarget;
+  if (!override?.fileId || !target?.workId || !target.orderingId || !target.groupId || !target.episodeId
+    || (context.workId && context.workId !== target.workId)
+    || (context.orderingId && context.orderingId !== target.orderingId)) {
+    throw new Error("Invalid ARM episode binding");
+  }
+  const scopeFileIds = override.scopeFileIds?.map(String);
+  if (scopeFileIds && !scopeFileIds.includes(String(override.fileId))) {
+    throw new Error("The anchor file must belong to its selected scope");
+  }
+  const response = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${streamHash(stream)}/file`, {
+    fileId: String(override.fileId),
+    season: null,
+    episode: null,
+    mode: override.mode === "pin" ? "pin" : "anchor",
+    armTarget: { ...target },
+    scopeFileIds,
+  });
+  if (response.status !== 200) throw new Error(`Save episode binding failed with status ${response.status}`);
+}

@@ -1,1 +1,10 @@
 /.idea/
+.DS_Store
+
+# Agent/tooling state — local only, never commit
+.serena/
+.claude/
+.superpowers/
+.antigravitycli/
+.playwright-mcp/
+docs/

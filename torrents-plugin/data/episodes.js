@@ -3,20 +3,21 @@ import { TorrentParser } from '../utils/parser.js';
 import { parseJson } from '../utils/http.js';
 import { cleanHash, streamHash } from '../utils/hash.js';
 import { resolveTorrUrl, resolveSearchEngineUrl } from '../utils/config.js';
-import { applyTMDBMetadata } from '../utils/metadata.js';
+import { applyArmMetadata, positiveId } from '../utils/armMetadata.js';
+import { loadArmLayout } from './arm.js';
+import { applyEpisodeBindings, buildReleaseManifest, rawCompatibilityProjection } from '../utils/releaseManifest.js';
 import { attachExternalTracks } from './externalTracks.js';
 
 const SENTINEL = "_"; // group key for files with no parseable season
 
-// Fetch the torrent's files + the per-season override map + the show's season count, in parallel. Returns the
-// raw material remapFiles/mapEpisodes need. Throws the i18n'd TorrentGo / no-media errors.
+// Fetch transport files and saved overrides. ARM supplies episodic structure and metadata.
 async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
   const requestBody = {
     title: stream.title,
     link: stream.url || "",
     magnetUri: stream.magnet || "",
     mediaType: context.type,
-    tmdbId: Number(context.tmdbId)
+    tmdbId: positiveId(context.tmdbId)
   };
   const filesUrl = `${cleanTorrUrl.replace(/\/$/, "")}/api/torrents`;
   // Overrides live in the SearchEngine (moved out of the gateway); skip gracefully if it isn't configured.
@@ -25,10 +26,9 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
     ? PotokSDK.http.get(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}`).catch(() => null)
     : Promise.resolve(null);
 
-  const [filesResponse, overrideRes, detailRes] = await Promise.all([
+  const [filesResponse, overrideRes] = await Promise.all([
     PotokSDK.http.post(filesUrl, requestBody, undefined, 90_000),
     overridePromise,
-    PotokSDK.http.get(`/api/media/detail/${context.type === "tv" ? "tv" : "movie"}/${context.tmdbId}`).catch(() => null)
   ]);
 
   if (filesResponse.status !== 200) {
@@ -48,8 +48,21 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
   const overrideJson = (overrideRes && overrideRes.status === 200 && parseJson(overrideRes)) || {};
   const seasonMap = overrideJson.seasonMap || {};
   const fileMap = overrideJson.fileMap || {};
-  const loadedTotalSeasons = (detailRes && detailRes.status === 200 && (parseJson(detailRes) || {}).numberOfSeasons) || 1;
-  return { rawFiles, audioFiles, subtitleFiles, authHash, seasonMap, fileMap, loadedTotalSeasons };
+  return { rawFiles, audioFiles, subtitleFiles, authHash, seasonMap, fileMap };
+}
+
+async function resolveReleaseManifest(manifest) {
+  try {
+    const response = await PotokSDK.http.post('/api/arm/v1/releases/resolve', manifest, undefined, 30_000);
+    const resolution = response?.status === 200 ? parseJson(response) : null;
+    if (!resolution || resolution.releaseId !== manifest.releaseId
+      || (manifest.workId && resolution.workId && resolution.workId !== manifest.workId)
+      || (manifest.orderingId && resolution.orderingId && resolution.orderingId !== manifest.orderingId)) return null;
+    return resolution;
+  } catch {
+    // A transport outage must not prevent playing the original torrent files.
+    return null;
+  }
 }
 
 // Remap files to (season, episode). Priority per file, walked in TORRENT ORDER so anchor runs can carry state:
@@ -57,9 +70,9 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
 //   2. file_map ANCHOR  — «from this file: SxEy»; starts a run, each following non-overridden file increments.
 //   3. active anchor run — inherits the run's season, episode = base + count.
 //   4. season_map        — coarse per-source-season offset (displayedEpisode = parsedEpisode + offset).
-//   5. auto-parse        — the file's own parsed season/episode, with the title-season fallback + sequential fill.
+//   5. auto-parse        — the file's own parsed season/episode, with a release-title season fallback.
 // Each file always keeps its RAW parsed season/episode (the override editor computes offsets against that raw).
-function remapFiles(rawFiles, seasonMap, fileMap, context, stream, loadedTotalSeasons, titleSeason) {
+function remapFiles(rawFiles, seasonMap, fileMap, context, stream, titleSeason) {
   const groupCounts = {};
   let anchor = null; // active anchor run: { season, baseEp, seen }
   return rawFiles.map((file) => {
@@ -67,12 +80,16 @@ function remapFiles(rawFiles, seasonMap, fileMap, context, stream, loadedTotalSe
     if (!filePath.includes("/")) {
       filePath = stream.title ? `${stream.title}/${filePath}` : filePath;
     }
-    const parsed = TorrentParser.parseEpisode(filePath, context.type, context.type === "tv" ? loadedTotalSeasons : undefined);
+    const parsed = TorrentParser.parseEpisode(filePath, context.type);
     const key = parsed.season !== undefined ? String(parsed.season) : SENTINEL;
     const idxInGroup = (groupCounts[key] = (groupCounts[key] ?? 0));
     groupCounts[key] = idxInGroup + 1;
 
-    const fileOv = fileMap[String(file.id)];
+    // Canonical overrides are applied only by the Gateway; an unavailable/stale ARM
+    // response must not fabricate an Episode ID or revive an older numeric assignment.
+    const saved = fileMap[String(file.id)];
+    const fileOv = saved && !saved.armTarget && Number.isInteger(saved.season)
+      && Number.isFinite(saved.episode) ? saved : null;
     const entry = seasonMap[key];
     let season, episode;
     if (fileOv && fileOv.mode === "pin") {
@@ -91,13 +108,14 @@ function remapFiles(rawFiles, seasonMap, fileMap, context, stream, loadedTotalSe
       season = entry.season;
       episode = parsed.episode !== undefined ? parsed.episode + entry.offset : (1 + entry.offset + idxInGroup);
     } else {
-      // Season fallback for files that carry no parseable season: prefer the season DECLARED in the torrent
-      // title (e.g. «ТВ-3» / «3rd Season» → 3) over a blind default of 1 — fixes releases whose file names
-      // only carry the episode («… Seikatsu III - 01»), not the season.
-      season = parsed.season !== undefined
-        ? parsed.season
-        : (context.type === "tv" ? (titleSeason && titleSeason > 0 ? titleSeason : 1) : 0);
-      episode = parsed.episode !== undefined ? parsed.episode : (1 + idxInGroup);
+      // A release-title season is evidence and may fill a missing file season. With no such evidence TV stays
+      // unresolved: never fabricate season 1 merely because the legacy UI expects a numeric coordinate.
+      ({ season, episode } = rawCompatibilityProjection({
+        mediaType: context.type,
+        parsed,
+        titleSeason,
+        indexInGroup: idxInGroup,
+      }));
     }
     return {
       ...file,
@@ -105,8 +123,9 @@ function remapFiles(rawFiles, seasonMap, fileMap, context, stream, loadedTotalSe
       episode,
       rawSeason: parsed.season,
       rawEpisode: parsed.episode,
-      // Keep the ORIGINAL file name before cleanTitles trims it / applyTMDBMetadata overwrites `title`.
-      fileName: file.title || (file.path ? file.path.split("/").pop() : undefined),
+      rawEvidence: { kind: parsed.kind, season: parsed.season, episode: parsed.episode, episodeEnd: parsed.episodeEnd, ovaNumber: parsed.ovaNumber },
+      // Preserve the file name separately from the ARM episode title.
+      fileName: file.title || (file.path ? file.path.split(/[\\/]/).pop() : undefined),
       isSerial: parsed.isSerial
     };
   });
@@ -125,17 +144,30 @@ function formatSize(bytes) {
 // ({audio,subs} torrent indices) is folded into the url as ?xa=/?xs= so the backend surfaces the sidecar dubs/subs.
 function mapEpisodes(cleanedFiles, cleanTorrUrl, authHash) {
   const fileLabel = PotokSDK.i18n.t("potok-torrents:ui.file");
+  // Opaque progress identity: the host stores/resumes per-file progress under this token verbatim and never
+  // learns it is `<infohash>:<fileIndex>`. getPlaybackInfo echoes it back so read and write keys always match.
+  const pid = cleanHash(authHash);
   return cleanedFiles.map((f) => ({
     id: String(f.id),
     season: f.season,
     episode: f.episode,
     rawSeason: f.rawSeason,
     rawEpisode: f.rawEpisode,
+    rawEvidence: f.rawEvidence,
     title: f.title || `${fileLabel} ${f.id}`,
     fileName: f.fileName,
     sizeLabel: formatSize(f.sizeBytes),
     isWatched: false,
     torrentHash: authHash,
+    workId: f.workId,
+    episodeId: f.episodeId,
+    orderingId: f.orderingId,
+    groupId: f.groupId,
+    resolutionState: f.resolutionState,
+    confidence: f.confidence,
+    bindingMethod: f.bindingMethod,
+    alternatives: f.alternatives,
+    progressId: pid ? `${pid}:${String(f.id)}` : undefined,
     url: TorrentParser.buildHlsUrl(cleanTorrUrl, authHash, String(f.id), f.externalTracks)
   }));
 }
@@ -146,37 +178,51 @@ export async function getEpisodes(stream, context) {
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noTorrUrl"));
   }
   const hash = streamHash(stream);
-  const { rawFiles, audioFiles, subtitleFiles, authHash, seasonMap, fileMap, loadedTotalSeasons } = await fetchTorrentData(stream, context, cleanTorrUrl, hash);
-
-  // Season declared in the torrent TITLE (not the file names). Used both as a fallback for season-less files
-  // and to judge whether the parse is trustworthy (see parsingSuspect below). Parser stays plugin-owned.
+  const { rawFiles, audioFiles, subtitleFiles, authHash, seasonMap, fileMap } = await fetchTorrentData(stream, context, cleanTorrUrl, hash);
+  const manifest = buildReleaseManifest({
+    releaseId: authHash || hash,
+    releaseTitle: stream.title || '',
+    workId: context.workId || context.armWorkId || null,
+    orderingId: context.orderingId || null,
+    providerReference: positiveId(context.tmdbId) == null ? null : {
+      provider: 'tmdb',
+      entityKind: context.type === 'tv' ? 'tv' : 'movie',
+      value: String(context.tmdbId),
+    },
+    mediaType: context.type,
+    files: rawFiles,
+    fileOverrides: fileMap,
+    sectionOverrides: seasonMap,
+  });
+  const releaseResolutionPromise = resolveReleaseManifest(manifest);
   const titleSeason = context.type === "tv"
     ? TorrentParser.extractSeasonEpisode(stream.title || "").season
     : undefined;
-
-  const refinedFiles = remapFiles(rawFiles, seasonMap, fileMap, context, stream, loadedTotalSeasons, titleSeason);
+  const refinedFiles = remapFiles(rawFiles, seasonMap, fileMap, context, stream, titleSeason);
   const cleanedFiles = TorrentParser.cleanTitles(refinedFiles);
-
-  // Pair external (sidecar) dub/subtitle files to each video file by raw parsed (season, episode). A single-video
-  // torrent (movie / one file) takes ALL sidecars regardless of how their names parse.
   const hasExternal = audioFiles.length > 0 || subtitleFiles.length > 0;
   const filesWithExternal = hasExternal
-    ? attachExternalTracks(cleanedFiles, audioFiles, subtitleFiles, context, stream, loadedTotalSeasons)
+    ? attachExternalTracks(cleanedFiles, audioFiles, subtitleFiles, context, stream)
     : cleanedFiles;
 
   let episodes = mapEpisodes(filesWithExternal, cleanTorrUrl, authHash);
-  episodes = await applyTMDBMetadata(episodes, context.tmdbId, context.type);
+  const releaseResolution = await releaseResolutionPromise;
+  episodes = applyEpisodeBindings(episodes, releaseResolution);
+  if (releaseResolution?.bindings?.some((binding) => binding.state === "resolved")) {
+    const layout = await loadArmLayout(releaseResolution);
+    episodes = applyArmMetadata(episodes, releaseResolution, layout, positiveId(context.tmdbId));
+  }
 
-  // Parse-quality verdict, computed where the parser + title live (the host stays regex-free). Suspect when the
-  // title clearly declares a season the files never resolved to — i.e. the file-name parse disagrees with the
-  // release's own stated season. Skipped when the user has a manual override (their mapping is authoritative).
-  const resolvedSeasons = new Set(episodes.map((e) => e.season));
-  const parsingSuspect =
-    context.type === "tv" &&
-    Object.keys(seasonMap).length === 0 &&
-    Object.keys(fileMap).length === 0 &&
-    titleSeason !== undefined && titleSeason > 0 &&
-    !resolvedSeasons.has(titleSeason);
-
-  return { episodes, tmdbSeasonsCount: loadedTotalSeasons, seasonMap, fileMap, parsingSuspect };
+  return {
+    episodes,
+    seasonMap,
+    fileMap,
+    parsingSuspect: context.type === "tv" && episodes.some((episode) => episode.resolutionState !== "resolved"),
+    arm: releaseResolution ? {
+      state: String(releaseResolution.state || 'unresolved').toLowerCase(),
+      workId: releaseResolution.workId || null,
+      orderingId: releaseResolution.orderingId || null,
+      graphVersion: releaseResolution.graphVersion || null,
+    } : null,
+  };
 }

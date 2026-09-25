@@ -4,6 +4,7 @@ import { parseJson } from '../utils/http.js';
 import { cleanHash, parseHashFromUrl } from '../utils/hash.js';
 import { resolveTorrUrl } from '../utils/config.js';
 import { logger } from '../utils/logger.js';
+import { positiveId } from '../utils/armMetadata.js';
 
 // --- subtitle labels --------------------------------------------------------
 // Human language name from an ISO code via Intl.DisplayNames (dynamic locale).
@@ -144,9 +145,16 @@ export async function getPlaybackInfo(stream, episode, context) {
     streamUrl: hlsUrl,
     streamType: "m3u8",
     mediaType: context.type,
-    id: Number(context.tmdbId),
+    id: positiveId(context.tmdbId),
+    workId: episode?.workId || context.workId || null,
+    episodeId: episode?.episodeId || null,
+    episodeIds: episode?.episodeIds || [],
+    targets: episode?.targets || [],
+    orderingId: episode?.orderingId || context.orderingId || null,
+    groupId: episode?.groupId || null,
     torrentHash: hash,
     fileIndex,
+    progressId: episode?.progressId || (hasBackend ? `${hash}:${fileIndex}` : undefined),
     subtitles: undefined, // deferred → getPlaybackMetadata
     session,
     thumbnails,
@@ -156,14 +164,15 @@ export async function getPlaybackInfo(stream, episode, context) {
 
   if (context.type === "tv") {
     const showTitle = context.title || stream.title || PotokSDK.i18n.t("potok-torrents:ui.serial");
-    const seasonNum = episode && episode.season !== undefined ? episode.season : 1;
-    const episodeNum = episode && episode.episode !== undefined ? episode.episode : 1;
-    const episodeLabel = PotokSDK.i18n.t("potok-torrents:ui.episode");
-    const episodeTitle = (episode && episode.title) || `${episodeLabel} ${episodeNum}`;
-    const cleanEpisodeTitle = episodeTitle.replace(/^\d+[\s.\-_]+/, "").trim();
+    const seasonNum = episode?.season;
+    const episodeNum = episode?.episode;
+    const coordinate = episode?.displayOrdinal
+      ? [episode.groupTitle, episode.displayOrdinal].filter(Boolean).join(" · ")
+      : seasonNum != null && episodeNum != null ? `S${seasonNum}E${episodeNum}` : "";
+    const episodeTitle = episode?.title || episode?.fileName || "";
     return {
       ...base,
-      title: `${showTitle} - S${seasonNum}E${episodeNum} - ${cleanEpisodeTitle}`,
+      title: [showTitle, coordinate, episodeTitle].filter(Boolean).join(" - "),
       season: seasonNum,
       episode: episodeNum,
     };

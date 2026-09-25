@@ -2,6 +2,9 @@ import { PotokSDK } from 'potok-sdk';
 import { TorrentParser } from '../utils/parser.js';
 import { parseJson } from '../utils/http.js';
 import { resolveSearchEngineUrl } from '../utils/config.js';
+import { buildTorrentSearchRequest } from '../utils/searchRequest.js';
+import { armSearchContext } from '../utils/armMetadata.js';
+import { loadArmWork } from './arm.js';
 
 // --- relevance filter -------------------------------------------------------
 // SearchEngine returns fuzzy matches — searching KonoSuba ("Да благословят боги сей расчудесный мир!") also
@@ -90,50 +93,94 @@ function enrichFromTitle(bt, title) {
   return bt;
 }
 
-// Pre-filter to a specific season when the query asks for one. OVAs/specials aren't TV seasons: an OVA-N shows
-// ONLY under its Season N; a number-less OVA stays under no specific season (still in "All seasons").
+// Legacy-only filter. Specials and OVA ordinals cannot be interpreted as TV season numbers.
 function applySeasonFilter(results, season) {
   const target = Number(season);
   return results.filter(t => {
-    if (t.parsedKind === "ova") return t.ovaNumber === target;
+    if (t.parsedKind === "ova" || t.parsedKind === "special" || t.parsedKind === "credits") return true;
     if (t.seasons) return t.seasons.includes(target);
     if (t.season !== undefined && t.season !== null) return t.season === target;
     return true; // genuinely season-less TV release → keep (rare uploads)
   });
 }
 
-export async function search(query) {
-  const searchEngineUrl = await resolveSearchEngineUrl();
-  if (!searchEngineUrl) {
-    throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
-  }
+function searchBody(query) {
+  return buildTorrentSearchRequest(query, alternateTitle(query));
+}
 
+function mapEngineResults(results, query) {
   const originalTitle = alternateTitle(query);
+  const relevant = filterRelevantResults(results || [], query.title, originalTitle, ...(query.searchAliases || []));
+  let mapped = relevant.map(t => enrichFromTitle(baseTorrent(t), t.title));
+  if (!query.workId && query.season !== undefined && query.season !== null) {
+    mapped = applySeasonFilter(mapped, query.season);
+  }
+  return mapped;
+}
+
+function resultKey(item) {
+  return (item.hash || item.magnet || item.url || item.title || "").toLowerCase();
+}
+
+function appendUnique(acc, incoming) {
+  const seen = new Set(acc.map(resultKey));
+  for (const item of incoming) {
+    const key = resultKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    acc.push(item);
+  }
+  return acc;
+}
+
+async function searchBuffered(searchEngineUrl, query) {
   const res = await PotokSDK.http.post(
     `${searchEngineUrl}/api/v1/torrents/search`,
-    {
-      query: query.title,
-      title: query.title,
-      originalTitle: originalTitle || undefined,
-      englishTitle: originalTitle || undefined,
-      mediaType: query.type === "tv" ? "tv" : "movie",
-      id: Number(query.tmdbId),
-      season: query.season,
-      episode: query.episode,
-      forceSearch: !!query.forceSearch
-    },
+    searchBody(query),
     undefined,
     90_000,
   );
   if (res.status !== 200) {
     throw new Error(`Status code: ${res.status}`);
   }
-
   const data = parseJson(res);
-  const relevant = filterRelevantResults(data.results || [], query.title, originalTitle);
-  let mapped = relevant.map(t => enrichFromTitle(baseTorrent(t), t.title));
-  if (query.season !== undefined && query.season !== null) {
-    mapped = applySeasonFilter(mapped, query.season);
+  return mapEngineResults(data.results || [], query);
+}
+
+export async function search(query, onProgress) {
+  query = armSearchContext(query, await loadArmWork(query));
+  const searchEngineUrl = await resolveSearchEngineUrl();
+  if (!searchEngineUrl) {
+    throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
   }
-  return mapped;
+
+  const accumulated = [];
+  const notify = () => {
+    if (typeof onProgress === "function") onProgress(accumulated.slice());
+  };
+
+  if (typeof PotokSDK.http.streamPost !== "function") return searchBuffered(searchEngineUrl, query);
+
+  try {
+    const res = await PotokSDK.http.streamPost(
+      `${searchEngineUrl}/api/v1/torrents/search/stream`,
+      searchBody(query),
+      undefined,
+      90_000,
+      (event) => {
+        if (!event || event.type !== "batch" || !Array.isArray(event.results)) return;
+        appendUnique(accumulated, mapEngineResults(event.results, query));
+        notify();
+      },
+    );
+    if (res.status === 200) return accumulated;
+    if (res.status !== 404 && res.status !== 405) {
+      if (accumulated.length > 0) return accumulated;
+      throw new Error(`Status code: ${res.status}`);
+    }
+  } catch {
+    if (accumulated.length > 0) return accumulated;
+  }
+
+  return searchBuffered(searchEngineUrl, query);
 }

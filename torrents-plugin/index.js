@@ -3,7 +3,7 @@ import './i18n.js';
 import { registerSidebarStatus } from './utils/status.js';
 import { search } from './data/search.js';
 import { getEpisodes } from './data/episodes.js';
-import { getSeasonsMetadata, saveSeasonOverride, clearSeasonOverride, saveFileOverride, clearFileOverride } from './data/overrides.js';
+import { getSeasonsMetadata, saveSeasonOverride, clearSeasonOverride, saveFileOverride, clearFileOverride, saveEpisodeBinding } from './data/overrides.js';
 import { getPlaybackInfo, getPlaybackMetadata } from './data/playback.js';
 import { registerContinueWatching } from './data/continue.js';
 
@@ -20,6 +20,7 @@ PotokSDK.streams.registerStreamSource({
   clearSeasonOverride,
   saveFileOverride,
   clearFileOverride,
+  saveEpisodeBinding,
   getPlaybackInfo,
   getPlaybackMetadata,
 });
@@ -42,7 +43,11 @@ PotokSDK.registerSlotContribution({
           PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-torrents`, {
             media: props.media,
             season: props.season,
-            episode: props.episode
+            episode: props.episode,
+            workId: props.workId,
+            orderingId: props.orderingId,
+            groupId: props.groupId,
+            episodeId: props.episodeId,
           });
         })
     };
