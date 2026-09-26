@@ -6,12 +6,13 @@ function nullable(value) {
 // its decimal, range and special-group evidence before canonical matching even begins.
 export function buildReleaseManifest({
   releaseId, releaseTitle, workId, providerReference, mediaType, files,
-  fileOverrides, sectionOverrides,
+  fileOverrides, sectionOverrides, entryId,
 }) {
   return {
     releaseId: String(releaseId || ""),
     title: String(releaseTitle || ""),
     workId: workId || null,
+    entryId: entryId || null,
     providerReference: providerReference || null,
     mediaType: mediaType || null,
     fileOverrides: fileOverrides || {},

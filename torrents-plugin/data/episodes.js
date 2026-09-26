@@ -4,6 +4,7 @@ import { parseJson } from '../utils/http.js';
 import { cleanHash, streamHash } from '../utils/hash.js';
 import { resolveTorrUrl, resolveSearchEngineUrl } from '../utils/config.js';
 import { applyArmMetadata, positiveId } from '../utils/armMetadata.js';
+import { resolveEntryHint } from '../utils/entryHint.js';
 import { loadArmLayout } from './arm.js';
 import { applyEpisodeBindings, buildReleaseManifest, rawCompatibilityProjection } from '../utils/releaseManifest.js';
 import { attachExternalTracks } from './externalTracks.js';
@@ -176,11 +177,19 @@ export async function getEpisodes(stream, context) {
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noTorrUrl"));
   }
   const hash = streamHash(stream);
+  const workId = context.workId || context.armWorkId || null;
+  // Resolve the franchise entry from the release title BEFORE the backend resolve: the pin
+  // travels inside the manifest and decides franchise-wide episode ties (multi-season arcs).
+  const earlyLayout = workId ? await loadArmLayout({ workId }) : null;
+  const pinnedEntryId = earlyLayout
+    ? resolveEntryHint(stream.title || "", earlyLayout, positiveId(context.tmdbId))
+    : null;
   const { rawFiles, audioFiles, subtitleFiles, authHash, seasonMap, fileMap } = await fetchTorrentData(stream, context, cleanTorrUrl, hash);
   const manifest = buildReleaseManifest({
     releaseId: authHash || hash,
     releaseTitle: stream.title || '',
-    workId: context.workId || context.armWorkId || null,
+    workId,
+    entryId: pinnedEntryId,
     providerReference: positiveId(context.tmdbId) == null ? null : {
       provider: 'tmdb',
       entityKind: context.type === 'tv' ? 'tv' : 'movie',
@@ -206,7 +215,9 @@ export async function getEpisodes(stream, context) {
   const releaseResolution = await releaseResolutionPromise;
   episodes = applyEpisodeBindings(episodes, releaseResolution);
   if (releaseResolution?.bindings?.some((binding) => binding.state === "resolved")) {
-    const layout = await loadArmLayout(releaseResolution);
+    const layout = earlyLayout && earlyLayout.work?.id === releaseResolution.workId
+      ? earlyLayout
+      : await loadArmLayout(releaseResolution);
     episodes = applyArmMetadata(episodes, releaseResolution, layout, positiveId(context.tmdbId));
   }
 
