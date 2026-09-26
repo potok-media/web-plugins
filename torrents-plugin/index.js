@@ -45,8 +45,7 @@ PotokSDK.registerSlotContribution({
             season: props.season,
             episode: props.episode,
             workId: props.workId,
-            orderingId: props.orderingId,
-            groupId: props.groupId,
+            entryId: props.entryId,
             episodeId: props.episodeId,
           });
         })

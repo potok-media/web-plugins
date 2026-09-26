@@ -91,9 +91,8 @@ export async function saveEpisodeBinding(stream, context, override) {
   const searchEngineUrl = await resolveSearchEngineUrl();
   if (!searchEngineUrl) throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
   const target = override?.armTarget;
-  if (!override?.fileId || !target?.workId || !target.orderingId || !target.groupId || !target.episodeId
-    || (context.workId && context.workId !== target.workId)
-    || (context.orderingId && context.orderingId !== target.orderingId)) {
+  if (!override?.fileId || !target?.workId || !target.entryId || !target.episodeId
+    || (context.workId && context.workId !== target.workId)) {
     throw new Error("Invalid ARM episode binding");
   }
   const scopeFileIds = override.scopeFileIds?.map(String);
@@ -105,7 +104,7 @@ export async function saveEpisodeBinding(stream, context, override) {
     season: null,
     episode: null,
     mode: override.mode === "pin" ? "pin" : "anchor",
-    armTarget: { ...target },
+    armTarget: { workId: target.workId, entryId: target.entryId, episodeId: target.episodeId },
     scopeFileIds,
   });
   if (response.status !== 200) throw new Error(`Save episode binding failed with status ${response.status}`);

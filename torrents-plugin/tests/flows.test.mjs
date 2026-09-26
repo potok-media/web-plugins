@@ -7,22 +7,25 @@ import { search } from '../data/search.js';
 
 const hash = 'a'.repeat(40);
 const stream = { hash, title: 'Show Season 1' };
-const context = { type: 'tv', tmdbId: 42, workId: 'work', orderingId: 'order' };
-const armTarget = { workId: 'work', orderingId: 'order', groupId: 'group', episodeId: 'ep' };
+const context = { type: 'tv', tmdbId: 42, workId: 'work' };
+const armTarget = { workId: 'work', entryId: 'group', episodeId: 'ep' };
 const canonicalFile = { id: '1', path: 'Show/Show - 24.5.mkv', title: 'Show - 24.5.mkv', sizeBytes: 1000 };
 function response(data, status = 200) { return { status, data }; }
 function resolution(releaseId = hash, workId = 'work') {
   return {
-    releaseId, workId, orderingId: 'order', graphVersion: 'graph', state: 'resolved',
-    bindings: [{ fileId: '1', state: 'resolved', targets: [{ episodeId: 'ep', orderingId: 'order', groupId: 'group' }], evidence: { episode: 24.5 }, confidence: 1 }],
+    releaseId, workId, graphVersion: 'graph', state: 'resolved',
+    bindings: [{ fileId: '1', state: 'resolved', targets: [{ episodeId: 'ep', entryId: 'group' }], evidence: { episode: 24.5 }, confidence: 1 }],
   };
 }
 function layout(workId = 'work') {
   return {
-    workId, ordering: { id: 'order' }, graphVersion: 'graph', groups: [{
-      id: 'group', kind: 'specials', displayTitle: { value: 'Specials' }, episodes: [{
-        id: 'ep', ordinal: '24.5', displayTitle: { value: 'Canonical special' },
-        providerReferences: [{ provider: 'tmdb', entityKind: 'tv-episode', value: '42/0/7' }],
+    work: { id: workId, title: 'Show', titles: { official: 'Show', en: null, ru: null, original: null } },
+    graphVersion: 'graph',
+    groups: [{
+      id: 'group', kind: 'specials', number: 1, title: 'Specials', anilistId: null, malId: null,
+      episodes: [{
+        id: 'ep', number: 24.5, title: 'Canonical special', overview: null, stillPath: null, airDate: null,
+        filler: { status: 'filler', confidence: 0.95, disputed: false }, tmdb: { show: 42, season: 0, episode: 7 },
       }],
     }],
   };
@@ -57,17 +60,20 @@ test('save canonical scoped anchor, reload manifest and clear preserve the chose
   assert.deepEqual(saved['1'], { season: null, episode: null, mode: 'anchor', armTarget, scopeFileIds: ['1'] });
   const result = await getEpisodes(stream, context);
   const manifest = calls.find((call) => call.url === '/api/arm/v1/releases/resolve').body;
-  assert.equal(manifest.orderingId, 'order');
+  assert.ok(!Object.hasOwn(manifest, 'orderingId'));
   assert.deepEqual(manifest.fileOverrides['1'].armTarget, armTarget);
   assert.deepEqual(manifest.sectionOverrides, { _: { season: 2, offset: -12 } });
   assert.equal(manifest.files[0].path, canonicalFile.path);
   assert.equal(manifest.files[0].rawEvidence, undefined);
   assert.equal(result.episodes[0].episodeId, 'ep');
+  assert.equal(result.episodes[0].entryId, 'group');
   assert.equal(result.episodes[0].rawEpisode, 24.5);
   assert.equal(result.episodes[0].title, 'Canonical special');
   assert.equal(result.episodes[0].season, 0);
   assert.equal(result.episodes[0].episode, 7);
   assert.equal(result.episodes[0].displayOrdinal, '24.5');
+  assert.equal(result.episodes[0].groupKind, 'specials');
+  assert.equal(result.episodes[0].filler.status, 'filler');
   assert.ok(calls.some((call) => call.url.includes('/layout?') && call.url.includes('locale=ru')));
   assert.ok(calls.every((call) => !call.url.includes('/api/media/')));
   await clearFileOverride(stream, context, '1');
@@ -80,6 +86,7 @@ test('ARM outage keeps original files playable without trusting a saved canonica
   assert.equal(result.episodes.length, 1);
   assert.match(result.episodes[0].url, /files\/1\/hls\/master.m3u8$/);
   assert.equal(result.episodes[0].episodeId, null);
+  assert.equal(result.episodes[0].entryId, null);
   assert.deepEqual(result.episodes[0].targets, []);
   assert.equal(result.episodes[0].resolutionState, 'unresolved');
   assert.equal(result.episodes[0].season, undefined);
@@ -103,27 +110,29 @@ test('layout from a changed context cannot overwrite a correctly bound file titl
   assert.equal(result.episodes[0].season, undefined);
 });
 
-test('manual mapping rejects wrong work or scope before writing', async () => {
+test('manual mapping rejects wrong work, scope or a target without entryId before writing', async () => {
   const calls = mockEpisodeTransport();
   await assert.rejects(saveEpisodeBinding(stream, context, { fileId: '1', mode: 'pin', armTarget: { ...armTarget, workId: 'other' } }));
   await assert.rejects(saveEpisodeBinding(stream, context, { fileId: '1', mode: 'anchor', armTarget, scopeFileIds: ['2'] }));
+  await assert.rejects(saveEpisodeBinding(stream, context, { fileId: '1', mode: 'pin', armTarget: { workId: 'work', episodeId: 'ep' } }));
   assert.deepEqual(calls, []);
 });
 
-test('search reads ARM names but does not discard a canonical group using legacy season heuristics', async () => {
+test('search reads ARM titles but does not discard a canonical group using legacy season heuristics', async () => {
   const posted = [];
-  PotokSDK.http.get = async () => response({ work: {
-    id: 'work', displayTitle: { value: 'Canonical Show' }, names: [
-      { value: 'Canonical Show', locale: 'en', role: 'official' },
-      { value: 'Completely Different Alias', role: 'alias' },
-    ], providerReferences: [{ provider: 'tmdb', entityKind: 'tv', value: '42' }],
-  } });
+  PotokSDK.http.get = async () => response({
+    work: {
+      id: 'work', title: 'Canonical Show',
+      titles: { official: null, en: 'Canonical Show', ru: null, original: 'Completely Different Alias' },
+    },
+    graphVersion: 'graph', groups: [],
+  });
   PotokSDK.http.streamPost = async (_url, body, _headers, _timeout, progress) => {
     posted.push(body);
     progress({ type: 'batch', results: [{ id: hash, title: 'Completely Different Alias S07E01' }] });
     return response(null);
   };
-  const result = await search({ ...context, title: 'Old Name', season: 2, groupId: 'group' });
+  const result = await search({ ...context, title: 'Old Name', season: 2 });
   assert.equal(posted[0].title, 'Canonical Show');
   assert.equal(posted[0].season, undefined);
   assert.equal(result.length, 1);
@@ -134,9 +143,12 @@ test('concurrent search contexts keep their own work metadata', async () => {
   let releaseFirst;
   const delayed = new Promise((resolve) => { releaseFirst = resolve; });
   PotokSDK.http.get = async (url) => {
-    const workId = url.endsWith('/first') ? 'first' : 'second';
+    const workId = url.includes('/works/first/') ? 'first' : 'second';
     if (workId === 'first') await delayed;
-    return response({ work: { id: workId, displayTitle: { value: `${workId} title` }, names: [], providerReferences: [] } });
+    return response({
+      work: { id: workId, title: `${workId} title`, titles: { official: null, en: null, ru: null, original: null } },
+      graphVersion: 'graph', groups: [],
+    });
   };
   const posted = [];
   PotokSDK.http.streamPost = async (_url, body) => { posted.push(body); return response(null); };
@@ -161,11 +173,12 @@ test('playback preserves canonical joined targets and never fabricates S1E1', as
   const targets = [armTarget, { ...armTarget, episodeId: 'ep2' }];
   const result = await getPlaybackInfo(stream, {
     id: '1', title: 'Joined file', episodeId: null, episodeIds: ['ep', 'ep2'], targets,
-    workId: 'work', orderingId: 'order', groupId: 'group', displayOrdinal: '13–14', groupTitle: 'Cour 2',
+    workId: 'work', entryId: 'group', displayOrdinal: '13–14', groupTitle: 'Cour 2',
   }, context);
   assert.equal(result.episodeId, null);
   assert.deepEqual(result.episodeIds, ['ep', 'ep2']);
   assert.deepEqual(result.targets, targets);
+  assert.equal(result.entryId, 'group');
   assert.equal(result.season, undefined);
   assert.equal(result.episode, undefined);
   assert.doesNotMatch(result.title, /S1E1/);

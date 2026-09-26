@@ -5,14 +5,13 @@ function nullable(value) {
 // The Gateway owns name/path interpretation. Sending a lossy JS parse here would override
 // its decimal, range and special-group evidence before canonical matching even begins.
 export function buildReleaseManifest({
-  releaseId, releaseTitle, workId, orderingId, providerReference, mediaType, files,
+  releaseId, releaseTitle, workId, providerReference, mediaType, files,
   fileOverrides, sectionOverrides,
 }) {
   return {
     releaseId: String(releaseId || ""),
     title: String(releaseTitle || ""),
     workId: workId || null,
-    orderingId: orderingId || null,
     providerReference: providerReference || null,
     mediaType: mediaType || null,
     fileOverrides: fileOverrides || {},
@@ -34,12 +33,11 @@ function clearBinding(file) {
     // Parser coordinates remain raw evidence until ARM proves a provider projection.
     season: undefined,
     episode: undefined,
-    armAnnotation: undefined,
+    filler: undefined,
     workId: null,
     episodeId: null,
     episodeIds: [],
-    orderingId: null,
-    groupId: null,
+    entryId: null,
     groupTitle: undefined,
     groupKind: undefined,
     groupDisplayNumber: undefined,
@@ -64,28 +62,21 @@ export function applyEpisodeBindings(files, resolution) {
     const state = String(binding.state || "unresolved").toLowerCase();
     const resolved = state === "resolved" && !!resolution?.workId;
     const targets = !resolved ? [] : Array.isArray(binding.targets) && binding.targets.length > 0
-      ? binding.targets.filter((target) => target.episodeId && target.orderingId && target.groupId)
-        .map((target) => ({ ...target }))
-      : binding.episodeId && binding.groupId && (binding.orderingId || resolution.orderingId)
-        ? [{
-            episodeId: binding.episodeId,
-            orderingId: binding.orderingId || resolution.orderingId,
-            groupId: binding.groupId,
-            compatibility: binding.compatibility || null,
-          }]
+      ? binding.targets.filter((target) => target.episodeId && target.entryId)
+        .map((target) => ({ entryId: target.entryId, episodeId: target.episodeId }))
+      : binding.episodeId && binding.entryId
+        ? [{ episodeId: binding.episodeId, entryId: binding.entryId }]
         : [];
     const single = targets.length === 1 ? targets[0] : null;
-    const sameGroup = targets.length > 0 && targets.every((target) => target.groupId === targets[0].groupId);
-    const sameOrdering = targets.length > 0 && targets.every((target) => target.orderingId === targets[0].orderingId);
+    const sameEntry = targets.length > 0 && targets.every((target) => target.entryId === targets[0].entryId);
     return {
       ...clean,
       // ARM display coordinates are not TMDB coordinates. A later metadata projection may
-      // fill these from a real tmdb:tv-episode reference, never from binding.compatibility.
+      // fill these from the episode's own tmdb coordinate, never from binding evidence.
       workId: resolution?.workId || null,
       episodeId: single?.episodeId || null,
       episodeIds: targets.map((target) => target.episodeId),
-      orderingId: sameOrdering ? targets[0].orderingId : resolution?.orderingId || null,
-      groupId: sameGroup ? targets[0].groupId : null,
+      entryId: sameEntry ? targets[0].entryId : null,
       targets,
       resolutionState: resolved && targets.length === 0 ? "unresolved" : state,
       confidence: Number.isFinite(binding.confidence) ? binding.confidence : 0,

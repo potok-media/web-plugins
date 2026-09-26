@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyEpisodeBindings, buildReleaseManifest, rawCompatibilityProjection } from '../utils/releaseManifest.js';
 
-const target = { episodeId: 'ep', orderingId: 'order', groupId: 'group', compatibility: { season: 7, episode: 3 } };
+const target = { episodeId: 'ep', entryId: 'group' };
 
 test('manifest preserves original names, ordering and manual overrides without authoritative JS parsing', () => {
   const fileOverrides = { 8: { mode: 'pin', armTarget: { workId: 'work', ...target } } };
   const sectionOverrides = { _: { season: 2, offset: -12 } };
   const paths = ['Show/Show - 24.5.mkv', 'One Piece - 1089.mkv', 'Show/S00E01.mkv', 'Show/S01E01-E02.mkv', 'NCOP 01.mkv'];
   const manifest = buildReleaseManifest({
-    releaseId: 'pack', releaseTitle: 'Show [TV] Season 2', workId: 'work', orderingId: 'order', mediaType: 'tv',
+    releaseId: 'pack', releaseTitle: 'Show [TV] Season 2', workId: 'work', mediaType: 'tv',
     files: paths.map((path, index) => ({ id: index + 8, path, sizeBytes: index + 100 })), fileOverrides, sectionOverrides,
   });
-  assert.equal(manifest.orderingId, 'order');
+  assert.ok(!Object.hasOwn(manifest, 'orderingId'));
   assert.deepEqual(manifest.files.map((file) => file.path), paths);
   assert.deepEqual(manifest.files.map((file) => file.order), [0, 1, 2, 3, 4]);
   assert.equal(manifest.rawEvidence, undefined);
@@ -23,9 +23,10 @@ test('manifest preserves original names, ordering and manual overrides without a
 
 test('resolved bindings retain identities but do not relabel ARM display numbers as TMDB coordinates', () => {
   const [file] = applyEpisodeBindings([{ id: 1, season: 1, episode: 99, rawEpisode: 99 }], {
-    workId: 'work', orderingId: 'order', bindings: [{ fileId: '1', state: 'resolved', targets: [target], confidence: 0.98 }],
+    workId: 'work', graphVersion: 'graph', bindings: [{ fileId: '1', state: 'resolved', targets: [target], confidence: 0.98 }],
   });
   assert.equal(file.episodeId, 'ep');
+  assert.equal(file.entryId, 'group');
   assert.equal(file.season, undefined);
   assert.equal(file.episode, undefined);
   assert.equal(file.rawEpisode, 99);
@@ -35,12 +36,28 @@ test('resolved bindings retain identities but do not relabel ARM display numbers
 test('joined file preserves all targets without pretending to be a single episode', () => {
   const targets = [target, { ...target, episodeId: 'ep-2' }];
   const [file] = applyEpisodeBindings([{ id: 1 }], {
-    workId: 'work', orderingId: 'order', bindings: [{ fileId: '1', state: 'resolved', targets }],
+    workId: 'work', bindings: [{ fileId: '1', state: 'resolved', targets }],
   });
   assert.equal(file.episodeId, null);
   assert.deepEqual(file.episodeIds, ['ep', 'ep-2']);
-  assert.equal(file.groupId, 'group');
+  assert.equal(file.entryId, 'group');
   assert.deepEqual(file.targets, targets);
+});
+
+test('targets spanning several entries do not collapse into a single entryId', () => {
+  const targets = [target, { entryId: 'other-entry', episodeId: 'ep-2' }];
+  const [file] = applyEpisodeBindings([{ id: 1 }], {
+    workId: 'work', bindings: [{ fileId: '1', state: 'resolved', targets }],
+  });
+  assert.equal(file.entryId, null);
+  assert.deepEqual(file.targets, targets);
+});
+
+test('targets are reduced to the (entryId, episodeId) pair without extra backend fields', () => {
+  const [file] = applyEpisodeBindings([{ id: 1 }], {
+    workId: 'work', bindings: [{ fileId: '1', state: 'resolved', targets: [{ ...target, compatibility: { season: 7, episode: 3 }, orderingId: 'legacy' }] }],
+  });
+  assert.deepEqual(file.targets, [target]);
 });
 
 test('projects legacy single-target bindings into the targets collection', () => {
@@ -53,13 +70,13 @@ test('projects legacy single-target bindings into the targets collection', () =>
 
 test('unresolved, ambiguous or absent bindings cannot leak old canonical identities', () => {
   for (const state of ['unresolved', 'ambiguous', undefined]) {
-    const [file] = applyEpisodeBindings([{ id: 'file', episodeId: 'old', episodeIds: ['old'], groupId: 'old', targets: [target] }], {
+    const [file] = applyEpisodeBindings([{ id: 'file', episodeId: 'old', episodeIds: ['old'], entryId: 'old', targets: [target] }], {
       workId: 'work', bindings: state ? [{ fileId: 'file', state, episodeId: 'malformed', targets: [target] }] : [],
     });
     assert.equal(file.episodeId, null);
     assert.deepEqual(file.episodeIds, []);
     assert.deepEqual(file.targets, []);
-    assert.equal(file.groupId, null);
+    assert.equal(file.entryId, null);
   }
 });
 
@@ -74,7 +91,7 @@ test('raw display projection never invents an episode from file order', () => {
 
 test('invalid saved manual target cannot fall through to raw filename coordinates', () => {
   const [file] = applyEpisodeBindings([{ id: '1', season: 1, episode: 1 }], {
-    workId: 'work', orderingId: 'order', bindings: [{ fileId: '1', state: 'unresolved', method: 'manual-invalid' }],
+    workId: 'work', bindings: [{ fileId: '1', state: 'unresolved', method: 'manual-invalid' }],
   });
   assert.equal(file.episodeId, null);
   assert.equal(file.season, undefined);

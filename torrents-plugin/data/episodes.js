@@ -56,8 +56,7 @@ async function resolveReleaseManifest(manifest) {
     const response = await PotokSDK.http.post('/api/arm/v1/releases/resolve', manifest, undefined, 30_000);
     const resolution = response?.status === 200 ? parseJson(response) : null;
     if (!resolution || resolution.releaseId !== manifest.releaseId
-      || (manifest.workId && resolution.workId && resolution.workId !== manifest.workId)
-      || (manifest.orderingId && resolution.orderingId && resolution.orderingId !== manifest.orderingId)) return null;
+      || (manifest.workId && resolution.workId && resolution.workId !== manifest.workId)) return null;
     return resolution;
   } catch {
     // A transport outage must not prevent playing the original torrent files.
@@ -161,8 +160,7 @@ function mapEpisodes(cleanedFiles, cleanTorrUrl, authHash) {
     torrentHash: authHash,
     workId: f.workId,
     episodeId: f.episodeId,
-    orderingId: f.orderingId,
-    groupId: f.groupId,
+    entryId: f.entryId,
     resolutionState: f.resolutionState,
     confidence: f.confidence,
     bindingMethod: f.bindingMethod,
@@ -183,7 +181,6 @@ export async function getEpisodes(stream, context) {
     releaseId: authHash || hash,
     releaseTitle: stream.title || '',
     workId: context.workId || context.armWorkId || null,
-    orderingId: context.orderingId || null,
     providerReference: positiveId(context.tmdbId) == null ? null : {
       provider: 'tmdb',
       entityKind: context.type === 'tv' ? 'tv' : 'movie',
@@ -221,7 +218,6 @@ export async function getEpisodes(stream, context) {
     arm: releaseResolution ? {
       state: String(releaseResolution.state || 'unresolved').toLowerCase(),
       workId: releaseResolution.workId || null,
-      orderingId: releaseResolution.orderingId || null,
       graphVersion: releaseResolution.graphVersion || null,
     } : null,
   };
