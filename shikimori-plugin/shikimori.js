@@ -6,8 +6,9 @@ import { CATALOG_LIMIT } from './constants.js';
 //  2) use ONE GraphQL request per row that returns EVERYTHING a card needs (title, year, poster, score).
 //
 // Cards are drawn purely from Shikimori data — no TMDB during list rendering. TMDB is resolved LAZILY, once,
-// only when the user clicks a card (see resolveTmdb), because the only thing that needs a TMDB id is opening
-// the native /media/<type>/<id> page. This collapses a home load from ~50 requests to 4.
+// only when the user clicks a card: our ARM graph answers first (see resolve/armNav.js), the title search
+// below is only the fallback for titles the graph does not cover. This collapses a home load from ~50
+// requests to 4.
 const BASES = ['https://shikimori.io']; // add more domains here for failover if one goes down
 const HEADERS = { 'User-Agent': 'Potok-Shikimori' };
 
@@ -134,7 +135,7 @@ export async function clearCachedTmdb(shikiId) {
   await PotokSDK.storage.local.removeItem(tmdbCacheKey(shikiId));
 }
 
-/** Gate before navigation/cache — ARM ids with a forced mediaType can 404 on TMDB detail. */
+/** Gate before navigation/cache for search- and cache-sourced hits — they can 404 on TMDB detail. */
 export async function verifyTmdbHit(hit) {
   if (!hit || hit.id == null || !hit.mediaType) return false;
   try {
@@ -193,7 +194,7 @@ function filterByKind(candidates, meta) {
   return candidates.filter((c) => c.mediaType === want);
 }
 
-// Fallback title search on TMDB — Shikimori names only, same-type filter. Runs ONLY when resolveDirect() missed.
+// Fallback title search on TMDB — Shikimori names only, same-type filter. Runs ONLY when the ARM graph missed.
 export async function searchTmdbCandidates(meta) {
   const names = [];
   for (const n of [meta.russian, meta.title, meta.english, meta.name]) {
@@ -216,77 +217,29 @@ export async function searchTmdbCandidates(meta) {
   return filterByKind(dedupeCandidates(collected), meta);
 }
 
-// malId → cross-reference ids (themoviedb + imdb) via the ARM service (github.com/manami-project data).
-// ONE proxied request per title, and — unlike a fuzzy TMDB title search — an exact mapping for anime.
-async function armIds(malId) {
-  if (malId == null) return null;
+// Cache-only direct hit, verified against TMDB before navigation. The ARM graph resolve lives in
+// resolve/armNav.js; this is the fast path for a title the user already opened or picked.
+export async function resolveCachedTmdb(meta) {
+  if (!meta || meta.shikiId == null) return null;
+  const cached = await PotokSDK.storage.local.getItem(tmdbCacheKey(meta.shikiId));
+  if (cached == null) return null;
   try {
-    const res = await PotokSDK.http.get(
-      `https://arm.haglund.dev/api/v2/ids?source=myanimelist&id=${encodeURIComponent(malId)}&include=themoviedb,imdb`,
-    );
-    if (!res || res.status < 200 || res.status >= 300) return null;
-    return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-  } catch (e) {
-    return null;
-  }
-}
-
-// imdb id → tmdb { id, mediaType } via the gateway's TMDB find. Fallback when ARM has no themoviedb mapping.
-async function tmdbFromImdb(imdbId, kind) {
-  const want = mediaTypeFromKind(kind);
-  const res = unwrap(await PotokSDK.http.get(`/api/tmdb/find/${imdbId}?external_source=imdb_id`));
-  if (!res) return null;
-  const list = want === 'movie'
-    ? (Array.isArray(res.movie_results) ? res.movie_results : [])
-    : (Array.isArray(res.tv_results) ? res.tv_results : []);
-  const pick = list[0];
-  if (!pick || pick.id == null) return null;
-  return { id: Number(pick.id), mediaType: want };
-}
-
-// Immediate mapping: cache → ARM themoviedb → ARM imdb→tmdb. No title search here.
-async function resolveDirect(meta) {
-  const cacheKey = tmdbCacheKey(meta.shikiId);
-  const cached = await PotokSDK.storage.local.getItem(cacheKey);
-  if (cached != null) {
-    try {
-      const hit = JSON.parse(cached);
-      if (hit && hit.id != null) {
-        const verified = await commitDirectHit(meta, hit, { fromCache: true });
-        if (verified) return { hit: verified, fromCache: true };
-      }
-    } catch (e) { /* re-resolve */ }
-  }
-
-  const ids = await armIds(meta.malId);
-
-  if (ids && ids.themoviedb) {
-    const armHit = { id: Number(ids.themoviedb), mediaType: expectedMediaType(meta) };
-    const verified = await commitDirectHit(meta, armHit, { cache: true });
-    if (verified) return { hit: verified };
-  }
-
-  if (ids && typeof ids.imdb === 'string') {
-    try {
-      const imdbHit = await tmdbFromImdb(ids.imdb, meta.kind);
-      if (imdbHit) {
-        const verified = await commitDirectHit(meta, imdbHit, { cache: true });
-        if (verified) return { hit: verified };
-      }
-    } catch (e) { /* fall through to title search */ }
-  }
-
+    const hit = JSON.parse(cached);
+    if (hit && hit.id != null) {
+      const verified = await commitDirectHit(meta, hit, { fromCache: true });
+      if (verified) return verified;
+    }
+  } catch (e) { /* re-resolve */ }
   return null;
 }
 
-// Phase 1: direct id mapping. Phase 2 (only if phase 1 missed): TMDB title search by Shikimori names.
+// Fallback: TMDB title search by Shikimori names (+ picker on ambiguity). Runs ONLY when both the
+// cached hit and the ARM graph missed.
 export async function resolveTmdbOpen(meta) {
   if (!meta || meta.shikiId == null) return { kind: 'none' };
 
-  const direct = await resolveDirect(meta);
-  if (direct) {
-    return { kind: 'direct', hit: direct.hit, fromCache: !!direct.fromCache };
-  }
+  const cachedHit = await resolveCachedTmdb(meta);
+  if (cachedHit) return { kind: 'direct', hit: cachedHit, fromCache: true };
 
   let candidates = [];
   try {

@@ -4,6 +4,8 @@ import { parseJson } from '../utils/http.js';
 import { cleanHash, streamHash } from '../utils/hash.js';
 import { resolveTorrUrl, resolveSearchEngineUrl } from '../utils/config.js';
 import { applyArmMetadata, positiveId } from '../utils/armMetadata.js';
+import { applyCanonicalOverrides } from '../utils/armOverrides.js';
+import { overlayTmdbEpisodeMetadata } from '../utils/tmdbSeasonOverlay.js';
 import { resolveEntryHint } from '../utils/entryHint.js';
 import { loadArmLayout } from './arm.js';
 import { applyEpisodeBindings, buildReleaseManifest, rawCompatibilityProjection } from '../utils/releaseManifest.js';
@@ -197,8 +199,8 @@ export async function getEpisodes(stream, context) {
     },
     mediaType: context.type,
     files: rawFiles,
-    fileOverrides: fileMap,
-    sectionOverrides: seasonMap,
+    // Overrides are the SearchEngine's contract, applied below over the layout — the
+    // Gateway's manifest resolution stays structure-only and never sees them.
   });
   const releaseResolutionPromise = resolveReleaseManifest(manifest);
   const titleSeason = context.type === "tv"
@@ -213,12 +215,26 @@ export async function getEpisodes(stream, context) {
 
   let episodes = mapEpisodes(filesWithExternal, cleanTorrUrl, authHash);
   const releaseResolution = await releaseResolutionPromise;
-  episodes = applyEpisodeBindings(episodes, releaseResolution);
-  if (releaseResolution?.bindings?.some((binding) => binding.state === "resolved")) {
-    const layout = earlyLayout && earlyLayout.work?.id === releaseResolution.workId
-      ? earlyLayout
-      : await loadArmLayout(releaseResolution);
-    episodes = applyArmMetadata(episodes, releaseResolution, layout, positiveId(context.tmdbId));
+  const layout = earlyLayout && (!releaseResolution?.workId || earlyLayout.work?.id === releaseResolution.workId)
+    ? earlyLayout
+    : releaseResolution?.workId ? await loadArmLayout(releaseResolution) : null;
+  // Canonical overrides (SearchEngine file_map) win over the Gateway's evidence resolution;
+  // a stale/foreign target keeps the resolution's answer.
+  const effectiveWorkId = releaseResolution?.workId || layout?.work?.id || null;
+  const bindings = layout
+    ? applyCanonicalOverrides(releaseResolution?.bindings, refinedFiles, fileMap, layout, effectiveWorkId)
+    : (releaseResolution?.bindings || []);
+  const effectiveResolution = releaseResolution
+    ? { ...releaseResolution, bindings }
+    : (bindings.length > 0
+      ? { releaseId: manifest.releaseId, state: "partial", workId: effectiveWorkId, graphVersion: layout?.graphVersion || null, bindings }
+      : null);
+  episodes = applyEpisodeBindings(episodes, effectiveResolution);
+  if (effectiveResolution?.bindings?.some((binding) => binding.state === "resolved")) {
+    const metadataLayout = layout || await loadArmLayout(effectiveResolution);
+    episodes = applyArmMetadata(episodes, effectiveResolution, metadataLayout, positiveId(context.tmdbId));
+    // Localized TMDB episode titles/stills/dates + season names over the bound files.
+    episodes = await overlayTmdbEpisodeMetadata(episodes);
   }
 
   return {

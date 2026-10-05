@@ -71,6 +71,11 @@ export function applyArmMetadata(files, resolution, layout, tmdbId) {
       stillPath: episode.stillPath || file.stillPath,
       airDate: episode.airDate || file.airDate,
       filler: single ? episode.filler ?? null : undefined,
+      // The episode's own TMDB coordinate rides along (single-target files only) so the
+      // display layer can overlay localized TMDB metadata without a second layout lookup.
+      tmdbCoordinate: single && episode.tmdb
+        ? { show: episode.tmdb.show, season: episode.tmdb.season, episode: episode.tmdb.episode }
+        : null,
     };
   // Stable ordering keeps files for the same episode and unmatched files in their original order.
   }).sort((a, b) => (fileRanks.get(a.id) ?? Infinity) - (fileRanks.get(b.id) ?? Infinity));

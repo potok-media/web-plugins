@@ -4,21 +4,20 @@ import { applyEpisodeBindings, buildReleaseManifest, rawCompatibilityProjection 
 
 const target = { episodeId: 'ep', entryId: 'group' };
 
-test('manifest preserves original names, ordering and manual overrides without authoritative JS parsing', () => {
-  const fileOverrides = { 8: { mode: 'pin', armTarget: { workId: 'work', ...target } } };
-  const sectionOverrides = { _: { season: 2, offset: -12 } };
+test('manifest preserves original names and ordering; overrides stay out of the gateway contract', () => {
   const paths = ['Show/Show - 24.5.mkv', 'One Piece - 1089.mkv', 'Show/S00E01.mkv', 'Show/S01E01-E02.mkv', 'NCOP 01.mkv'];
   const manifest = buildReleaseManifest({
     releaseId: 'pack', releaseTitle: 'Show [TV] Season 2', workId: 'work', mediaType: 'tv',
-    files: paths.map((path, index) => ({ id: index + 8, path, sizeBytes: index + 100 })), fileOverrides, sectionOverrides,
+    files: paths.map((path, index) => ({ id: index + 8, path, sizeBytes: index + 100 })),
   });
   assert.ok(!Object.hasOwn(manifest, 'orderingId'));
   assert.deepEqual(manifest.files.map((file) => file.path), paths);
   assert.deepEqual(manifest.files.map((file) => file.order), [0, 1, 2, 3, 4]);
   assert.equal(manifest.rawEvidence, undefined);
   assert.ok(manifest.files.every((file) => !Object.hasOwn(file, 'rawEvidence')));
-  assert.deepEqual(manifest.fileOverrides, fileOverrides);
-  assert.deepEqual(manifest.sectionOverrides, sectionOverrides);
+  // Overrides are the SearchEngine's contract, applied by the consumer over its own layout.
+  assert.ok(!Object.hasOwn(manifest, 'fileOverrides'));
+  assert.ok(!Object.hasOwn(manifest, 'sectionOverrides'));
 });
 
 test('resolved bindings retain identities but do not relabel ARM display numbers as TMDB coordinates', () => {

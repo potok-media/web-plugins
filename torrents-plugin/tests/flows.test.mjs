@@ -61,8 +61,10 @@ test('save canonical scoped anchor, reload manifest and clear preserve the chose
   const result = await getEpisodes(stream, context);
   const manifest = calls.find((call) => call.url === '/api/arm/v1/releases/resolve').body;
   assert.ok(!Object.hasOwn(manifest, 'orderingId'));
-  assert.deepEqual(manifest.fileOverrides['1'].armTarget, armTarget);
-  assert.deepEqual(manifest.sectionOverrides, { _: { season: 2, offset: -12 } });
+  // Overrides are the SearchEngine's contract: the manifest stays structure-only, the
+  // Gateway never sees them; the plugin applies them over its own layout.
+  assert.ok(!Object.hasOwn(manifest, 'fileOverrides'));
+  assert.ok(!Object.hasOwn(manifest, 'sectionOverrides'));
   assert.equal(manifest.files[0].path, canonicalFile.path);
   assert.equal(manifest.files[0].rawEvidence, undefined);
   assert.equal(result.episodes[0].episodeId, 'ep');
@@ -75,23 +77,25 @@ test('save canonical scoped anchor, reload manifest and clear preserve the chose
   assert.equal(result.episodes[0].groupKind, 'specials');
   assert.equal(result.episodes[0].filler.status, 'filler');
   assert.ok(calls.some((call) => call.url.includes('/layout?') && call.url.includes('locale=ru')));
-  assert.ok(calls.every((call) => !call.url.includes('/api/media/')));
+  assert.ok(calls.every((call) => !call.url.includes('/api/media/') || call.url.includes('/api/media/tmdb/tv/')));
   await clearFileOverride(stream, context, '1');
   assert.deepEqual(saved, {});
 });
 
-test('ARM outage keeps original files playable without trusting a saved canonical target', async () => {
+test('a resolve outage does not cost the saved canonical target when the layout is live', async () => {
+  // The override is applied against a freshly fetched layout (workId and the target episode
+  // are verified right now) — it is never trusted blindly, but a dead resolve endpoint does
+  // not strip the user's explicit binding either.
   mockEpisodeTransport({ unavailable: true, saved: { 1: { mode: 'pin', armTarget, season: null, episode: null } } });
   const result = await getEpisodes(stream, context);
   assert.equal(result.episodes.length, 1);
   assert.match(result.episodes[0].url, /files\/1\/hls\/master.m3u8$/);
-  assert.equal(result.episodes[0].episodeId, null);
-  assert.equal(result.episodes[0].entryId, null);
-  assert.deepEqual(result.episodes[0].targets, []);
-  assert.equal(result.episodes[0].resolutionState, 'unresolved');
-  assert.equal(result.episodes[0].season, undefined);
-  assert.equal(result.episodes[0].episode, undefined);
-  assert.equal(result.arm, null);
+  assert.equal(result.episodes[0].episodeId, 'ep');
+  assert.equal(result.episodes[0].entryId, 'group');
+  assert.deepEqual(result.episodes[0].targets, [{ entryId: armTarget.entryId, episodeId: armTarget.episodeId }]);
+  assert.equal(result.episodes[0].resolutionState, 'resolved');
+  assert.equal(result.episodes[0].season, 0);
+  assert.equal(result.episodes[0].episode, 7);
 });
 
 test('response for another work or release never leaks canonical identity', async () => {

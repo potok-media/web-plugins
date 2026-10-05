@@ -4,9 +4,10 @@ function nullable(value) {
 
 // The Gateway owns name/path interpretation. Sending a lossy JS parse here would override
 // its decimal, range and special-group evidence before canonical matching even begins.
+// Overrides are deliberately NOT part of this payload: they are the SearchEngine's contract
+// and the consumer applies them over its own layout.
 export function buildReleaseManifest({
-  releaseId, releaseTitle, workId, providerReference, mediaType, files,
-  fileOverrides, sectionOverrides, entryId,
+  releaseId, releaseTitle, workId, providerReference, mediaType, files, entryId,
 }) {
   return {
     releaseId: String(releaseId || ""),
@@ -15,8 +16,6 @@ export function buildReleaseManifest({
     entryId: entryId || null,
     providerReference: providerReference || null,
     mediaType: mediaType || null,
-    fileOverrides: fileOverrides || {},
-    sectionOverrides: sectionOverrides || {},
     files: (files || []).map((file, index) => ({
       fileId: String(file.id),
       order: index,
