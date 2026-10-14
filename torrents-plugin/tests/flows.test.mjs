@@ -122,45 +122,37 @@ test('manual mapping rejects wrong work, scope or a target without entryId befor
   assert.deepEqual(calls, []);
 });
 
-test('search reads ARM titles but does not discard a canonical group using legacy season heuristics', async () => {
+test('search forwards host catalogue titles without an ARM metadata request or numeric season restriction', async () => {
+  PotokSDK.http.get = async (url) => { throw new Error(`Unexpected metadata request ${url}`); };
   const posted = [];
-  PotokSDK.http.get = async () => response({
-    work: {
-      id: 'work', title: 'Canonical Show',
-      titles: { official: null, en: 'Canonical Show', ru: null, original: 'Completely Different Alias' },
-    },
-    graphVersion: 'graph', groups: [],
-  });
   PotokSDK.http.streamPost = async (_url, body, _headers, _timeout, progress) => {
     posted.push(body);
     progress({ type: 'batch', results: [{ id: hash, title: 'Completely Different Alias S07E01' }] });
     return response(null);
   };
-  const result = await search({ ...context, title: 'Old Name', season: 2 });
+  const result = await search({ ...context, title: 'Canonical Show',
+    searchAliases: ['Completely Different Alias'], year: 2023, season: 2 });
   assert.equal(posted[0].title, 'Canonical Show');
+  assert.deepEqual(posted[0].aliases, ['Canonical Show', 'Completely Different Alias']);
+  assert.equal(posted[0].year, '2023');
+  assert.equal(posted[0].id, undefined);
   assert.equal(posted[0].season, undefined);
   assert.equal(result.length, 1);
   assert.equal(result[0].season, 7);
 });
 
-test('concurrent search contexts keep their own work metadata', async () => {
-  let releaseFirst;
-  const delayed = new Promise((resolve) => { releaseFirst = resolve; });
-  PotokSDK.http.get = async (url) => {
-    const workId = url.includes('/works/first/') ? 'first' : 'second';
-    if (workId === 'first') await delayed;
-    return response({
-      work: { id: workId, title: `${workId} title`, titles: { official: null, en: null, ru: null, original: null } },
-      graphVersion: 'graph', groups: [],
-    });
-  };
+test('concurrent searches retain the metadata supplied for each work', async () => {
+  PotokSDK.http.get = async () => { throw new Error('Search must use the supplied metadata'); };
   const posted = [];
   PotokSDK.http.streamPost = async (_url, body) => { posted.push(body); return response(null); };
-  const first = search({ title: 'old', type: 'tv', workId: 'first' });
-  await search({ title: 'old', type: 'tv', workId: 'second' });
-  releaseFirst();
-  await first;
-  assert.deepEqual(posted.map((body) => [body.workId, body.title]), [['second', 'second title'], ['first', 'first title']]);
+  await Promise.all([
+    search({ title: 'first title', searchAliases: ['first alias'], type: 'tv', workId: 'first' }),
+    search({ title: 'second title', searchAliases: ['second alias'], type: 'tv', workId: 'second' }),
+  ]);
+  assert.deepEqual(posted.map((body) => [body.workId, body.title, body.aliases]), [
+    ['first', 'first title', ['first title', 'first alias']],
+    ['second', 'second title', ['second title', 'second alias']],
+  ]);
 });
 
 test('older SDK without streaming HTTP still performs the buffered search', async () => {

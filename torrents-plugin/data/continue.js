@@ -3,6 +3,8 @@ import { getEpisodes } from './episodes.js';
 import { getPlaybackInfo } from './playback.js';
 import { parseJson } from '../utils/http.js';
 import { resolveSearchEngineUrl } from '../utils/config.js';
+import { canonicalId, normalizeCursor, titleKey, toApiBody } from '../utils/continueCursor.js';
+export { titleKey } from '../utils/continueCursor.js';
 
 export const CONTINUE_KEY = "continueWatching";
 const PLUGIN_ID = "potok-torrents";
@@ -12,10 +14,6 @@ const MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 const { ContinueWatchingRow } = PotokSDK.ui.components;
 
 const continueState = PotokSDK.createState({ items: [] });
-
-export function titleKey(mediaType, tmdbId) {
-  return `${mediaType}:${tmdbId}`;
-}
 
 export function formatTimecode(seconds) {
   const s = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -41,34 +39,6 @@ function saveLedger(ledger) {
   return PotokSDK.storage.local.setItem(CONTINUE_KEY, JSON.stringify(ledger));
 }
 
-function normalizeCursor(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  const tmdbId = Number(raw.tmdbId ?? raw.TmdbId);
-  if (!tmdbId) return null;
-  const stream = raw.stream || raw.Stream || {};
-  let updatedAt = raw.updatedAt ?? raw.UpdatedAt;
-  if (typeof updatedAt === "string") updatedAt = Date.parse(updatedAt);
-  if (!Number.isFinite(updatedAt)) updatedAt = Date.now();
-  const mediaType = (raw.mediaType || raw.MediaType) === "movie" ? "movie" : "tv";
-  const hash = (raw.infoHash || raw.InfoHash || stream.hash || "").toLowerCase();
-  return {
-    mediaType,
-    tmdbId,
-    title: raw.title || raw.Title || stream.title || "",
-    posterSrc: raw.posterSrc || raw.PosterSrc,
-    backdropSrc: raw.backdropSrc || raw.BackdropSrc,
-    stillSrc: raw.stillSrc || raw.StillSrc,
-    stream: { ...stream, title: stream.title || raw.title || "", hash: hash || stream.hash },
-    fileIndex: String(raw.fileIndex ?? raw.FileIndex ?? ""),
-    season: raw.season ?? raw.Season,
-    episode: raw.episode ?? raw.Episode,
-    progressSeconds: Number(raw.progressSeconds ?? raw.ProgressSeconds) || 0,
-    durationSeconds: Number(raw.durationSeconds ?? raw.DurationSeconds) || 0,
-    audioName: raw.audioName || raw.AudioName,
-    updatedAt,
-  };
-}
-
 async function continueApi(path, { method = "GET", body } = {}) {
   const base = await resolveSearchEngineUrl();
   if (!base) return null;
@@ -84,49 +54,30 @@ async function continueApi(path, { method = "GET", body } = {}) {
   }
 }
 
-function toApiBody(cursor) {
-  return {
-    mediaType: cursor.mediaType,
-    tmdbId: cursor.tmdbId,
-    title: cursor.title,
-    fileIndex: cursor.fileIndex,
-    progressSeconds: cursor.progressSeconds,
-    durationSeconds: cursor.durationSeconds,
-    posterSrc: cursor.posterSrc,
-    backdropSrc: cursor.backdropSrc,
-    stillSrc: cursor.stillSrc,
-    season: cursor.season,
-    episode: cursor.episode,
-    audioName: cursor.audioName,
-    infoHash: cursor.stream?.hash,
-    stream: cursor.stream,
-  };
-}
-
 function persistNow(key) {
   const cursor = loadLedger()[key];
   if (cursor) continueApi("", { method: "POST", body: toApiBody(cursor) });
 }
 
-async function hydrateFromSearchEngine() {
+export async function hydrateFromSearchEngine() {
   const data = await continueApi("");
   const items = (data && (data.items || data.Items)) || [];
-  if (!Array.isArray(items) || items.length === 0) return;
-  const ledger = loadLedger();
-  for (const raw of items) {
+  const ledger = {};
+  const merge = (raw) => {
     const cursor = normalizeCursor(raw);
-    if (!cursor || !cursor.fileIndex) continue;
-    ledger[titleKey(cursor.mediaType, cursor.tmdbId)] = cursor;
-  }
+    if (!cursor?.fileIndex) return;
+    const current = ledger[cursor.workId];
+    if (!current || current.updatedAt < cursor.updatedAt) ledger[cursor.workId] = cursor;
+  };
+  // Old TMDB-only records are discarded. Playback uses ARM identities from now on.
+  Object.values(loadLedger()).forEach(merge);
+  if (Array.isArray(items)) items.forEach(merge);
   saveLedger(ledger);
-  for (const [key, cursor] of Object.entries(ledger)) {
-    if (cursor.mediaType !== "movie" && !cursor.stillSrc) fillEpisodeStill(key, cursor);
-  }
 }
 
 export function listContinueCursors() {
   const now = Date.now();
-  return Object.values(loadLedger())
+  return Object.values(loadLedger()).map(normalizeCursor)
     .filter((c) => c && c.stream && now - (c.updatedAt || 0) < MAX_AGE_MS)
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, MAX_ITEMS);
@@ -136,15 +87,15 @@ export function applyProgressPayload(payload) {
   if (!payload) return;
   if (payload.providerId && payload.providerId !== PLUGIN_ID) return;
   if (!payload.streamHash || payload.fileIndex == null || payload.fileIndex === "") return;
-  const tmdbId = Number(payload.id);
-  if (!tmdbId) return;
+  const workId = canonicalId(payload.workId);
+  if (!workId) return;
   const mediaType = payload.mediaType === "movie" ? "movie" : "tv";
-  const key = titleKey(mediaType, tmdbId);
+  const key = titleKey(workId);
   const ledger = loadLedger();
   if (payload.isCompleted) {
     delete ledger[key];
     saveLedger(ledger);
-    continueApi("/remove", { method: "POST", body: { mediaType, tmdbId } });
+    continueApi("/remove", { method: "POST", body: { workId } });
     return;
   }
   const src = payload.sourceStream && typeof payload.sourceStream === "object" ? payload.sourceStream : {};
@@ -152,13 +103,20 @@ export function applyProgressPayload(payload) {
     ...src,
     title: src.title || payload.title || "",
     hash: payload.streamHash,
+    workId,
+    episodeId: canonicalId(payload.episodeId),
+    entryId: canonicalId(payload.entryId),
   };
   const prev = ledger[key];
-  const sameEpisode = prev && prev.season === payload.season && prev.episode === payload.episode;
+  const sameEpisode = prev && prev.stream?.hash === payload.streamHash
+    && String(prev.fileIndex) === String(payload.fileIndex)
+    && prev.episodeId === canonicalId(payload.episodeId);
   const stillSrc = payload.stillSrc || (sameEpisode ? prev.stillSrc : undefined);
   ledger[key] = {
     mediaType,
-    tmdbId,
+    workId,
+    episodeId: canonicalId(payload.episodeId),
+    entryId: canonicalId(payload.entryId),
     title: (payload.title || stream.title || "").replace(/\s+-\s+S\d+E\d+.*$/, "") || stream.title,
     posterSrc: payload.posterSrc,
     backdropSrc: payload.backdropSrc,
@@ -172,42 +130,12 @@ export function applyProgressPayload(payload) {
     audioName: payload.voice,
     updatedAt: Date.now(),
   };
-  const ordered = Object.keys(ledger).sort(
+  const ordered = Object.keys(ledger).filter((key) => normalizeCursor(ledger[key])).sort(
     (a, b) => (ledger[b].updatedAt || 0) - (ledger[a].updatedAt || 0),
   );
   for (const extra of ordered.slice(MAX_ITEMS)) delete ledger[extra];
   saveLedger(ledger);
   persistNow(key);
-  if (mediaType !== "movie" && !stillSrc) {
-    fillEpisodeStill(key, ledger[key]);
-  }
-}
-
-async function fetchEpisodeStill(tmdbId, season, episode) {
-  if (tmdbId == null || season == null || episode == null) return "";
-  try {
-    const res = await PotokSDK.http.get(`/api/media/tmdb/tv/${tmdbId}/season/${season}`);
-    if (!res || res.status !== 200) return "";
-    const data = parseJson(res);
-    const eps = data && data.episodes;
-    if (!Array.isArray(eps)) return "";
-    const match = eps.find((ep) => Number(ep.episodeNumber || ep.episode_number) === Number(episode));
-    if (!match) return "";
-    return match.stillPath || (match.still_path ? `https://image.tmdb.org/t/p/w300${match.still_path}` : "") || "";
-  } catch {
-    return "";
-  }
-}
-
-async function fillEpisodeStill(key, cursor) {
-  const still = await fetchEpisodeStill(cursor.tmdbId, cursor.season, cursor.episode);
-  if (!still) return;
-  const ledger = loadLedger();
-  if (!ledger[key]) return;
-  ledger[key] = { ...ledger[key], stillSrc: still };
-  saveLedger(ledger);
-  persistNow(key);
-  refreshContinueItems();
 }
 
 export function toContentItem(cursor) {
@@ -218,7 +146,7 @@ export function toContentItem(cursor) {
   const total = cursor.durationSeconds > 0 ? formatTimecode(cursor.durationSeconds) : "";
   const label = total ? `${time} / ${total}` : time;
   return {
-    id: cursor.tmdbId,
+    id: cursor.workId,
     title: cursor.title,
     subtitle: label,
     image: cursor.mediaType !== "movie" && cursor.stillSrc ? cursor.stillSrc : cursor.posterSrc,
@@ -240,19 +168,28 @@ function refreshContinueItems() {
 export async function continueWatching(cursor) {
   const t = (k) => PotokSDK.i18n.t(`potok-torrents:${k}`);
   PotokSDK.ui.showHUD("info", t("home.loadingContinue"));
-  const context = { type: cursor.mediaType, tmdbId: cursor.tmdbId, title: cursor.title };
+  const context = { type: cursor.mediaType, workId: cursor.workId, entryId: cursor.entryId,
+    episodeId: cursor.episodeId, title: cursor.title };
   const res = await getEpisodes(cursor.stream, context);
   const episodes = res.episodes || [];
   if (!episodes.length) throw new Error(t("errors.noMediaFiles"));
-  let start = episodes.find((e) => String(e.id) === String(cursor.fileIndex));
+  const sameTorrent = !res.hash || res.hash === cursor.stream.hash;
+  let start = sameTorrent ? episodes.find((e) => String(e.id) === String(cursor.fileIndex)) : undefined;
+  if (!start && cursor.episodeId) start = episodes.find((e) => e.episodeId === cursor.episodeId);
   if (!start && cursor.season != null) {
     start = episodes.find((e) => e.season === cursor.season && e.episode === cursor.episode);
   }
   if (!start) start = episodes[0];
-  const sameFile = String(start.id) === String(cursor.fileIndex);
+  const sameFile = sameTorrent && String(start.id) === String(cursor.fileIndex);
   const info = await getPlaybackInfo(cursor.stream, start, context);
   const playlist = episodes.map((ep) => ({
     id: ep.id,
+    workId: ep.workId,
+    episodeId: ep.episodeId,
+    episodeIds: ep.episodeIds,
+    entryId: ep.entryId,
+    targets: ep.targets,
+    progressId: ep.progressId,
     season: ep.season,
     episode: ep.episode,
     title: ep.title,
@@ -279,7 +216,7 @@ function buildHomeLayout() {
     .items(continueState.items)
     .onCardClick((item) => {
       const cursor = listContinueCursors().find(
-        (c) => c.mediaType === (item.mediaType || "tv") && Number(item.id) === c.tmdbId,
+        (c) => c.workId === item.id,
       );
       if (!cursor) return;
       continueWatching(cursor).catch((err) => {

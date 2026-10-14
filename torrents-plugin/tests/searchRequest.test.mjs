@@ -3,13 +3,15 @@ import test from "node:test";
 
 import { buildTorrentSearchRequest } from "../utils/searchRequest.js";
 
-test("carries canonical work identity alongside compatibility TMDB coordinates", () => {
+test("carries canonical identity and caller metadata without a TMDB search key", () => {
   const request = buildTorrentSearchRequest(
     {
       title: "Example",
       originalTitle: "Original",
       type: "tv",
       tmdbId: 42,
+      searchAliases: ["Alias", " Example "],
+      year: 2023,
       workId: "0199cc63-1fd3-766a-aafb-99fc22440c76",
       season: 7,
       episode: 3,
@@ -18,7 +20,9 @@ test("carries canonical work identity alongside compatibility TMDB coordinates",
   );
 
   assert.equal(request.workId, "0199cc63-1fd3-766a-aafb-99fc22440c76");
-  assert.equal(request.id, 42);
+  assert.equal(request.id, undefined);
+  assert.deepEqual(request.aliases, ["Example", "Original", "Alias"]);
+  assert.equal(request.year, "2023");
   assert.equal(request.season, undefined);
   assert.equal(request.episode, undefined);
 });

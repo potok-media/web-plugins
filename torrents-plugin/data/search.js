@@ -4,7 +4,6 @@ import { parseJson } from '../utils/http.js';
 import { resolveSearchEngineUrl } from '../utils/config.js';
 import { buildTorrentSearchRequest } from '../utils/searchRequest.js';
 import { armSearchContext } from '../utils/armMetadata.js';
-import { loadArmWork } from './arm.js';
 
 // --- relevance filter -------------------------------------------------------
 // SearchEngine returns fuzzy matches — searching KonoSuba ("Да благословят боги сей расчудесный мир!") also
@@ -148,7 +147,7 @@ async function searchBuffered(searchEngineUrl, query) {
 }
 
 export async function search(query, onProgress) {
-  query = armSearchContext(query, await loadArmWork(query));
+  query = armSearchContext(query, query.armWork);
   const searchEngineUrl = await resolveSearchEngineUrl();
   if (!searchEngineUrl) {
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));

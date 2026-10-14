@@ -3,4 +3,6 @@ export const PotokSDK = {
   i18n: { t: (key) => key, locale: 'ru' },
   storage: { local: { getItem: async () => null } },
   http: {},
+  ui: { components: { ContinueWatchingRow: () => ({}) }, showHUD() {}, playVideo() {} },
+  createState: (initial) => ({ ...initial, $subscribe() {} }),
 };

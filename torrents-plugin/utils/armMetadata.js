@@ -20,7 +20,7 @@ export function armSearchContext(query, work) {
     title,
     originalTitle: latin || query.originalTitle,
     englishTitle: latin || query.englishTitle,
-    searchAliases: [...new Set([query.title, query.originalTitle, query.englishTitle, ...published].filter(Boolean))],
+    searchAliases: [...new Set([query.title, query.originalTitle, query.englishTitle, ...(query.searchAliases || []), ...published].filter(Boolean))],
   };
 }
 
