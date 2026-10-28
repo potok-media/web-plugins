@@ -1,0 +1,9 @@
+{
+  "name": "potok-online-balancers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --import ./tests/registerSdk.mjs --test tests/*.test.mjs",
+    "test:integration:arm": "node --test tests/integration/*.integration.mjs"
+  }
+}
