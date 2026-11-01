@@ -58,13 +58,14 @@ public sealed partial class VideoHubProvider(HttpClient http, IMemoryCache? cach
                         LocatorCodec.Encode(new VideoHubLocator(item.VkId!, name)));
                 }).ToArray();
                 return new EpisodeItem(
-                    $"{Id}:{selection.SourceId}:{group.Key.Season}:{group.Key.Episode}",
-                    group.Key.Season,
-                    group.Key.Episode,
-                    $"{group.Key.Episode} серия",
-                    audios[0].Locator,
-                    audios[0].Name,
-                    audios);
+                    Id: $"{Id}:{selection.SourceId}:{group.Key.Season}:{group.Key.Episode}",
+                    Season: group.Key.Season,
+                    Number: group.Key.Episode,
+                    Title: $"{group.Key.Episode} серия",
+                    Voice: audios[0].Name,
+                    Url: null,
+                    Audios: audios,
+                    Locator: audios[0].Locator);
             }).ToArray();
         return new EpisodesResult(episodes, episodes.Length == 0 ? 0 : episodes.Max(item => item.Season));
     }

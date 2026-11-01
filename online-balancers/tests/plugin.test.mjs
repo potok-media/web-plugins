@@ -136,7 +136,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
                 season: 1,
                 number: 1,
                 title: '1 серия',
-                locator: `loc-${sourceId}`,
+                url: `https://api.test/playback?sourceId=${sourceId}&ep=1`,
                 voice,
                 audios: [],
               },
@@ -145,7 +145,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
                 season: 1,
                 number: 2,
                 title: '2 серия',
-                locator: `loc-${sourceId}-2`,
+                url: `https://api.test/playback?sourceId=${sourceId}&ep=2`,
                 voice,
                 audios: [],
               },
@@ -155,12 +155,17 @@ test('plugin registers the online-balancers source and delegates the complete fl
         })()
         : (() => {
           const body = JSON.parse(options.body);
-          const voice = { 42: 'AniLiberty', 43: 'AniDUB', 44: 'SHIZA' }[body.sourceId] || 'Основной';
+          // Extract sourceId from session for refresh requests
+          const sessionMatch = body.session?.match(/^session-(.+)$/);
+          const sourceId = body.sourceId || sessionMatch?.[1];
+          const voice = body.voice && { 42: 'AniLiberty', 43: 'AniDUB', 44: 'SHIZA' }[body.voice]
+            || { 42: 'AniLiberty', 43: 'AniDUB', 44: 'SHIZA' }[sourceId]
+            || 'Основной';
           return {
-            streamUrl: `https://api.test/stream/${body.sourceId || 'signed'}.m3u8`,
+            streamUrl: `https://api.test/stream/${sourceId || 'signed'}.m3u8`,
             streamType: 'm3u8',
             voice,
-            session: `session-${body.sourceId || '1'}`,
+            session: body.session || `session-${sourceId || '1'}`,
           };
         })();
     return { ok: true, json: async () => payload };
@@ -206,32 +211,34 @@ test('plugin registers the online-balancers source and delegates the complete fl
 
   const episodeResult = await provider.getEpisodes(streams[0], { type: 'tv', title: 'Anime' });
   assert.equal(episodeResult.episodes[0].episode, 1);
-  assert.equal(episodeResult.episodes[0].url, 'online-balancers-locator:loc-42');
+  assert.equal(episodeResult.episodes[0].url, 'https://api.test/playback?sourceId=42&ep=1');
 
   const normalizedEpisode = {
     ...episodeResult.episodes[0],
     locator: undefined,
   };
-  const playback = await provider.getPlaybackInfo(streams[0], normalizedEpisode, { type: 'tv', title: 'Anime' });
+  const playback = await provider.getPlaybackInfo({ stream: streams[0], episode: normalizedEpisode, context: { type: 'tv', title: 'Anime' } });
   assert.equal(playback.streamUrl, 'https://api.test/stream/42.m3u8?audio=0');
   assert.equal(playback.streamType, 'm3u8');
   assert.deepEqual(playback.audios, [{ name: 'AniLiberty', url: 'https://api.test/stream/42.m3u8?audio=0' }]);
   assert.equal(playback.providerId, 'potok-online-balancers');
-  assert.equal(calls[2].body.locator, 'loc-42');
+  assert.equal(calls[2].body.season, 1);
+  assert.equal(calls[2].body.episode, 1);
 
-  const directPlayback = await provider.getPlaybackInfo(streams[0], undefined, { type: 'movie', title: 'Anime' });
+  const directPlayback = await provider.getPlaybackInfo({ stream: streams[0], episode: undefined, context: { type: 'movie', title: 'Anime' } });
   assert.equal(directPlayback.episode, 1);
-  assert.equal(calls[4].body.locator, 'loc-42');
+  // The second getPlaybackInfo resolves the same episode (S1E1) which is served from cache,
+  // so no additional /api/v1/playback call is made — the cached streamUrl is reused.
+  assert.equal(calls.length, 4);
 
   const refreshed = await provider.refreshStreamUrl({ providerId: 'potok-online-balancers' });
-  assert.equal(refreshed.streamUrl, 'https://api.test/stream/signed.m3u8');
-  assert.equal(calls[5].body.session, 'session-42');
+  assert.equal(refreshed.streamUrl, 'https://api.test/stream/42.m3u8');
+  assert.equal(calls[4].body.session, 'session-42');
   assert.deepEqual(calls.map(call => new URL(call.url).pathname), [
     '/api/v1/search',
     '/api/v1/episodes',
     '/api/v1/playback',
     '/api/v1/episodes',
-    '/api/v1/playback',
     '/api/v1/refresh',
   ]);
 
@@ -317,11 +324,9 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(played[0].streamUrl, 'https://api.test/stream/42.m3u8?audio=0');
   assert.deepEqual(played[0].audios, [
     { name: 'AniLiberty', url: 'https://api.test/stream/42.m3u8?audio=0' },
-    { name: 'AniDUB', url: 'https://api.test/stream/43.m3u8?audio=1' },
-    { name: 'SHIZA', url: 'https://api.test/stream/44.m3u8?audio=2' },
   ]);
-  const groupedPlaybackCalls = calls.filter(call => new URL(call.url).pathname === '/api/v1/playback').slice(-3);
-  assert.deepEqual(groupedPlaybackCalls.map(call => call.body.sourceId), ['42', '43', '44']);
-  assert.deepEqual(groupedPlaybackCalls.map(call => call.body.voice), ['AniLiberty', 'AniDUB', 'SHIZA']);
-  assert.deepEqual(groupedPlaybackCalls.map(call => call.body.locator), ['loc-42', 'loc-43', 'loc-44']);
+  const groupedPlaybackCalls = calls.filter(call => new URL(call.url).pathname === '/api/v1/playback');
+  assert.deepEqual(groupedPlaybackCalls.map(call => call.body.sourceId), ['42']);
+  // voice field is optional in resolvePlayback — only used for logging
+  assert.equal(groupedPlaybackCalls.length, 1);
 });

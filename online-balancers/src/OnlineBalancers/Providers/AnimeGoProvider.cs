@@ -36,13 +36,14 @@ public sealed partial class AnimeGoProvider(HttpClient http, IMemoryCache? cache
         if (playlist.Mode == PlaylistMode.Current)
         {
             var currentEpisodes = playlist.Episodes.Select(episode => new EpisodeItem(
-                $"{Id}:{selection.SourceId}:{episode.Number:g}",
-                1,
-                episode.Number,
-                $"{episode.Number:g} серия",
-                LocatorCodec.Encode(new AnimeGoLocator("current", episode.InternalId, null, null, null)),
-                null,
-                [])).ToArray();
+                Id: $"{Id}:{selection.SourceId}:{episode.Number:g}",
+                Season: 1,
+                Number: episode.Number,
+                Title: $"{episode.Number:g} серия",
+                Voice: null,
+                Url: null,
+                Audios: [],
+                Locator: LocatorCodec.Encode(new AnimeGoLocator("current", episode.InternalId, null, null, null)))).ToArray();
             return new EpisodesResult(currentEpisodes, 1);
         }
 
@@ -52,13 +53,14 @@ public sealed partial class AnimeGoProvider(HttpClient http, IMemoryCache? cache
             LocatorCodec.Encode(new AnimeGoLocator("legacy", null, playlist.EmbedHost, playlist.Token, item.Id)))).ToArray();
         var defaultVoice = playlist.Translations.FirstOrDefault(item => item.Id == playlist.DefaultTranslation)?.Name;
         var legacyEpisodes = playlist.Episodes.Select(episode => new EpisodeItem(
-            $"{Id}:{selection.SourceId}:{episode.Number:g}",
-            1,
-            episode.Number,
-            $"{episode.Number:g} серия",
-            LocatorCodec.Encode(new AnimeGoLocator("legacy", null, playlist.EmbedHost, playlist.Token, playlist.DefaultTranslation)),
-            defaultVoice,
-            audios)).ToArray();
+            Id: $"{Id}:{selection.SourceId}:{episode.Number:g}",
+            Season: 1,
+            Number: episode.Number,
+            Title: $"{episode.Number:g} серия",
+            Voice: defaultVoice,
+            Url: null,
+            Audios: audios,
+            Locator: LocatorCodec.Encode(new AnimeGoLocator("legacy", null, playlist.EmbedHost, playlist.Token, playlist.DefaultTranslation)))).ToArray();
         return new EpisodesResult(legacyEpisodes, 1);
     }
 

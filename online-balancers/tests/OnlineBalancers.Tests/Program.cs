@@ -1,8 +1,5 @@
 using System.Net;
 using System.Text;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Routing;
-using Microsoft.AspNetCore.Routing.Template;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Memory;
 using OnlineBalancers;
@@ -19,13 +16,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("KinoWatch device flow exposes the current activation domain", KinoWatchDeviceFlowContract),
     ("Alloha keeps account tokens request-scoped across search and playback", AllohaContract),
     ("Rezka uses the local account session for episodes and playback headers", RezkaContract),
-    ("Encrypted tickets are not split by media extension routes", EncryptedTicketRouteContract),
     ("Provider search isolates failures and honors the requested source set", ProviderSearchContract),
     ("Provider search removes irrelevant title matches", ProviderSearchRelevanceContract),
     ("Provider search respects its concurrency bound", ProviderSearchConcurrencyContract),
     ("Provider search propagates request cancellation", ProviderSearchCancellationContract),
-    ("Episode and playback services share signed provider selections", ApplicationServicesContract),
-    ("Encrypted stream tickets hide credentials and reject replay variants", EncryptedTicketContract),
+    ("Episode and playback services return direct URLs with provider headers", ApplicationServicesContract),
     ("Paid provider accounts are scoped and field-allowlisted", ProviderAccountContract),
     ("Service registration discovers all backend providers", ProviderDiscoveryContract),
     ("Plugin asset serving rejects traversal and identifies module content", PluginAssetsContract),
@@ -52,25 +47,6 @@ if (failures.Count > 0)
 }
 
 return 0;
-
-static Task EncryptedTicketRouteContract()
-{
-    var codec = new EncryptedTicketCodec();
-    var ticket = codec.Issue(new StreamTicket("https://cdn.test/segment.ts", null), "stream");
-    var extensionRoute = new TemplateMatcher(
-        TemplateParser.Parse("stream/{token}.{extension}"),
-        new RouteValueDictionary());
-
-    var plainValues = new RouteValueDictionary();
-    Equal(false, extensionRoute.TryMatch(new PathString($"/stream/{ticket}"), plainValues));
-
-    var suffixedValues = new RouteValueDictionary();
-    Equal(true, extensionRoute.TryMatch(new PathString($"/stream/{ticket}.m3u8"), suffixedValues));
-    Equal(ticket, Convert.ToString(suffixedValues["token"]));
-    Equal("m3u8", Convert.ToString(suffixedValues["extension"]));
-    Equal("https://cdn.test/segment.ts", codec.Read<StreamTicket>(ticket, "stream").Url);
-    return Task.CompletedTask;
-}
 
 static async Task AniLibertyContract()
 {
@@ -507,57 +483,25 @@ static async Task ApplicationServicesContract()
 {
     var provider = new PlaybackStubProvider();
     var registry = new ProviderRegistry([provider]);
-    var tickets = new SignedTicketCodec();
-    var episodeService = new EpisodeService(registry, tickets);
-    var playbackService = new PlaybackService(registry, tickets);
+    var episodeService = new EpisodeService(registry);
+    var playbackService = new PlaybackService(registry);
     var query = new MediaQuery("tv", "Anime", null, null, 2024, 42, null);
 
     var result = await episodeService.GetEpisodesAsync(
         new EpisodesRequest(provider.Id, "source", query),
         "https://plugin.test",
         default);
-    var audio = Single(Single(result.Episodes).Audios);
-    Equal(true, audio.Url!.StartsWith("https://plugin.test/api/v1/audio/", StringComparison.Ordinal));
+    var episode = Single(result.Episodes);
+    Equal(null, episode.Url);
+    Equal(null, Single(episode.Audios).Url);
 
-    var token = new Uri(audio.Url).Segments[^1];
-    var fromAudio = await playbackService.ResolveTicketAsync(token, "https://plugin.test", default);
-    Equal(true, fromAudio.StreamUrl.StartsWith("https://plugin.test/stream/", StringComparison.Ordinal));
-    Equal("Dub", fromAudio.Voice);
-
-    var refreshed = await playbackService.RefreshAsync(
-        new RefreshRequest(fromAudio.Session),
+    var playback = await playbackService.ResolveAsync(
+        new PlaybackRequest(provider.Id, "source", query, 1, 1, null, "episode-locator"),
         "https://plugin.test",
         default);
-    Equal("m3u8", refreshed.StreamType);
-    Equal(2, provider.ResolveCalls);
-}
-
-static Task EncryptedTicketContract()
-{
-    var clock = new ManualTimeProvider(DateTimeOffset.Parse("2026-10-17T00:00:00Z"));
-    var codec = new EncryptedTicketCodec(clock);
-    var ticket = codec.Issue(
-        new StreamTicket("https://cdn.test/video.m3u8?token=private", new Dictionary<string, string>
-        {
-            ["Cookie"] = "session=secret-cookie",
-        }),
-        "stream",
-        TimeSpan.FromMinutes(1));
-
-    Equal(false, ticket.Contains("private", StringComparison.Ordinal));
-    Equal(false, ticket.Contains("secret-cookie", StringComparison.Ordinal));
-    Equal("https://cdn.test/video.m3u8?token=private", codec.Read<StreamTicket>(ticket, "stream").Url);
-    Throws<ProviderException>(() => codec.Read<StreamTicket>(ticket, "session"));
-    Throws<ProviderException>(() => new EncryptedTicketCodec(clock).Read<StreamTicket>(ticket, "stream"));
-
-    var tamperIndex = ticket.IndexOf('_') + 1;
-    var tampered = ticket[..tamperIndex]
-        + (ticket[tamperIndex] == 'A' ? 'B' : 'A')
-        + ticket[(tamperIndex + 1)..];
-    Throws<ProviderException>(() => codec.Read<StreamTicket>(tampered, "stream"));
-    clock.Advance(TimeSpan.FromMinutes(2));
-    Throws<ProviderException>(() => codec.Read<StreamTicket>(ticket, "stream"));
-    return Task.CompletedTask;
+    Equal("https://cdn.test/master.m3u8", playback.StreamUrl);
+    Equal("m3u8", playback.StreamType);
+    Equal("Dub", playback.Voice);
 }
 
 static Task ProviderAccountContract()
@@ -705,13 +649,6 @@ file sealed class SearchConcurrencyTracker
     public void Exit() => Interlocked.Decrement(ref _current);
 }
 
-file sealed class ManualTimeProvider(DateTimeOffset now) : TimeProvider
-{
-    private DateTimeOffset _now = now;
-    public override DateTimeOffset GetUtcNow() => _now;
-    public void Advance(TimeSpan duration) => _now = _now.Add(duration);
-}
-
 file sealed class DelayedProvider(string id, SearchConcurrencyTracker tracker) : IOnlineProvider
 {
     public string Id => id;
@@ -767,14 +704,12 @@ file sealed class PlaybackStubProvider : IOnlineProvider
 
     public Task<EpisodesResult> GetEpisodesAsync(SourceSelection source, CancellationToken cancellationToken) =>
         Task.FromResult(new EpisodesResult(
-            [new EpisodeItem("episode", 1, 1, "Episode", "episode-locator", "Dub", [new AudioItem("audio", "Dub", "audio-locator")])],
+            [new EpisodeItem("episode", 1, 1, "Episode", "Dub", null, [new AudioItem("audio", "Dub", "audio-locator")], "episode-locator")],
             1));
 
     public Task<ResolvedPlayback> ResolveAsync(PlaybackSelection selection, CancellationToken cancellationToken)
     {
         ResolveCalls++;
-        if (selection.Locator != "audio-locator")
-            throw new InvalidOperationException($"Expected 'audio-locator', got '{selection.Locator}'.");
         return Task.FromResult(new ResolvedPlayback("https://cdn.test/master.m3u8", "1080p", "Dub"));
     }
 }

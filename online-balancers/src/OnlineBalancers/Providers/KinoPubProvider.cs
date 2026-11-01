@@ -71,13 +71,14 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
                     "Основной поток",
                     LocatorCodec.Encode(new KinoPubLocator(selection.SourceId, seasonNumber, episodeNumber, 1, "Основной поток")));
                 episodes.Add(new EpisodeItem(
-                    $"{Id}:{selection.SourceId}:{seasonNumber}:{episodeNumber}",
-                    seasonNumber,
-                    episodeNumber,
-                    $"{episodeNumber} серия",
-                    fallback.Locator,
-                    fallback.Name,
-                    audios.Length == 0 ? [fallback] : audios));
+                    Id: $"{Id}:{selection.SourceId}:{seasonNumber}:{episodeNumber}",
+                    Season: seasonNumber,
+                    Number: episodeNumber,
+                    Title: $"{episodeNumber} серия",
+                    Voice: fallback.Name,
+                    Url: null,
+                    Audios: audios.Length == 0 ? [fallback] : audios,
+                    Locator: fallback.Locator));
             }
         }
 

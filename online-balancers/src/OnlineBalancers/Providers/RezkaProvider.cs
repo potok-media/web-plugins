@@ -112,13 +112,14 @@ public sealed partial class RezkaProvider(HttpClient http, IMemoryCache? cache =
         {
             var first = item.Value.Audios[0];
             return new EpisodeItem(
-                $"{IdValue}:{selection.SourceId}:{item.Key.Season}:{item.Key.Episode}",
-                item.Key.Season,
-                item.Key.Episode,
-                string.IsNullOrWhiteSpace(item.Value.Title) ? $"{item.Key.Episode} серия" : item.Value.Title,
-                first.Locator,
-                first.Name,
-                item.Value.Audios);
+                Id: $"{IdValue}:{selection.SourceId}:{item.Key.Season}:{item.Key.Episode}",
+                Season: item.Key.Season,
+                Number: item.Key.Episode,
+                Title: string.IsNullOrWhiteSpace(item.Value.Title) ? $"{item.Key.Episode} серия" : item.Value.Title,
+                Voice: first.Name,
+                Url: null,
+                Audios: item.Value.Audios,
+                Locator: first.Locator);
         }).ToArray();
         return new EpisodesResult(episodes, episodes.Length == 0 ? 0 : episodes.Max(item => item.Season));
     }

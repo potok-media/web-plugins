@@ -109,3 +109,45 @@ test('late episode results cannot reopen a panel after route navigation', async 
   assert.equal(state.episodeSelectorOpen, false);
   assert.deepEqual(state.selectedEpisodes, []);
 });
+
+test('host playlist broadcasts move the panel highlight only for the open source', () => {
+  const { controller, state } = createController();
+  state.selectedId = 'arm:entry-1';
+  state.selectedStream = { id: 'arm:entry-1' };
+  state.selectedEpisodes = [{ id: '1:1', season: 1, episode: 1 }, { id: '1:2', season: 1, episode: 2 }];
+  state.activeEpisodeId = '1:1';
+  state.episodeSelectorOpen = true;
+
+  // "Дальше" in the player — the host broadcasts the new active playlist item.
+  controller.actions.syncActiveEpisode({ episodeId: '1:2', playlistIndex: 1 });
+  assert.equal(state.activeEpisodeId, '1:2');
+
+  // Same value again — no-op, no re-render.
+  controller.actions.syncActiveEpisode({ episodeId: '1:2', playlistIndex: 1 });
+  assert.equal(state.activeEpisodeId, '1:2');
+
+  // Unknown episode (another plugin's playback on the same host) — ignored.
+  controller.actions.syncActiveEpisode({ episodeId: 'zz:9', playlistIndex: 0 });
+  assert.equal(state.activeEpisodeId, '1:2');
+
+  // Panel closed — nothing to highlight.
+  state.episodeSelectorOpen = false;
+  controller.actions.syncActiveEpisode({ episodeId: '1:1', playlistIndex: 0 });
+  assert.equal(state.activeEpisodeId, '1:2');
+});
+
+test('host player close clears the stale panel highlight', () => {
+  const { controller, state } = createController();
+  state.selectedId = 'arm:entry-1';
+  state.selectedStream = { id: 'arm:entry-1' };
+  state.selectedEpisodes = [{ id: '1:1', season: 1, episode: 1 }];
+  state.activeEpisodeId = '1:1';
+  state.episodeSelectorOpen = true;
+
+  controller.actions.clearActiveEpisode();
+  assert.equal(state.activeEpisodeId, '');
+
+  // Already cleared — no-op.
+  controller.actions.clearActiveEpisode();
+  assert.equal(state.activeEpisodeId, '');
+});

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace OnlineBalancers;
 
 public sealed record ProviderDescriptor(
@@ -29,9 +31,11 @@ public sealed record EpisodeItem(
     int Season,
     double Number,
     string Title,
-    string Locator,
     string? Voice,
-    IReadOnlyList<AudioItem> Audios);
+    string? Url,
+    IReadOnlyList<AudioItem> Audios,
+    [property: JsonIgnore]
+    string? Locator);
 
 public sealed record EpisodesResult(IReadOnlyList<EpisodeItem> Episodes, int SeasonsCount);
 
@@ -48,7 +52,7 @@ public sealed record PlaybackResponse(
     string StreamType,
     string Quality,
     string? Voice,
-    string Session);
+    IReadOnlyDictionary<string, string>? Headers = null);
 
 public sealed record DeviceCodeResponse(
     string Code,

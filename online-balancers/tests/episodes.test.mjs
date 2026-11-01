@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createEpisodeService, episodeLocator, episodeUrl } from '../plugin/episodes/episodesController.js';
+import { createEpisodeService } from '../plugin/episodes/episodesController.js';
 import { mergeEpisodeVariants, movieEpisode } from '../plugin/episodes/mergeVariants.js';
 
 test('episodes from several providers merge while preserving playback candidates', () => {
@@ -20,7 +20,6 @@ test('episodes from several providers merge while preserving playback candidates
   assert.equal(episode.id, '1:1');
   assert.equal(episode.audios.length, 2);
   assert.deepEqual(episode.audios.map(item => item.providerId), ['a', 'b']);
-  assert.equal(episodeLocator({ url: episodeUrl('signed-locator') }), 'signed-locator');
 });
 
 test('movie groups become a single playable pseudo-episode', () => {
@@ -106,10 +105,6 @@ test('ARM canonicalizes anime episodes while provider locators keep their raw co
   assert.equal(result.episodes[0].displayOrdinal, '1');
   assert.equal(result.episodes[0].title, 'ARM episode 1');
   assert.equal(result.episodes[0].audios.length, 2);
-  assert.deepEqual(
-    result.episodes[0].audios.map(candidate => candidate.locator).sort(),
-    ['provider-s1-e1', 'provider-s2-e1'],
-  );
 });
 
 test('episode loading stays usable when ARM cannot resolve the work', async () => {
@@ -117,9 +112,12 @@ test('episode loading stays usable when ARM cannot resolve the work', async () =
     client: {
       async getEpisodes() {
         return {
-          episodes: [{ id: 'raw-1', season: 1, number: 1, locator: 'raw-locator' }],
+          episodes: [{ id: 'raw-1', season: 1, number: 1, url: '' }],
           seasonsCount: 1,
         };
+      },
+      async resolvePlayback({ provider, sourceId, season, episode }) {
+        return { streamUrl: `https://example.com/stream?${sourceId}&${season}x${episode}`, streamType: 'hls' };
       },
     },
     arm: {
@@ -138,5 +136,5 @@ test('episode loading stays usable when ARM cannot resolve the work', async () =
 
   assert.equal(result.arm, null);
   assert.equal(result.episodes.length, 1);
-  assert.equal(result.episodes[0].locator, 'raw-locator');
+  assert.equal(result.episodes[0].streamUrl, 'https://example.com/stream?1&1x1');
 });

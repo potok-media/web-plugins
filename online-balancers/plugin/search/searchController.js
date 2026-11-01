@@ -18,6 +18,14 @@ export function sourceQuery(stream, context) {
   return mediaQuery({ ...(stream?.query || {}), ...(context || {}) });
 }
 
+/**
+ * A URL the player can load directly. Plugin-internal handles such as
+ * `online-balancers://{provider}/{sourceId}` are identifiers, not playable streams.
+ */
+export function isPlayableUrl(url) {
+  return typeof url === 'string' && /^https?:\/\//i.test(url);
+}
+
 export function mapSource(item, query) {
   return {
     id: `${item.provider}:${item.sourceId}`,

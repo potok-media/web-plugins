@@ -20,8 +20,13 @@ export function registerPlugin({ controller, renderLayout, searchService, episod
       return episodeService.fetchEpisodes(stream, context);
     },
 
-    getPlaybackInfo(stream, episode, context) {
-      return playbackService.resolvePlayback(stream, episode, context);
+    getPlaybackInfo(payload) {
+      return playbackService.resolvePlayback(
+        payload.stream,
+        payload.episode,
+        payload.context,
+        payload.episodes,
+      );
     },
 
     refreshStreamUrl(payload) {

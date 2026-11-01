@@ -75,8 +75,6 @@ public sealed record PlaybackSelection(
     string? Voice,
     string? Locator);
 
-public sealed record RefreshRequest(string Session, ProviderAccount? Account = null);
-
 public sealed record KinoPubDevicePollRequest(string Code);
 
 public sealed record RezkaLoginRequest(string Host, string Login, string Password);

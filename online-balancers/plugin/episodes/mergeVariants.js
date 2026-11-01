@@ -8,7 +8,10 @@ export function audioCandidate(stream, episode, audio, index) {
   return {
     id: `${stream.id}:${episode?.season ?? 'movie'}:${episode?.episode ?? 0}:${audio?.id || `default-${index}`}`,
     name: [voice, quality, provider].filter(Boolean).join(' · '),
-    url: audio?.url || episode?.url || stream.url,
+    // Never fall back to stream.url here: it is the plugin-internal
+    // `online-balancers://` handle, not a playable link. Unresolved URLs stay
+    // empty so resolveEpisodeUrls can fetch real stream links later.
+    url: audio?.url || episode?.url || '',
     locator: audio?.locator || episode?.locator || null,
     voice,
     quality,
@@ -52,6 +55,11 @@ export function mergeEpisodeVariants(results) {
           filler: episode.filler || null,
           tmdb: episode.tmdb || null,
           voice: '',
+          provider: episode.provider || stream.provider,
+          providerId: episode.providerId || providerId(stream),
+          sourceId: episode.sourceId || sourceId(stream),
+          quality: episode.quality || stream.quality,
+          query: episode.query || stream.query,
           audios: [],
         };
         episodes.set(key, merged);

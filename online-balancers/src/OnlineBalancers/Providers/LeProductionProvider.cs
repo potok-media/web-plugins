@@ -60,13 +60,14 @@ public sealed partial class LeProductionProvider(HttpClient http, IMemoryCache? 
         {
             var locator = LocatorCodec.Encode(new LeProductionLocator(item.Streams[0].Url, item.Streams[0].Quality));
             return new EpisodeItem(
-                $"{Id}:{selection.SourceId}:{item.Season}:{item.Number}",
-                item.Season,
-                item.Number,
-                $"{item.Number:g} серия",
-                locator,
-                Name,
-                [new AudioItem($"{Id}:{index}", Name, locator)]);
+                Id: $"{Id}:{selection.SourceId}:{item.Season}:{item.Number}",
+                Season: item.Season,
+                Number: item.Number,
+                Title: $"{item.Number:g} серия",
+                Voice: Name,
+                Url: null,
+                Audios: [new AudioItem($"{Id}:{index}", Name, locator)],
+                Locator: locator);
         }).ToArray();
         return new EpisodesResult(episodes, episodes.Length == 0 ? 0 : episodes.Max(item => item.Season));
     }

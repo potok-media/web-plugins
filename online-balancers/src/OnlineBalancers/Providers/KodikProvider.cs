@@ -47,13 +47,14 @@ public sealed class KodikProvider(HttpClient http, IMemoryCache? cache = null) :
                 {
                     var number = ProviderParsing.EpisodeNumber(episodeEntry.Key, episodes.Count + 1);
                     episodes.Add(new EpisodeItem(
-                        $"{Id}:{selection.SourceId}:{season}:{episodeEntry.Key}",
-                        season,
-                        number,
-                        $"{number:g} серия",
-                        LocatorCodec.Encode(new KodikLocator(season, number)),
-                        selected.Translation?.Title ?? "Оригинал",
-                        []));
+                        Id: $"{Id}:{selection.SourceId}:{season}:{episodeEntry.Key}",
+                        Season: season,
+                        Number: number,
+                        Title: $"{number:g} серия",
+                        Voice: selected.Translation?.Title ?? "Оригинал",
+                        Url: null,
+                        Audios: [],
+                        Locator: LocatorCodec.Encode(new KodikLocator(season, number))));
                 }
             }
         }

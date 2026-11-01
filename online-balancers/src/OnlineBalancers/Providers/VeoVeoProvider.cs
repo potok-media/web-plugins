@@ -52,13 +52,14 @@ public sealed partial class VeoVeoProvider(HttpClient http, IMemoryCache? cache 
                 if (audios.Length == 0)
                     return null;
                 return new EpisodeItem(
-                    $"{Id}:{selection.SourceId}:{item.Season!.Order}:{item.Order}",
-                    item.Season.Order,
-                    item.Order,
-                    item.Title ?? $"{item.Order} серия",
-                    audios[0].Locator,
-                    audios[0].Name,
-                    audios);
+                    Id: $"{Id}:{selection.SourceId}:{item.Season!.Order}:{item.Order}",
+                    Season: item.Season.Order,
+                    Number: item.Order,
+                    Title: item.Title ?? $"{item.Order} серия",
+                    Voice: audios[0].Name,
+                    Url: null,
+                    Audios: audios,
+                    Locator: audios[0].Locator);
             })
             .Where(item => item is not null)
             .Cast<EpisodeItem>()

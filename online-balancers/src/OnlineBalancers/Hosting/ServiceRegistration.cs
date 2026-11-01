@@ -47,11 +47,6 @@ public static class ServiceRegistration
         services.AddSingleton<EpisodeService>();
         services.AddSingleton<PlaybackService>();
         services.AddSingleton<AccountConnectionService>();
-        services.AddSingleton<SignedTicketCodec>();
-        services.AddSingleton<EncryptedTicketCodec>();
-        services.AddSingleton(serviceProvider => new HlsProxy(
-            serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("upstream"),
-            serviceProvider.GetRequiredService<EncryptedTicketCodec>()));
         return services;
     }
 

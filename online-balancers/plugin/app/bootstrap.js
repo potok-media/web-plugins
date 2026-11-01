@@ -49,6 +49,8 @@ export function bootstrap({ client = createOnlineBalancersClient(), registry = s
   const renderLayout = () => buildPage({ state, actions: controller.actions, registry });
   controller.setRenderer(() => PotokSDK.ui.render(renderLayout(), PAGE_ID));
   registerPlugin({ controller, renderLayout, searchService, episodeService, playbackService });
+  PotokSDK.playback?.onPlaylistItemChange?.((event) => controller.actions.syncActiveEpisode(event));
+  PotokSDK.playback?.onPlaybackStopped?.(() => controller.actions.clearActiveEpisode());
   void controller.loadAccounts();
   return Object.freeze({
     client,

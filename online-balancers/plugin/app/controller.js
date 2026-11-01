@@ -165,7 +165,13 @@ export function createAppController({
       const playbackEpisode = group.mediaType === 'movie'
         ? { ...selected, season: null, episode: null }
         : selected;
-      await playbackService.play(stream, playbackEpisode, state.context);
+      await playbackService.play(
+        stream,
+        playbackEpisode,
+        state.context,
+        group.mediaType === 'movie' ? undefined : state.selectedEpisodes,
+        group.mediaType === 'movie' ? undefined : String(selected?.id || ''),
+      );
     } catch (error) {
       ui.showHUD('error', error instanceof Error ? error.message : String(error));
     }
@@ -220,6 +226,24 @@ export function createAppController({
       state.activeEpisodeId = String(episode?.id || '');
       emit();
       void playEpisode(state.selectedStream, episode, audioId);
+    },
+    // Host-driven playlist navigation (player "next"/auto-advance) never reaches plugin code —
+    // the host broadcasts PLAYLIST_ITEM_CHANGED and the panel highlight follows it here.
+    syncActiveEpisode(event) {
+      const episodeId = event?.episodeId != null ? String(event.episodeId) : '';
+      // Only while this plugin's episode panel is open, and only for the current source's episodes —
+      // the broadcast reaches every plugin iframe, not just the one driving the playback.
+      if (!episodeId || !state.episodeSelectorOpen) return;
+      if (!state.selectedEpisodes.some(ep => String(ep.id) === episodeId)) return;
+      if (state.activeEpisodeId === episodeId) return;
+      state.activeEpisodeId = episodeId;
+      emit();
+    },
+    // The host player was closed (close button, back, error flow) — drop the stale panel highlight.
+    clearActiveEpisode() {
+      if (!state.activeEpisodeId) return;
+      state.activeEpisodeId = '';
+      emit();
     },
     setProvider(value) {
       const providerId = value || 'all';

@@ -81,13 +81,14 @@ public sealed class AllohaProvider(HttpClient http, IMemoryCache? cache = null)
             if (audios.Length == 0)
                 return null;
             return new EpisodeItem(
-                $"{Id}:{selection.SourceId}:{season.Season}:{episode.Episode}",
-                season.Season,
-                episode.Episode,
-                $"{episode.Episode} серия",
-                audios[0].Locator,
-                audios[0].Name,
-                audios);
+                Id: $"{Id}:{selection.SourceId}:{season.Season}:{episode.Episode}",
+                Season: season.Season,
+                Number: episode.Episode,
+                Title: $"{episode.Episode} серия",
+                Voice: audios[0].Name,
+                Url: null,
+                Audios: audios,
+                Locator: audios[0].Locator);
         })).Where(item => item is not null).Cast<EpisodeItem>().ToArray();
         return new EpisodesResult(episodes, episodes.Length == 0 ? 0 : episodes.Max(item => item.Season));
     }

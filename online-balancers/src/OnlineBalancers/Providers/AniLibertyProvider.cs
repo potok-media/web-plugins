@@ -67,13 +67,14 @@ public sealed partial class AniLibertyProvider(HttpClient http, IMemoryCache? ca
         {
             var number = ProviderParsing.EpisodeNumber(episode.Ordinal, index + 1);
             return new EpisodeItem(
-                $"{Id}:{selection.SourceId}:{episode.Ordinal ?? number.ToString()}",
-                season,
-                number,
-                string.IsNullOrWhiteSpace(episode.Name) ? $"{number:g} серия" : episode.Name,
-                LocatorCodec.Encode(new AniLibertyLocator(episode.Ordinal ?? number.ToString())),
-                null,
-                []);
+                Id: $"{Id}:{selection.SourceId}:{episode.Ordinal ?? number.ToString()}",
+                Season: season,
+                Number: number,
+                Title: string.IsNullOrWhiteSpace(episode.Name) ? $"{number:g} серия" : episode.Name,
+                Voice: null,
+                Url: null,
+                Audios: [],
+                Locator: LocatorCodec.Encode(new AniLibertyLocator(episode.Ordinal ?? number.ToString())));
         }).ToArray() ?? [];
 
         return new EpisodesResult(episodes, Math.Max(1, season));
