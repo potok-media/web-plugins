@@ -1,13 +1,9 @@
 import { stableCardId, visibleGroups } from '../search/grouping.js';
+import { sourceSubtitle as buildSourceSubtitle } from '../media/sourceMeta.js';
 import { ContentCard, EmptyState, Grid, Skeleton, t } from './sdk.js';
 
 export function sourceSubtitle(group) {
-  const voices = group.voices || [];
-  const voiceLabel = voices.length === 1
-    ? voices[0]
-    : t('source.voices', { count: voices.length });
-  const qualityLabel = (group.qualities || [group.quality]).filter(Boolean).join(' / ');
-  return [group.year, qualityLabel, voiceLabel].filter(Boolean).join(' · ');
+  return buildSourceSubtitle(group, t);
 }
 
 export function loadingGrid() {

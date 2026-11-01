@@ -8,6 +8,8 @@ test('plugin registers the online-balancers source and delegates the complete fl
   const injectedCss = [];
   const rendered = [];
   const played = [];
+  const presented = [];
+  let dismissed = 0;
   const translations = {};
   const pluginStorage = new Map();
 
@@ -110,6 +112,8 @@ test('plugin registers the online-balancers source and delegates the complete fl
       render(layout, id) { rendered.push({ layout, id }); },
       showHUD() {},
       showEpisodeSelector() {},
+      presentEpisodes(payload) { presented.push(payload); },
+      dismissEpisodes() { dismissed += 1; },
       playVideo(playback) { played.push(playback); },
     },
   };
@@ -289,34 +293,28 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(grid.childrenList.length, 2);
 
   await grid.childrenList[0].click();
+  // The plugin renders the playback stage only — the episode panel is the host's job now, fed with
+  // the episodes presented below (ui.presentEpisodes).
   const selectorWorkspace = rendered.at(-1).layout;
   assert.equal(selectorWorkspace.type, 'PlaybackWorkspace');
-  const selector = selectorWorkspace.childrenList[0];
-  assert.ok(selector);
-  assert.equal(selector.type, 'EpisodeSelector');
-  assert.equal(selector.presentationValue, 'panel');
-  assert.equal(selector.activeEpisodeIdValue, '');
-  assert.equal(selector.canReorderValue, true);
-  assert.equal(selector.episodesValue.length, 2);
-  assert.equal(selector.episodesValue[0].audios.length, 3);
+  assert.equal(selectorWorkspace.childrenList.length, 0);
+  assert.equal(presented.length, 1);
+  const panel = presented[0];
+  assert.equal(panel.title, 'Anime');
+  assert.equal(panel.canReorder, true);
+  assert.equal(panel.episodes.length, 2);
+  assert.equal(panel.episodes[0].audios.length, 3);
   assert.deepEqual(
-    selector.episodesValue[0].audios.map(audio => audio.voice).sort(),
+    panel.episodes[0].audios.map(audio => audio.voice).sort(),
     ['AniDUB', 'AniLiberty', 'SHIZA'],
   );
-  selector.reorder([...selector.episodesValue].reverse());
-  const reorderedWorkspace = rendered.at(-1).layout;
-  assert.equal(reorderedWorkspace.type, 'PlaybackWorkspace');
-  const reorderedSelector = reorderedWorkspace.childrenList[0];
-  assert.deepEqual(reorderedSelector.episodesValue.map(episode => episode.id), ['1:2', '1:1']);
 
-  reorderedSelector.play(reorderedSelector.episodesValue[1]);
-  const playingWorkspace = rendered.at(-1).layout;
-  assert.equal(playingWorkspace.type, 'PlaybackWorkspace');
-  const playingSelector = playingWorkspace.childrenList[0];
-  assert.ok(playingSelector);
-  assert.equal(playingSelector.openValue, true);
-  assert.equal(playingSelector.activeEpisodeIdValue, '1:1');
-  assert.deepEqual(playingSelector.episodesValue.map(episode => episode.id), ['1:2', '1:1']);
+  panel.onReorder([...panel.episodes].reverse());
+  assert.equal(presented.length, 2);
+  assert.deepEqual(presented[1].episodes.map(episode => episode.id), ['1:2', '1:1']);
+
+  presented[1].onPlay(presented[1].episodes[1]);
+  assert.equal(rendered.at(-1).layout.type, 'PlaybackWorkspace');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(played.length, 1);
   assert.equal(played[0].voice, 'AniLiberty');

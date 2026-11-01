@@ -1,5 +1,6 @@
 import { pageContextFromRoute } from '../routing/mediaContext.js';
 import { selectAudio } from '../playback/playbackController.js';
+import { sourceSubtitle } from '../media/sourceMeta.js';
 import { resetPageFilters, resetPageSelection } from './state.js';
 
 export function createAppController({
@@ -152,7 +153,23 @@ export function createAppController({
     state.error = '';
     resetPageFilters(state);
     resetPageSelection(state);
+    ui.dismissEpisodes?.();
     if (context.title) void runSearch(false);
+  }
+
+  // Episodes travel to the host as data (ui.presentEpisodes): the host renders its own episode panel
+  // in the workspace rail and routes play/reorder/close back through the callbacks registered here.
+  function presentSelectedEpisodes() {
+    if (!state.episodeSelectorOpen || !state.selectedStream) return;
+    ui.presentEpisodes?.({
+      title: state.selectedStream.title || state.context.title || '',
+      subtitle: sourceSubtitle(state.selectedStream, translate),
+      episodes: state.selectedEpisodes,
+      canReorder: true,
+      onPlay: (episode, audioId) => actions.playEpisode(episode, audioId),
+      onClose: () => actions.closeEpisodeSelector(),
+      onReorder: (episodes) => actions.reorderEpisodes(episodes),
+    });
   }
 
   async function playEpisode(group, episode, audioId = null) {
@@ -186,6 +203,7 @@ export function createAppController({
     state.episodeSelectorOpen = false;
     state.episodeStatus = 'loading';
     state.episodeError = '';
+    ui.dismissEpisodes?.();
     emit();
     try {
       const result = await episodeService.fetchGroupedEpisodes(group, state.context);
@@ -197,6 +215,7 @@ export function createAppController({
       const first = result.episodes[0];
       const shouldAutoplay = result.episodes.length === 1 && (first.audios?.length || 0) <= 1;
       if (shouldAutoplay) state.activeEpisodeId = String(first.id || '');
+      presentSelectedEpisodes();
       emit();
       if (shouldAutoplay) await playEpisode(group, first);
     } catch (error) {
@@ -212,6 +231,7 @@ export function createAppController({
     retrySearch() { return runSearch(true); },
     openSource,
     closeEpisodeSelector() {
+      ui.dismissEpisodes?.();
       ui.stopVideo?.();
       resetPageSelection(state);
       emit();
@@ -219,6 +239,7 @@ export function createAppController({
     reorderEpisodes(episodes) {
       if (!Array.isArray(episodes)) return;
       state.selectedEpisodes = episodes;
+      presentSelectedEpisodes();
       emit();
     },
     playEpisode(episode, audioId) {
@@ -226,24 +247,6 @@ export function createAppController({
       state.activeEpisodeId = String(episode?.id || '');
       emit();
       void playEpisode(state.selectedStream, episode, audioId);
-    },
-    // Host-driven playlist navigation (player "next"/auto-advance) never reaches plugin code —
-    // the host broadcasts PLAYLIST_ITEM_CHANGED and the panel highlight follows it here.
-    syncActiveEpisode(event) {
-      const episodeId = event?.episodeId != null ? String(event.episodeId) : '';
-      // Only while this plugin's episode panel is open, and only for the current source's episodes —
-      // the broadcast reaches every plugin iframe, not just the one driving the playback.
-      if (!episodeId || !state.episodeSelectorOpen) return;
-      if (!state.selectedEpisodes.some(ep => String(ep.id) === episodeId)) return;
-      if (state.activeEpisodeId === episodeId) return;
-      state.activeEpisodeId = episodeId;
-      emit();
-    },
-    // The host player was closed (close button, back, error flow) — drop the stale panel highlight.
-    clearActiveEpisode() {
-      if (!state.activeEpisodeId) return;
-      state.activeEpisodeId = '';
-      emit();
     },
     setProvider(value) {
       const providerId = value || 'all';

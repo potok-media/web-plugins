@@ -34,10 +34,6 @@ PotokSDK.i18n.registerTranslations({
         episode: "Episode",
         serial: "Series",
         video: "Video"
-      },
-      home: {
-        continueWatching: "Continue watching",
-        loadingContinue: "Loading torrent…"
       }
     }
   },
@@ -72,10 +68,6 @@ PotokSDK.i18n.registerTranslations({
         episode: "Серия",
         serial: "Сериал",
         video: "Видео"
-      },
-      home: {
-        continueWatching: "Продолжить просмотр",
-        loadingContinue: "Загрузка раздачи…"
       }
     }
   }

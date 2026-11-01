@@ -1,5 +1,4 @@
 import { groupSources } from '../search/grouping.js';
-import { buildEpisodePanel } from './episodePanel.js';
 import { buildFilters } from './filters.js';
 import { loadingGrid, resultGrid } from './results.js';
 import { accountsButton, accountsModal } from './accounts.js';
@@ -69,9 +68,11 @@ function pageContent({ state, actions, registry }) {
 }
 
 export function buildPage({ state, actions, registry }) {
-  const selector = buildEpisodePanel({ state, actions });
-  if (selector) {
-    const workspace = PlaybackWorkspace().style('online-playback-workspace').child(selector);
+  // The episode panel is the host's job: while a source with episodes is open the plugin renders the
+  // playback stage only, and the host fills the workspace rail from the episodes presented by the
+  // controller (ui.presentEpisodes).
+  if (state.episodeSelectorOpen && state.selectedStream) {
+    const workspace = PlaybackWorkspace().style('online-playback-workspace');
     if (state.selectedStream?.poster) workspace.backdropSrc(state.selectedStream.poster);
     return workspace;
   }

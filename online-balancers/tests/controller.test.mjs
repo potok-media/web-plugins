@@ -18,20 +18,37 @@ function createController(overrides = {}) {
   const state = createPageState();
   const hud = [];
   const played = [];
+  const presented = [];
+  const dismissed = [];
   let stopped = 0;
+  let playCalls = [];
+  const playbackService = overrides.playbackService || {
+    play: async (...args) => { playCalls.push(args); return { streamUrl: 'stream' }; },
+  };
   const controller = createAppController({
     state,
     searchService: overrides.searchService || { search: async () => ({ items: [], errors: {} }) },
     episodeService: overrides.episodeService || { fetchGroupedEpisodes: async () => ({ episodes: [] }) },
-    playbackService: overrides.playbackService || { play: async () => ({ streamUrl: 'stream' }) },
+    playbackService,
     ui: {
       showHUD(level, message) { hud.push({ level, message }); },
       playVideo(value) { played.push(value); },
       stopVideo() { stopped += 1; },
+      presentEpisodes(payload) { presented.push(payload); },
+      dismissEpisodes() { dismissed.push(true); },
     },
-    translate: key => key,
+    translate: (key, options) => (options ? `${key}:${JSON.stringify(options)}` : key),
   });
-  return { controller, state, hud, played, stopped: () => stopped };
+  return {
+    controller,
+    state,
+    hud,
+    played,
+    presented,
+    dismissed: () => dismissed.length,
+    stopped: () => stopped,
+    playCalls: () => playCalls,
+  };
 }
 
 test('late search response cannot overwrite a newer route', async () => {
@@ -55,8 +72,8 @@ test('late search response cannot overwrite a newer route', async () => {
   assert.deepEqual(state.items, [{ id: 'second' }]);
 });
 
-test('closing the selector closes the complete plugin playback workspace', () => {
-  const { controller, state, stopped } = createController();
+test('closing the selector dismisses the host episode panel and closes the plugin playback workspace', () => {
+  const { controller, state, stopped, dismissed } = createController();
   state.selectedId = 'arm:entry-1';
   state.selectedStream = { id: 'arm:entry-1' };
   state.selectedEpisodes = [{ id: 'episode-1' }];
@@ -66,6 +83,7 @@ test('closing the selector closes the complete plugin playback workspace', () =>
 
   controller.actions.closeEpisodeSelector();
 
+  assert.equal(dismissed(), 1);
   assert.equal(stopped(), 1);
   assert.equal(state.selectedId, '');
   assert.equal(state.selectedStream, null);
@@ -110,44 +128,50 @@ test('late episode results cannot reopen a panel after route navigation', async 
   assert.deepEqual(state.selectedEpisodes, []);
 });
 
-test('host playlist broadcasts move the panel highlight only for the open source', () => {
-  const { controller, state } = createController();
-  state.selectedId = 'arm:entry-1';
-  state.selectedStream = { id: 'arm:entry-1' };
-  state.selectedEpisodes = [{ id: '1:1', season: 1, episode: 1 }, { id: '1:2', season: 1, episode: 2 }];
-  state.activeEpisodeId = '1:1';
-  state.episodeSelectorOpen = true;
+test('opening a source presents episodes to the host panel and play routes back through the callback', async () => {
+  const group = {
+    id: 'group',
+    title: 'Demo',
+    mediaType: 'tv',
+    voices: ['Studio'],
+    qualities: ['1080'],
+    year: 2024,
+    variants: [{ providerId: 'a', sourceId: '1' }],
+  };
+  const episodes = [{ id: '1', season: 1, episode: 1 }, { id: '2', season: 1, episode: 2 }];
+  const { controller, state, presented, playCalls } = createController({
+    episodeService: { fetchGroupedEpisodes: async () => ({ episodes }) },
+  });
+  controller.applyRoute({ query: { q: 'Anime' } });
+  await controller.actions.openSource(group);
 
-  // "Дальше" in the player — the host broadcasts the new active playlist item.
-  controller.actions.syncActiveEpisode({ episodeId: '1:2', playlistIndex: 1 });
-  assert.equal(state.activeEpisodeId, '1:2');
+  // Episodes go to the host as data — the plugin does not draw the panel itself.
+  assert.equal(presented.length, 1);
+  assert.equal(presented[0].title, 'Demo');
+  assert.equal(presented[0].canReorder, true);
+  assert.deepEqual(presented[0].episodes, episodes);
+  assert.match(presented[0].subtitle, /1080/);
 
-  // Same value again — no-op, no re-render.
-  controller.actions.syncActiveEpisode({ episodeId: '1:2', playlistIndex: 1 });
-  assert.equal(state.activeEpisodeId, '1:2');
-
-  // Unknown episode (another plugin's playback on the same host) — ignored.
-  controller.actions.syncActiveEpisode({ episodeId: 'zz:9', playlistIndex: 0 });
-  assert.equal(state.activeEpisodeId, '1:2');
-
-  // Panel closed — nothing to highlight.
-  state.episodeSelectorOpen = false;
-  controller.actions.syncActiveEpisode({ episodeId: '1:1', playlistIndex: 0 });
-  assert.equal(state.activeEpisodeId, '1:2');
+  // Host panel click — the host invokes the registered onPlay callback back in the plugin.
+  presented[0].onPlay(episodes[1], 'audio-2');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(state.activeEpisodeId, '2');
+  assert.equal(playCalls().length, 1);
+  assert.equal(playCalls()[0][1], episodes[1]);
+  assert.equal(playCalls()[0][4], '2');
 });
 
-test('host player close clears the stale panel highlight', () => {
-  const { controller, state } = createController();
-  state.selectedId = 'arm:entry-1';
-  state.selectedStream = { id: 'arm:entry-1' };
-  state.selectedEpisodes = [{ id: '1:1', season: 1, episode: 1 }];
-  state.activeEpisodeId = '1:1';
-  state.episodeSelectorOpen = true;
+test('reorder re-presents episodes to the host panel', async () => {
+  const group = { id: 'group', mediaType: 'tv', variants: [{ providerId: 'a', sourceId: '1' }] };
+  const episodes = [{ id: '1', season: 1, episode: 1 }, { id: '2', season: 1, episode: 2 }];
+  const { controller, presented } = createController({
+    episodeService: { fetchGroupedEpisodes: async () => ({ episodes }) },
+  });
+  controller.applyRoute({ query: { q: 'Anime' } });
+  await controller.actions.openSource(group);
+  assert.equal(presented.length, 1);
 
-  controller.actions.clearActiveEpisode();
-  assert.equal(state.activeEpisodeId, '');
-
-  // Already cleared — no-op.
-  controller.actions.clearActiveEpisode();
-  assert.equal(state.activeEpisodeId, '');
+  presented[0].onReorder([...episodes].reverse());
+  assert.equal(presented.length, 2);
+  assert.deepEqual(presented[1].episodes.map(item => item.id), ['2', '1']);
 });
