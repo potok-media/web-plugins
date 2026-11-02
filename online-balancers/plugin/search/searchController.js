@@ -6,12 +6,17 @@ export function sourceId(stream) {
   if (stream?.sourceId) return String(stream.sourceId);
   const id = String(stream?.id || '');
   const separator = id.indexOf(':');
-  return separator >= 0 ? id.slice(separator + 1) : id;
+  return separator >= 0 ? id.slice(separator + 1) : '';
 }
 
+// Derives the provider slug ONLY from a stream id of the form "{provider}:{sourceId}".
+// Episode objects (playlist clicks, episode lists) carry bare ids like "1" — those are NOT provider
+// ids, and treating them as such makes the resolver send "Unknown online provider '1'" to the backend.
+// Callers fall back to the sourceStream's providerId when this returns ''.
 export function providerId(stream) {
   if (stream?.providerId) return String(stream.providerId);
-  return String(stream?.id || '').split(':', 1)[0];
+  const id = String(stream?.id || '');
+  return id.includes(':') ? id.split(':', 1)[0] : '';
 }
 
 export function sourceQuery(stream, context) {
