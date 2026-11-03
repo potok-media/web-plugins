@@ -222,9 +222,22 @@ test('plugin registers the online-balancers source and delegates the complete fl
     locator: undefined,
   };
   const playback = await provider.getPlaybackInfo({ stream: streams[0], episode: normalizedEpisode, context: { type: 'tv', title: 'Anime' } });
-  assert.equal(playback.streamUrl, 'https://api.test/stream/42.m3u8?audio=0');
+  // The streamUrl is the backend's resolved URL verbatim — no `?audio=N` suffix appended.
+  assert.equal(playback.streamUrl, 'https://api.test/stream/42.m3u8');
   assert.equal(playback.streamType, 'm3u8');
-  assert.deepEqual(playback.audios, [{ name: 'AniLiberty', url: 'https://api.test/stream/42.m3u8?audio=0' }]);
+  // One candidate (the episode itself): it keeps its provider identity and its own directly
+  // playable url — no fabricated `?audio=N` link into the resolved stream.
+  assert.deepEqual(playback.audios, [
+    {
+      name: 'AniLiberty',
+      label: null,
+      voice: null,
+      providerId: 'aniliberty',
+      sourceId: '42',
+      query: { imdbId: null, kinopoiskId: null, originalTitle: null, title: 'Anime', tmdbId: null, type: 'tv', year: null },
+      url: 'https://api.test/playback?sourceId=42&ep=1',
+    },
+  ]);
   assert.equal(playback.providerId, 'potok-online-balancers');
   assert.equal(calls[2].body.season, 1);
   assert.equal(calls[2].body.episode, 1);
@@ -319,9 +332,29 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(played.length, 1);
   assert.equal(played[0].voice, 'AniLiberty');
   assert.equal(played[0].streamType, 'm3u8');
-  assert.equal(played[0].streamUrl, 'https://api.test/stream/42.m3u8?audio=0');
+  assert.equal(played[0].streamUrl, 'https://api.test/stream/42.m3u8');
+  // One upstream resolution, but the descriptor carries every voice variant of the episode.
+  // The FULL "Voice · Quality · Provider" label is the canonical name (the balancer identity in
+  // it is information, not noise); the plain voice label and each candidate's OWN provider
+  // identity (the merged list spans AniLiberty + two Kodik sources) ride along — urls are the
+  // candidates' own links, never fabricated `?audio=N` variants of one stream.
+  const mergedQuery = { imdbId: null, kinopoiskId: null, originalTitle: null, title: 'Anime', tmdbId: null, type: null, year: null };
   assert.deepEqual(played[0].audios, [
-    { name: 'AniLiberty', url: 'https://api.test/stream/42.m3u8?audio=0' },
+    {
+      name: 'AniLiberty · 1080p · AniLiberty', label: 'AniLiberty · 1080p · AniLiberty',
+      voice: 'AniLiberty', providerId: 'aniliberty', sourceId: '42', query: mergedQuery,
+      url: 'https://api.test/playback?sourceId=42&ep=1',
+    },
+    {
+      name: 'AniDUB · 720p · Kodik', label: 'AniDUB · 720p · Kodik',
+      voice: 'AniDUB', providerId: 'kodik', sourceId: '43', query: mergedQuery,
+      url: 'https://api.test/playback?sourceId=43&ep=1',
+    },
+    {
+      name: 'SHIZA · 720p · Kodik', label: 'SHIZA · 720p · Kodik',
+      voice: 'SHIZA', providerId: 'kodik', sourceId: '44', query: mergedQuery,
+      url: 'https://api.test/playback?sourceId=44&ep=1',
+    },
   ]);
   const groupedPlaybackCalls = calls.filter(call => new URL(call.url).pathname === '/api/v1/playback');
   assert.deepEqual(groupedPlaybackCalls.map(call => call.body.sourceId), ['42']);

@@ -45,8 +45,31 @@ export function createPlaybackService({
     }
 
     const candidates = selected?.audios?.length ? selected.audios : [selected];
-    const selectedCandidateIndex = Math.max(0, candidates.findIndex(candidate =>
-      candidate?.id === selected?.selectedAudioId));
+    // An explicitly requested voice (the host sends episode.voice when the user switches the
+    // dub) beats the stored selectedAudioId — an explicit user request outranks a stored
+    // selection. Match case-insensitively against the candidate's plain voice label or its
+    // display name; the host may strip audio ids when forwarding a playlist item, so the
+    // voice/name match is also what keeps the selected dub alive across the round trip.
+    const normalizeVoice = (value) =>
+      (typeof value === 'string' && value.trim()) ? value.trim().toLowerCase() : null;
+    const requestedVoice = normalizeVoice(selected?.voice);
+    const byRequestedVoice = requestedVoice == null
+      ? -1
+      : candidates.findIndex(candidate =>
+          normalizeVoice(candidate?.voice) === requestedVoice
+          || normalizeVoice(candidate?.name) === requestedVoice);
+    const byId = candidates.findIndex(candidate =>
+      candidate?.id != null && candidate?.id === selected?.selectedAudioId);
+    let selectedCandidateIndex;
+    if (byRequestedVoice >= 0) {
+      selectedCandidateIndex = byRequestedVoice;
+    } else if (requestedVoice != null) {
+      // The requested dub is not among this episode's candidates — fail loudly so the host
+      // keeps the current audio instead of silently playing the wrong voice.
+      throw new Error(translate('playback.voiceNotFound', { voice: selected.voice }));
+    } else {
+      selectedCandidateIndex = byId >= 0 ? byId : 0;
+    }
     // Resolve ONLY the selected candidate. Every extra candidate is a separate upstream
     // resolution of a stream the player will not open — that is the "million requests" trap.
     const candidateToResolve = candidates[selectedCandidateIndex];
@@ -139,6 +162,7 @@ export function createPlaybackService({
         primary,
         primaryIndex,
         resolved,
+        candidates,
         stream,
         selected,
         context,
@@ -151,7 +175,7 @@ export function createPlaybackService({
     }
 
     // Full resolution — check cache for the selected candidate first
-    const settled = await Promise.allSettled([candidateToResolve].map(async (candidate, candidateIndex) => {
+    const settled = await Promise.allSettled([candidateToResolve].map(async (candidate) => {
       const target = {
         ...selected,
         ...candidate,
@@ -170,7 +194,7 @@ export function createPlaybackService({
       if (cached) {
         console.log('[Playback] resolvePlayback — cache HIT for', { id, src, season, episode });
         return {
-          candidateIndex,
+          candidateIndex: selectedCandidateIndex,
           target,
           response: cached,
           providerId: id,
@@ -198,7 +222,7 @@ export function createPlaybackService({
         });
       }
 
-      return { candidateIndex, target, response, providerId: id };
+      return { candidateIndex: selectedCandidateIndex, target, response, providerId: id };
     }));
     const resolved = settled.filter(result => result.status === 'fulfilled').map(result => result.value);
     if (!resolved.length) {
@@ -279,6 +303,7 @@ export function createPlaybackService({
       primary,
       primaryIndex,
       resolved,
+      candidates,
       stream,
       selected,
       context,
