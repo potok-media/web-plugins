@@ -16,5 +16,14 @@
     "category": "sources",
     "url": "https://potok-media.github.io/web-plugins/torrents-plugin",
     "official": true
+  },
+  {
+    "id": "potok-online-balancers",
+    "name": "Онлайн источники",
+    "author": "potok",
+    "description": "Онлайн источники для просмотра любимых произведений",
+    "category": "sourced",
+    "url": "https://online.potok.rip/plugin",
+    "official": true
   }
 ]
