@@ -49,21 +49,36 @@ http://SERVER:8090/plugin
 
 Манифест доступен по `http://SERVER:8090/plugin/manifest.json`, healthcheck — по `http://SERVER:8090/healthz`. Настраивать ключи, домены или параметры балансеров не требуется.
 
-## Обычный Docker Compose
+## Деплой (git clone → compose up)
+
+Требуется только Docker с плагином compose. Клонируем репозиторий, собираем образ и поднимаем сервис:
 
 ```bash
+git clone https://github.com/potok-media/web-plugins.git
+cd web-plugins/online-balancers
 docker compose up -d --build
 ```
 
-Остановить сервис:
+Готово — сервис слушает порт **8090**. В Potok добавьте каталог плагина:
+
+```text
+http://SERVER:8090/plugin
+```
+
+Проверка, что живо: `http://SERVER:8090/healthz`.
+
+Обновление на новую версию:
+
+```bash
+cd web-plugins/online-balancers
+git pull
+docker compose up -d --build
+```
+
+Остановить / посмотреть состояние:
 
 ```bash
 docker compose down
-```
-
-Посмотреть состояние:
-
-```bash
 docker compose ps
 docker compose logs -f online-balancers
 ```
