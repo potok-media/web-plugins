@@ -13,7 +13,9 @@ export function registerPlugin({ controller, renderLayout, searchService, episod
       if (Object.keys(response.errors).length > 0) {
         console.warn('[OnlineBalancers] Some providers failed:', response.errors);
       }
-      return response.items;
+      // Casting only annotates: ARM-bound sources carry workId/entryId, everything the providers
+      // returned stays in the output — bound first, uncast appended after.
+      return [...response.items, ...(response.unresolvedItems || [])];
     },
 
     getEpisodes(stream, context) {
@@ -26,6 +28,7 @@ export function registerPlugin({ controller, renderLayout, searchService, episod
         payload.episode,
         payload.context,
         payload.episodes,
+        payload.activeEpisodeId,
       );
     },
 

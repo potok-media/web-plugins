@@ -37,13 +37,30 @@ async function resolveWorkId(arm, context) {
   return resolved?.workId || null;
 }
 
+function tokenCount(value) {
+  return String(value || '').split(' ').length;
+}
+
+// A source title that is a suffix of the ARM entry title still identifies that entry: the
+// normalized source alias is contained in the normalized entry title ("TYBW — Conflict" inside
+// "Bleach: TYBW — Conflict"), which plain alias equality misses. Reverse containment is
+// deliberately NOT used: a longer source title may merely carry the franchise prefix and would
+// wrongly bind the parent entry. Guarded by a minimum token count (a bare franchise word binds
+// nothing) and by candidate uniqueness — an ambiguous containment binds nothing.
+function containedMatches(aliases, entries) {
+  return entries.filter(({ aliases: entryAliases }) =>
+    aliases.some(alias =>
+      tokenCount(alias) >= 2 && [...entryAliases].some(entryAlias =>
+        entryAlias !== alias && entryAlias.includes(alias))));
+}
+
 export async function castSourcesToArmEntries({ arm, context = {}, sources = [], locale = null }) {
-  if (!arm?.getEntries) return { items: sources, unresolvedItems: [], workId: null };
+  if (!arm?.getEntries) return { items: [], unresolvedItems: [...sources], workId: null };
   const workId = await resolveWorkId(arm, context);
   if (!workId) {
     return {
-      items: sources,
-      unresolvedItems: [],
+      items: [],
+      unresolvedItems: [...sources],
       workId: null,
     };
   }
@@ -57,8 +74,12 @@ export async function castSourcesToArmEntries({ arm, context = {}, sources = [],
 
   for (const source of sources) {
     const aliases = titleAliases(source);
-    const matches = entries.filter(candidate =>
+    let matches = entries.filter(candidate =>
       aliases.some(alias => candidate.aliases.has(alias)));
+    if (matches.length !== 1) {
+      const contained = containedMatches(aliases, entries);
+      matches = contained.length === 1 ? contained : [];
+    }
     if (matches.length === 1) {
       const entry = matches[0].entry;
       items.push({
@@ -74,7 +95,9 @@ export async function castSourcesToArmEntries({ arm, context = {}, sources = [],
         resolutionState: 'resolved',
       });
     } else {
-      items.push(source);
+      // Casting only adds metadata — uncast sources stay in the output (as unresolvedItems),
+      // the online page never hides a source the providers returned.
+      unresolvedItems.push(source);
     }
   }
 

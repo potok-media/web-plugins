@@ -69,7 +69,14 @@ export function createEpisodeService({ client, translate, accountVault = null, a
         if (result.status === 'fulfilled') successful.push({ stream: chunk[index], result: result.value });
       });
     }
-    const armLayout = await resolveAnimeArmLayout(arm, context).catch(() => null);
+    // The layout is scoped by the entry the OPENED SOURCE was cast to (group id === entryId) —
+    // a page-level entryId hint is deliberately NOT used: the online page shows every source,
+    // and each source's episodes are laid out by its own identified entry. Sources the casting
+    // could not bind keep the full-franchise layout (previous behavior).
+    const armLayout = await resolveAnimeArmLayout(
+      arm,
+      { ...context, entryId: group.entryId || undefined },
+    ).catch(() => null);
 
     if (!armLayout) {
       return { episodes: mergeEpisodeVariants(successful), arm: null };

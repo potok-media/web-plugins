@@ -127,7 +127,8 @@ export function createAppController({
     try {
       const result = await searchService.search(state.context);
       if (revision !== searchRevision) return;
-      state.items = result.items;
+      // Casting only annotates sources with ARM entryId — bound and uncast items display together.
+      state.items = [...result.items, ...(result.unresolvedItems || [])];
       state.errors = result.errors;
       state.status = 'ready';
     } catch (error) {

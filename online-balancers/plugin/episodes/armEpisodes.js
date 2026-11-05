@@ -42,7 +42,15 @@ export async function resolveAnimeArmLayout(arm, context = {}) {
   if (!workId) return null;
 
   const layout = await arm.getEpisodeLayout(workId);
-  const groups = canonicalGroups(layout);
+  let groups = canonicalGroups(layout);
+  // Scope to the entry the opened source was cast to (group id === entryId): with the full
+  // franchise layout a short block (TYBW 1–13) numerically fits the first group's episodes and
+  // gets mis-mapped. Empty filter result falls back to the full layout.
+  const entryId = context.entryId || context.arm?.entryId || null;
+  if (entryId) {
+    const scoped = groups.filter(group => group.id === entryId);
+    if (scoped.length) groups = scoped;
+  }
   if (!groups.length || !isAnimeLayout(groups)) return null;
 
   return {

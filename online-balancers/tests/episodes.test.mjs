@@ -141,3 +141,83 @@ test('episode loading stays usable when ARM cannot resolve the work', async () =
   assert.equal(result.episodes[0].url, '');
   assert.equal(result.episodes[0].streamUrl, undefined);
 });
+
+test('an ARM-cast source lays its episodes out by its own entry, not the franchise default', async () => {
+  const tv1Episodes = Array.from({ length: 366 }, (_, index) => ({
+    id: `tv1-arm-${index + 1}`,
+    number: index + 1,
+    title: `TV-1 episode ${index + 1}`,
+  }));
+  const tybwEpisodes = Array.from({ length: 13 }, (_, index) => ({
+    id: `tybw-arm-${index + 1}`,
+    number: index + 1,
+    title: `TYBW episode ${index + 1}`,
+  }));
+  const layout = {
+    graphVersion: 'bleach-graph',
+    groups: [
+      {
+        id: 'bleach-tv1', kind: 'season', number: 1, title: 'Блич [ТВ-1]', aniListId: 1,
+        episodes: tv1Episodes,
+      },
+      {
+        id: 'bleach-tybw-conflict', kind: 'season', number: 2,
+        title: 'Блич: Тысячелетняя кровавая война — Конфликт', aniListId: 2,
+        episodes: tybwEpisodes,
+      },
+    ],
+  };
+  const makeService = () => createEpisodeService({
+    client: {
+      async getEpisodes() {
+        return {
+          episodes: Array.from({ length: 13 }, (_, index) => ({
+            id: `raw-${index + 1}`,
+            season: 1,
+            number: index + 1,
+            title: `Raw ${index + 1}`,
+          })),
+          seasonsCount: 1,
+        };
+      },
+    },
+    arm: {
+      async resolveWork() {
+        return { workId: 'bleach-work', graphVersion: 'bleach-graph' };
+      },
+      async getEpisodeLayout(workId) {
+        assert.equal(workId, 'bleach-work');
+        return layout;
+      },
+    },
+    translate: (_key, values) => `Episode ${values.number}`,
+  });
+  const context = { type: 'tv', tmdbId: 76116, title: 'Блич: Тысячелетняя кровавая война — Конфликт' };
+
+  // The source was cast to the TYBW entry: its 13-episode block must land in the TYBW group
+  // even though the numbers 1–13 also exist in the TV-1 group (the user's Bleach bug).
+  const scoped = await makeService().fetchGroupedEpisodes({
+    id: 'arm:bleach-tybw-conflict',
+    entryId: 'bleach-tybw-conflict',
+    mediaType: 'tv',
+    variants: [{ id: 'animego:7', providerId: 'animego', provider: 'AnimeGo', sourceId: '7', query: {} }],
+  }, context);
+
+  assert.equal(scoped.episodes.length, 13);
+  assert.deepEqual([...new Set(scoped.episodes.map(episode => episode.entryId))], ['bleach-tybw-conflict']);
+  assert.equal(scoped.episodes[0].episode, 1);
+  assert.equal(scoped.episodes[12].episode, 13);
+  assert.equal(scoped.episodes[0].title, 'TYBW episode 1');
+  assert.equal(scoped.arm.state, 'resolved');
+  assert.equal(scoped.arm.workId, 'bleach-work');
+
+  // A source WITHOUT a cast entryId keeps the previous full-franchise behavior.
+  const unscoped = await makeService().fetchGroupedEpisodes({
+    id: 'group:unknown',
+    mediaType: 'tv',
+    variants: [{ id: 'kodik:1', providerId: 'kodik', provider: 'Kodik', sourceId: '1', query: {} }],
+  }, context);
+
+  assert.equal(unscoped.episodes.length, 13);
+  assert.deepEqual([...new Set(unscoped.episodes.map(episode => episode.entryId))], ['bleach-tv1']);
+});
