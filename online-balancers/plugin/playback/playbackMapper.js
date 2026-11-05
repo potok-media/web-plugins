@@ -53,6 +53,7 @@ export function createPlaybackPayload({
       entryId: ep.entryId,
       episodeIds: ep.episodeIds,
       targets: ep.targets,
+      filler: ep.filler ?? null,
       streamUrl: resolved?.streamUrl ?? ep?.streamUrl ?? ep?.url,
       headers: resolved?.headers ?? ep?.headers,
       // Voice variants travel with the item so host-side playlist navigation and voice switching

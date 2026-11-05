@@ -10,7 +10,7 @@ export function audioCandidate(stream, episode, audio, index) {
     name: [voice, quality, provider].filter(Boolean).join(' · '),
     // Never fall back to stream.url here: it is the plugin-internal
     // `online-balancers://` handle, not a playable link. Unresolved URLs stay
-    // empty so resolveEpisodeUrls can fetch real stream links later.
+    // empty — the play path resolves the selected episode on demand.
     url: audio?.url || episode?.url || '',
     locator: audio?.locator || episode?.locator || null,
     voice,

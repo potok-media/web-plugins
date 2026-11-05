@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { mergeEpisodeVariants } from '../plugin/episodes/mergeVariants.js';
-import { resolveEpisodeUrls } from '../plugin/episodes/episodesController.js';
 import { createPlaybackService } from '../plugin/playback/playbackController.js';
 import { createSessionStore } from '../plugin/playback/sessionStore.js';
 
@@ -20,6 +19,37 @@ const kodikStream = {
   streamUrl: pseudoUrl,
 };
 
+test('a host-forwarded episode carrying the owning PLUGIN id in providerId resolves via the stream slug', async () => {
+  let seenProvider = null;
+  const client = {
+    async resolvePlayback(selection) {
+      seenProvider = selection.provider;
+      return { streamUrl: 'https://cdn.test/s1e1.m3u8', streamType: 'm3u8' };
+    },
+  };
+  const episodeService = { fetchEpisodes: async () => ({ episodes: [] }) };
+  const service = createPlaybackService({
+    client,
+    episodeService,
+    sessionStore: createSessionStore(),
+    pluginId: 'potok-online-balancers',
+    translate: key => key,
+    playVideo: () => {},
+  });
+
+  // The web host addresses the sandbox with the plugin id and historically echoed it back in
+  // episode.providerId — the plugin must NOT treat its own id as a balancer slug.
+  await service.resolvePlayback(
+    kodikStream,
+    { id: '1:1', season: 1, episode: 1, providerId: 'potok-online-balancers', voice: 'Dub A' },
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    [],
+    '1:1',
+  );
+
+  assert.equal(seenProvider, 'kodik');
+});
+
 test('merged episodes never inherit the stream pseudo-url as a playable link', () => {
   const result = {
     episodes: [{
@@ -36,35 +66,6 @@ test('merged episodes never inherit the stream pseudo-url as a playable link', (
   assert.equal(merged.length, 1);
   assert.equal(merged[0].url, '');
   assert.equal(merged[0].audios[0].url, '');
-});
-
-test('resolveEpisodeUrls resolves pseudo-url episodes through the client', async () => {
-  const calls = [];
-  const client = {
-    async resolvePlayback(selection) {
-      calls.push(selection);
-      return { streamUrl: `https://cdn.test/${selection.episode}.m3u8`, streamType: 'm3u8' };
-    },
-  };
-  const episodes = [
-    { id: '1:1', season: 1, episode: 1, url: pseudoUrl, providerId: 'kodik', sourceId: 'serial-4898', query: {} },
-    { id: '1:2', season: 1, episode: 2, url: '', providerId: 'kodik', sourceId: 'serial-4898', query: {} },
-    { id: '1:3', season: 1, episode: 3, url: 'https://cdn.test/already.m3u8', providerId: 'kodik' },
-  ];
-
-  const { episodes: resolved, hasUrlResolution } = await resolveEpisodeUrls({
-    client,
-    episodes,
-    primaryProviderId: 'kodik',
-  });
-
-  assert.equal(hasUrlResolution, true);
-  assert.equal(resolved[0].url, 'https://cdn.test/1.m3u8');
-  assert.equal(resolved[0].streamUrl, 'https://cdn.test/1.m3u8');
-  assert.equal(resolved[1].url, 'https://cdn.test/2.m3u8');
-  assert.equal(resolved[2].url, 'https://cdn.test/already.m3u8');
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls.map(selection => selection.episode), [1, 2]);
 });
 
 test('playback payload resolves playlist episodes that only carry a pseudo streamUrl', async () => {
@@ -517,4 +518,110 @@ test('a cross-provider merged episode preserves per-candidate identity and re-re
       { name: 'AniLiberty · 1080p · AniLiberty', providerId: 'aniliberty', sourceId: '42', url: '' },
     ],
   );
+});
+
+
+test('playlist resolution is a sliding window: 3 before the selected episode, 5 after', async () => {
+  const calls = [];
+  const client = {
+    async resolvePlayback(selection) {
+      calls.push(selection);
+      return { streamUrl: `https://cdn.test/s${selection.season}e${selection.episode}.m3u8`, streamType: 'm3u8' };
+    },
+  };
+  const episodeService = { fetchEpisodes: async () => ({ episodes: [] }) };
+  const service = createPlaybackService({
+    client,
+    episodeService,
+    sessionStore: createSessionStore(),
+    pluginId: 'online-balancers',
+    translate: key => key,
+    playVideo: () => {},
+  });
+
+  const episodes = Array.from({ length: 10 }, (_, i) => ({
+    id: `1:${i + 1}`,
+    season: 1,
+    episode: i + 1,
+    providerId: 'kodik',
+    sourceId: 'serial-4898',
+    query: kodikStream.query,
+    url: pseudoUrl,
+  }));
+  const selected = episodes[4];
+
+  const payload = await service.resolvePlayback(
+    kodikStream,
+    selected,
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    episodes,
+    selected.id,
+  );
+
+  // Window = indices 1..9 (episodes 2..10): 3 before + selected + 5 after = 9 items. The
+  // selected episode itself is served from the just-populated cache, so upstream sees exactly
+  // 9 resolutions — NOT 10 (one per playlist item).
+  assert.equal(calls.length, 9);
+  assert.equal(payload.playlist.length, 10);
+  // Episode 1 (index 0) is OUTSIDE the window — it keeps the pseudo handle for click-time resolve.
+  assert.equal(payload.playlist[0].streamUrl, pseudoUrl);
+  // Everything inside the window is resolved, including the last episode (window end reaches it).
+  assert.equal(payload.playlist[4].streamUrl, 'https://cdn.test/s1e5.m3u8');
+  assert.equal(payload.playlist[9].streamUrl, 'https://cdn.test/s1e10.m3u8');
+});
+
+test('a window anchored at the first episode has no "before" part and a far jump re-windows', async () => {
+  const calls = [];
+  const client = {
+    async resolvePlayback(selection) {
+      calls.push(selection);
+      return { streamUrl: `https://cdn.test/s${selection.season}e${selection.episode}.m3u8`, streamType: 'm3u8' };
+    },
+  };
+  const episodeService = { fetchEpisodes: async () => ({ episodes: [] }) };
+  const service = createPlaybackService({
+    client,
+    episodeService,
+    sessionStore: createSessionStore(),
+    pluginId: 'online-balancers',
+    translate: key => key,
+    playVideo: () => {},
+  });
+
+  const episodes = Array.from({ length: 12 }, (_, i) => ({
+    id: `1:${i + 1}`,
+    season: 1,
+    episode: i + 1,
+    providerId: 'kodik',
+    sourceId: 'serial-4898',
+    query: kodikStream.query,
+    url: pseudoUrl,
+  }));
+
+  // Anchor at index 0 → window is exactly 6 items (0..5), no "before" slice to pad it.
+  const first = await service.resolvePlayback(
+    kodikStream,
+    episodes[0],
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    episodes,
+    '1:1',
+  );
+  assert.equal(calls.length, 6);
+  assert.equal(first.playlist[5].streamUrl, 'https://cdn.test/s1e6.m3u8');
+  assert.equal(first.playlist[6].streamUrl, pseudoUrl);
+
+  // Far jump to episode 12: new window = indices 8..11 (3 before + selected). Only episodes
+  // 1..6 were resolved before, so upstream sees 4 new resolutions: the primary 12 plus the
+  // not-yet-cached 9, 10 and 11 from the new window's "before" slice.
+  const jumped = await service.resolvePlayback(
+    kodikStream,
+    episodes[11],
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    episodes,
+    '1:12',
+  );
+  assert.equal(calls.length, 10);
+  assert.equal(jumped.streamUrl, 'https://cdn.test/s1e12.m3u8');
+  assert.equal(jumped.playlist[10].streamUrl, 'https://cdn.test/s1e11.m3u8');
+  assert.equal(jumped.playlist[7].streamUrl, pseudoUrl);
 });

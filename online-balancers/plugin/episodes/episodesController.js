@@ -1,55 +1,15 @@
-import { providerId, sourceId, sourceQuery, isPlayableUrl } from '../search/searchController.js';
+import { providerId, sourceId, sourceQuery } from '../search/searchController.js';
 import { mergeEpisodeVariants, movieEpisode } from './mergeVariants.js';
 import { providerAccountEnvelope } from '../accounts/accountVault.js';
 import { canonicalizeAnimeEpisodes, resolveAnimeArmLayout } from './armEpisodes.js';
 
 /**
- * Resolve all episodes that are missing a real stream URL.
- * Empty URLs and plugin-internal `online-balancers://` handles both count as unresolved.
- * @param {{ client: any, episodes: any[], accountVault: any, primaryProviderId?: string }} params
- * @returns {Promise<{ episodes: any[], hasUrlResolution: boolean }>}
- */
-export async function resolveEpisodeUrls({ client, episodes = [], accountVault = null, primaryProviderId = null }) {
-  const toResolve = episodes.filter(ep => !isPlayableUrl(ep.url));
-  if (!toResolve.length) return { episodes, hasUrlResolution: false };
-
-  const resolvedEpisodes = new Array(episodes.length).fill(null);
-  for (let i = 0; i < episodes.length; i++) {
-    resolvedEpisodes[i] = episodes[i];
-  }
-
-  const resolutionRequests = toResolve.map(async (ep) => {
-    const epProviderId = ep.providerId || primaryProviderId;
-    const account = epProviderId && accountVault
-      ? await accountVault.getAccount(epProviderId)
-      : null;
-    const season = ep.season ?? null;
-    const episode = typeof ep.episode === 'number' ? ep.episode : Number(ep.episode) || null;
-
-    const response = await client.resolvePlayback({
-      provider: epProviderId,
-      sourceId: ep.sourceId,
-      query: ep.query,
-      season,
-      episode,
-      voice: ep.voice || null,
-      ...(account ? { account: providerAccountEnvelope(epProviderId, account) } : {}),
-    });
-
-    if (response?.streamUrl) {
-      const idx = episodes.indexOf(ep);
-      if (idx !== -1) {
-        resolvedEpisodes[idx] = { ...resolvedEpisodes[idx], url: response.streamUrl, streamUrl: response.streamUrl };
-      }
-    }
-  });
-
-  await Promise.allSettled(resolutionRequests);
-
-  return { episodes: resolvedEpisodes, hasUrlResolution: true };
-}
-
-/**
+ * Episodes are presented to the host UNRESOLVED: items keep their provider-returned URL (when
+ * the balancer hands a direct link) or an empty/pseudo one. Nothing plays a panel item without
+ * routing through the plugin's play callback, and that path resolves the selected episode plus
+ * a small window around it (see playbackController) — resolving the whole list here fired one
+ * /api/v1/playback request per episode the moment the user merely opened the episode panel.
+ *
  * @param {{
  *   client: any,
  *   translate: (key: string, values?: Record<string, unknown>) => string,
@@ -112,14 +72,7 @@ export function createEpisodeService({ client, translate, accountVault = null, a
     const armLayout = await resolveAnimeArmLayout(arm, context).catch(() => null);
 
     if (!armLayout) {
-      const merged = mergeEpisodeVariants(successful);
-      const { episodes: resolvedEpisodes } = await resolveEpisodeUrls({
-        client,
-        episodes: merged,
-        accountVault,
-        primaryProviderId: successful[0]?.stream?.providerId || null,
-      });
-      return { episodes: resolvedEpisodes, arm: null };
+      return { episodes: mergeEpisodeVariants(successful), arm: null };
     }
 
     const canonicalized = successful.map(({ stream, result }) => {
@@ -136,15 +89,9 @@ export function createEpisodeService({ client, translate, accountVault = null, a
       }));
 
     const merged = mergeEpisodeVariants(canonical);
-    const { episodes: resolvedEpisodes } = await resolveEpisodeUrls({
-      client,
-      episodes: merged,
-      accountVault,
-      primaryProviderId: canonical[0]?.stream?.providerId || null,
-    });
 
     return {
-      episodes: resolvedEpisodes,
+      episodes: merged,
       unresolvedEpisodes,
       arm: {
         state: 'resolved',

@@ -1,6 +1,7 @@
 import { providerId, sourceId, sourceQuery, isPlayableUrl } from '../search/searchController.js';
 import { createPlaybackPayload } from './playbackMapper.js';
 import { providerAccountEnvelope } from '../accounts/accountVault.js';
+import { PLUGIN_ID } from '../constants.js';
 
 export function selectAudio(episode, audioId) {
   const audios = episode?.audios || [];
@@ -39,6 +40,13 @@ export function createPlaybackService({
       activeEpisodeId,
     });
     let selected = episode || stream;
+    // Host-side refs may carry the OWNING PLUGIN id in providerId (web uses that field to
+    // address the sandbox). It is NOT a balancer slug — resolving with it makes the backend
+    // reject the request ("Unknown online provider 'potok-online-balancers'"). Neutralize it;
+    // the real slug comes from sourceStream (or the matched candidate).
+    if (selected?.providerId === PLUGIN_ID) {
+      selected = { ...selected, providerId: undefined };
+    }
     if (!episode && selected?.episode == null && stream?.mediaType !== 'movie') {
       const episodeResponse = await episodeService.fetchEpisodes(stream, context);
       if (episodeResponse.episodes[0]) selected = episodeResponse.episodes[0];
@@ -181,8 +189,16 @@ export function createPlaybackService({
         ...candidate,
         voice: candidate?.voice || candidate?.name || selected?.voice || stream?.voice || null,
       };
-      const id = providerId(target) || providerId(stream);
-      const src = sourceId(target) || sourceId(stream);
+      // Provider for the resolve call: ONLY an explicit providerId on the target counts —
+      // episode ids like "1:1" (season:episode) must never be id-derived into a bogus slug,
+      // and the host may leave its own plugin id there (sanitized above). Fall back to the
+      // sourceStream's provider — the stream the user actually clicked.
+      const explicitTargetProvider =
+        typeof target?.providerId === 'string' && target.providerId ? target.providerId : null;
+      const explicitTargetSource =
+        typeof target?.sourceId === 'string' && target.sourceId ? target.sourceId : null;
+      const id = explicitTargetProvider || providerId(stream);
+      const src = explicitTargetSource || sourceId(stream);
       const season = target?.season ?? context?.season ?? null;
       const episode = target?.episode ?? context?.episode ?? null;
       const voice = target?.voice || null;
@@ -236,10 +252,37 @@ export function createPlaybackService({
       sessionStore.set(primary.response.session, primary.providerId);
     }
 
-    // Resolve all playlist episodes — skip only when a real http(s) stream URL is present.
-    // Plugin-internal `online-balancers://` handles must go through resolution.
-    const playlistEpisodes = episodes || [];
-    const primarySourceId = sourceId(primary.target) || sourceId(stream);
+    // Resolve ONLY a sliding window around the selected episode — 3 before, the selected one,
+    // 5 after (≤9 upstream resolutions per playback start). Resolving the whole list up front
+    // fires one backend/balancer request per episode (a 148-episode series = 148 requests at
+    // once). Episodes outside the window keep their pseudo `online-balancers://` handle in the
+    // playlist — the host resolves on click when the user jumps far away. Episodes with a real
+    // http(s) URL cost nothing and are still skipped below.
+    const allPlaylistEpisodes = episodes || [];
+    const WINDOW_BEFORE = 3;
+    const WINDOW_AFTER = 5;
+    const selectedSeason = selected?.season ?? context?.season ?? null;
+    const selectedEpisode = selected?.episode ?? context?.episode ?? null;
+    let windowAnchor = activeEpisodeId != null
+      ? allPlaylistEpisodes.findIndex(ep => String(ep.id) === String(activeEpisodeId))
+      : -1;
+    if (windowAnchor < 0 && selected?.id != null) {
+      windowAnchor = allPlaylistEpisodes.findIndex(ep => ep.id === selected.id);
+    }
+    if (windowAnchor < 0 && selectedEpisode != null) {
+      windowAnchor = allPlaylistEpisodes.findIndex(ep =>
+        (ep.season ?? null) === selectedSeason && (ep.episode ?? null) === selectedEpisode);
+    }
+    if (windowAnchor < 0) windowAnchor = 0;
+    const windowStart = Math.max(0, windowAnchor - WINDOW_BEFORE);
+    const windowEnd = Math.min(allPlaylistEpisodes.length, windowAnchor + WINDOW_AFTER + 1);
+    const playlistEpisodes = allPlaylistEpisodes.slice(windowStart, windowEnd);
+    // Explicit field only on the target — episode ids ("kodik:serial-16224:1:2") must not be
+    // id-derived into polluted sourceIds; the stream's sourceId is the correct fallback.
+    const primarySourceId =
+      (typeof primary.target?.sourceId === 'string' && primary.target.sourceId
+        ? primary.target.sourceId
+        : null) || sourceId(stream);
     const playlistResolverRequests = playlistEpisodes.map(async (ep) => {
       const existingUrl = ep?.streamUrl ?? ep?.url;
       if (isPlayableUrl(existingUrl)) {
@@ -293,9 +336,11 @@ export function createPlaybackService({
       }
     });
     console.log('[Playback] playlist episodes resolved', {
-      total: playlistEpisodes.length,
+      total: allPlaylistEpisodes.length,
+      window: playlistEpisodes.length,
+      windowStart,
+      windowAnchor,
       resolved: resolvedUrlMap.size,
-      urls: Object.fromEntries(resolvedUrlMap),
     });
 
     return createPlaybackPayload({

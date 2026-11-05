@@ -116,8 +116,8 @@ test('episode loading stays usable when ARM cannot resolve the work', async () =
           seasonsCount: 1,
         };
       },
-      async resolvePlayback({ provider, sourceId, season, episode }) {
-        return { streamUrl: `https://example.com/stream?${sourceId}&${season}x${episode}`, streamType: 'hls' };
+      async resolvePlayback() {
+        throw new Error('playback must not be resolved while merely loading the episode panel');
       },
     },
     arm: {
@@ -136,5 +136,8 @@ test('episode loading stays usable when ARM cannot resolve the work', async () =
 
   assert.equal(result.arm, null);
   assert.equal(result.episodes.length, 1);
-  assert.equal(result.episodes[0].streamUrl, 'https://example.com/stream?1&1x1');
+  // Panel items are presented UNRESOLVED — the play path resolves on demand, so opening the
+  // panel costs zero /api/v1/playback calls even when every episode lacks a direct URL.
+  assert.equal(result.episodes[0].url, '');
+  assert.equal(result.episodes[0].streamUrl, undefined);
 });
