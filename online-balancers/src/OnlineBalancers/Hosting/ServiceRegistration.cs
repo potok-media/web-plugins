@@ -9,9 +9,10 @@ public static class ServiceRegistration
     {
         services.AddMemoryCache();
         services.AddCors(options => options.AddDefaultPolicy(policy => policy
-            .AllowAnyOrigin()
+            .SetIsOriginAllowed(_ => true)
+            .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowAnyMethod()));
+            .AllowCredentials()));
         services.AddHttpClient("upstream", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(20);
