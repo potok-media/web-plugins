@@ -95,9 +95,18 @@ public sealed partial class KodikPlayerResolver(HttpClient http)
         using var request = new HttpRequestMessage(method, url) { Content = content };
         request.Headers.Referrer = new Uri(referer);
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new ProviderException(
+                $"Kodik request failed: {(int)response.StatusCode} {response.ReasonPhrase} " +
+                $"for {method.Method} {url}; body: {Truncate(body, 300)}");
+        }
         return await response.Content.ReadAsStringAsync(cancellationToken);
     }
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max] + "…";
 
     private static string JavaScriptValue(string input, string name) => Regex.Match(
         input,
