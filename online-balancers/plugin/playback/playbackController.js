@@ -405,8 +405,11 @@ export function createPlaybackService({
       onlineProviderId: payload.onlineProviderId,
     });
     if (typeof playVideo !== 'function') throw new Error(translate('playback.failed'));
-    console.log('[Playback] play — calling playVideo with payload');
-    playVideo(payload);
+    // The plugin page renders the InlinePlayer stage — request inline mounting so the host embeds
+    // the player there instead of lifting the fullscreen overlay.
+    const inlinePayload = { ...payload, mount: 'inline' };
+    console.log('[Playback] play — calling playVideo with payload (mount=inline)');
+    playVideo(inlinePayload);
     return payload;
   }
 

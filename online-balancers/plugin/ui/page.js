@@ -7,8 +7,8 @@ import {
   EmptyState,
   HStack,
   Icon,
+  InlinePlayer,
   Page,
-  PlaybackWorkspace,
   Text,
   VStack,
   t,
@@ -76,12 +76,13 @@ function pageContent({ state, actions, registry }) {
 
 export function buildPage({ state, actions, registry }) {
   // The episode panel is the host's job: while a source with episodes is open the plugin renders the
-  // playback stage only, and the host fills the workspace rail from the episodes presented by the
-  // controller (ui.presentEpisodes).
+  // playback stage only, and the host fills the stage rail from the episodes presented by the
+  // controller (ui.presentEpisodes). The InlinePlayer itself is host-rendered into the stage while
+  // the playback opened with mount='inline' (see playbackController).
   if (state.episodeSelectorOpen && state.selectedStream) {
-    const workspace = PlaybackWorkspace().style('online-playback-workspace');
-    if (state.selectedStream?.poster) workspace.backdropSrc(state.selectedStream.poster);
-    return workspace;
+    const stage = InlinePlayer().style('online-playback-workspace');
+    if (state.selectedStream?.poster) stage.backdropSrc(state.selectedStream.poster);
+    return stage;
   }
   const page = Page().style('online-page').child(
     VStack().spacing(20).style('online-shell').child(pageContent({ state, actions, registry })),

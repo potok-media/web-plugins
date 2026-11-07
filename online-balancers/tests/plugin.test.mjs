@@ -333,7 +333,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
   // The plugin renders the playback stage only — the episode panel is the host's job now, fed with
   // the episodes presented below (ui.presentEpisodes).
   const selectorWorkspace = rendered.at(-1).layout;
-  assert.equal(selectorWorkspace.type, 'PlaybackWorkspace');
+  assert.equal(selectorWorkspace.type, 'InlinePlayer');
   assert.equal(selectorWorkspace.childrenList.length, 0);
   assert.equal(presented.length, 1);
   const panel = presented[0];
@@ -351,9 +351,10 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.deepEqual(presented[1].episodes.map(episode => episode.id), ['1:2', '1:1']);
 
   presented[1].onPlay(presented[1].episodes[1]);
-  assert.equal(rendered.at(-1).layout.type, 'PlaybackWorkspace');
+  assert.equal(rendered.at(-1).layout.type, 'InlinePlayer');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(played.length, 1);
+  assert.equal(played[0].mount, 'inline');
   assert.equal(played[0].voice, 'AniLiberty');
   assert.equal(played[0].streamType, 'm3u8');
   assert.equal(played[0].streamUrl, 'https://api.test/stream/42.m3u8');
