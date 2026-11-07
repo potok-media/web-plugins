@@ -2,15 +2,20 @@
 
 Самодостаточный плагин Potok и лёгкий ASP.NET Core Minimal API для онлайн-источников фильмов, сериалов и аниме:
 
+- AniDUB;
 - AniLiberty;
+- Animevost;
 - Kodik;
+- LordFilm;
 - AnimeGo;
+- AnimeON (украинский сервис, geo-hide RU/BY);
 - VideoHUB;
-- LeProduction;
 - VeoVeo;
 - Alloha (аккаунт пользователя);
+- Filmix (аккаунт пользователя, device-code flow);
 - KinoWatch (KinoPub, аккаунт пользователя);
-- Rezka (аккаунт пользователя).
+- Rezka (аккаунт пользователя);
+- AnimeLib (**18+**, adult-контент).
 
 `web` для работы плагина менять не требуется. Браузерный код плагина только вызывает этот сервис, а сервис ищет релизы, собирает серии, обновляет временные ссылки и проксирует HLS вместе с нужными `Origin`/`Referer`.
 

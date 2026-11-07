@@ -45,7 +45,10 @@ public sealed record ProviderRequestContext(ProviderAccount? Account)
 public sealed record SearchRequest(
     MediaQuery Query,
     IReadOnlyList<string>? Providers = null,
-    ProviderAccount? Account = null);
+    ProviderAccount? Account = null,
+    // Per-provider accounts: a client with several connected account providers sends one
+    // streaming request and the coordinator matches each provider its own account.
+    IReadOnlyDictionary<string, ProviderAccount>? Accounts = null);
 
 public sealed record SourceSelection(string SourceId, MediaQuery Query);
 

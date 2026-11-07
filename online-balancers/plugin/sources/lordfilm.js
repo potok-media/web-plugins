@@ -1,8 +1,9 @@
 import { defineSource } from './defineSource.js';
 
-export const leproduction = defineSource({
-  id: 'leproduction',
-  name: 'LeProduction',
+export const lordfilm = defineSource({
+  id: 'lordfilm',
+  name: 'LordFilm',
+  slow: true,
   category: 'movies',
   capabilities: { movies: true, series: true },
 });

@@ -6,18 +6,32 @@ import { createSourceRegistry, sourceRegistry } from '../plugin/sources/registry
 
 test('source registry exposes each backend source as an independent descriptor', () => {
   assert.deepEqual(sourceRegistry.ids, [
+    'anidub',
     'aniliberty',
+    'animevost',
     'kodik',
+    'lordfilm',
     'animego',
     'videohub',
-    'leproduction',
+    'animeon',
+    'animelib',
     'veoveo',
     'alloha',
+    'filmix',
     'kinopub',
     'rezka',
   ]);
   assert.equal(sourceRegistry.get('kodik').name, 'Kodik');
-  assert.deepEqual(sourceRegistry.accounts.map(source => source.id), ['alloha', 'kinopub', 'rezka']);
+  assert.deepEqual(sourceRegistry.accounts.map(source => source.id), ['alloha', 'filmix', 'kinopub', 'rezka']);
+  assert.equal(sourceRegistry.get('animelib').adult, true);
+  assert.equal(sourceRegistry.get('animeon').adult, false);
+  // HTML scrapers ride the slow batch; API-backed sources are fast.
+  assert.deepEqual(
+    sourceRegistry.ids.filter(id => sourceRegistry.get(id).slow),
+    ['anidub', 'animevost', 'lordfilm', 'animego'],
+  );
+  assert.equal(sourceRegistry.get('kodik').slow, false);
+  assert.equal(sourceRegistry.get('aniliberty').slow, false);
   assert.equal(sourceRegistry.get('kinopub').name, 'KinoWatch (KinoPub)');
   assert.equal(sourceRegistry.get('kinopub').authMode, 'device-code');
   assert.equal(sourceRegistry.has('missing'), false);

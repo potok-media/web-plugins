@@ -118,6 +118,44 @@ function providerControls(state, provider, actions) {
         .variant('primary')
         .onClick(actions.startKinoPub));
     }
+  } else if (providerId === 'filmix') {
+    // Filmix device flow: the API has no activation-status poll, so the account is stored
+    // on explicit user confirmation (no auto-polling).
+    items.push(Text(t('accounts.filmixHint')).variant('secondary'));
+    if (!state.filmixDevice && state.accountStatus === 'idle') {
+      actions.startFilmix();
+    }
+    if (state.filmixDevice) {
+      const { userCode, verificationUri } = state.filmixDevice;
+      items.push(HStack().spacing(12).children([
+        Text(userCode).style('online-activation-code'),
+        Button(t('accounts.kinopubCopyCode'))
+          .variant('secondary')
+          .icon('copy')
+          .onClick(() => {
+            PotokSDK.ui.copyText(userCode);
+            PotokSDK.ui.showHUD('success', t('accounts.kinopubCopyCode'));
+          }),
+      ]));
+      items.push(Divider());
+      items.push(HStack().spacing(8).children([
+        Text(verificationUri).style('online-activation-link'),
+        Button(t('accounts.openUrl'))
+          .variant('ghost')
+          .icon('external-link')
+          .onClick(() => { PotokSDK.ui.openUrl(verificationUri); }),
+      ]));
+      items.push(Button(t('accounts.kinopubConfirm'))
+        .variant('primary')
+        .style('online-confirm-btn')
+        .onClick(actions.confirmFilmix));
+    } else {
+      items.push(Button(state.accountStatus === 'loading'
+        ? t('accounts.opening')
+        : t('accounts.kinopubStart'))
+        .variant('primary')
+        .onClick(actions.startFilmix));
+    }
   } else if (providerId === 'rezka') {
     items.push(
       Alert(t('accounts.rezkaWarning')).variant('warning').icon('triangle-alert'),

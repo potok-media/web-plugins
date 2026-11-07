@@ -116,20 +116,42 @@ export function createAppController({
     emit();
   }
 
+  // Every provider starts 'loading'; account providers without a stored account are
+  // 'locked' up front (their chips open the accounts modal instead of searching).
+  async function initProviderStatus() {
+    const status = {};
+    for (const source of registry?.free ?? []) status[source.id] = { status: 'loading' };
+    for (const source of registry?.accounts ?? []) {
+      const account = await accountVault?.getAccount(source.id);
+      status[source.id] = account ? { status: 'loading' } : { status: 'locked' };
+    }
+    return status;
+  }
+
   async function runSearch(renderLoading = true) {
     const revision = ++searchRevision;
     state.status = 'loading';
     state.error = '';
     state.errors = {};
     state.items = [];
+    state.providerStatus = await initProviderStatus();
+    state.expandedTails = {};
     resetPageFilters(state);
     if (renderLoading) emit();
     try {
-      const result = await searchService.search(state.context);
+      const result = await searchService.search(state.context, progress => {
+        if (revision !== searchRevision) return;
+        // Partial emission: items so far (uncast — the ARM cast lands with the final
+        // result), cards appear immediately and provider chips settle as they respond.
+        state.items = progress.items;
+        applyProgress(progress);
+        emit();
+      });
       if (revision !== searchRevision) return;
       // Casting only annotates sources with ARM entryId — bound and uncast items display together.
       state.items = [...result.items, ...(result.unresolvedItems || [])];
       state.errors = result.errors;
+      finalizeProviderStatus();
       state.status = 'ready';
     } catch (error) {
       if (revision !== searchRevision) return;
@@ -137,6 +159,25 @@ export function createAppController({
       state.error = error instanceof Error ? error.message : String(error);
     }
     emit();
+  }
+
+  function applyProgress(progress) {
+    for (const item of progress.items) {
+      if (state.providerStatus[item.providerId]?.status === 'loading') {
+        state.providerStatus[item.providerId] = { status: 'ok' };
+      }
+    }
+    for (const [providerId, message] of Object.entries(progress.errors)) {
+      state.providerStatus[providerId] = { status: 'error', error: message };
+    }
+    // Providers still 'loading' after the stream ends answered empty — finalizeProviderStatus
+    // flips them when the search promise resolves.
+  }
+
+  function finalizeProviderStatus() {
+    for (const [providerId, entry] of Object.entries(state.providerStatus)) {
+      if (entry.status === 'loading') state.providerStatus[providerId] = { status: 'empty' };
+    }
   }
 
   function applyRoute(props) {
@@ -152,6 +193,8 @@ export function createAppController({
     state.items = [];
     state.errors = {};
     state.error = '';
+    state.providerStatus = {};
+    state.expandedTails = {};
     resetPageFilters(state);
     resetPageSelection(state);
     ui.dismissEpisodes?.();
@@ -230,6 +273,33 @@ export function createAppController({
 
   const actions = Object.freeze({
     retrySearch() { return runSearch(true); },
+    // Soft-error retry: re-runs ONE provider against the current query and merges its
+    // items in place of the previous attempt's — no full refetch.
+    async retryProvider(providerId) {
+      const revision = searchRevision;
+      if (state.providerStatus[providerId]?.status !== 'error') return;
+      state.providerStatus[providerId] = { status: 'loading' };
+      emit();
+      const result = await searchService.searchProvider(state.context, providerId);
+      if (revision !== searchRevision) return;
+      if (result.error === 'locked') {
+        state.providerStatus[providerId] = { status: 'locked' };
+      } else if (result.error) {
+        state.providerStatus[providerId] = { status: 'error', error: result.error };
+        delete state.errors[providerId];
+      } else {
+        state.items = [
+          ...state.items.filter(item => item.providerId !== providerId),
+          ...result.items,
+        ];
+        state.providerStatus[providerId] = { status: result.items.length ? 'ok' : 'empty' };
+      }
+      emit();
+    },
+    toggleTail(groupId) {
+      state.expandedTails[groupId] = !state.expandedTails[groupId];
+      emit();
+    },
     openSource,
     closeEpisodeSelector() {
       ui.dismissEpisodes?.();
@@ -320,6 +390,25 @@ export function createAppController({
         const result = await client.pollKinoPubDevice(state.kinoPubDevice.code);
         if (result.account) {
           await finishAccountChange('kinopub', result.account.values);
+        }
+      });
+    },
+    startFilmix() {
+      void runAccountAction(async () => {
+        const device = await client.startFilmixDevice();
+        state.filmixDevice = device;
+        state.accountStatus = 'ready';
+        emit();
+      });
+    },
+    // Filmix exposes no activation-status endpoint: the account is stored when the user
+    // confirms they entered the code on the site.
+    confirmFilmix() {
+      if (!state.filmixDevice?.code) return;
+      void runAccountAction(async () => {
+        const result = await client.pollFilmixDevice(state.filmixDevice.code);
+        if (result.account) {
+          await finishAccountChange('filmix', result.account.values);
         }
       });
     },

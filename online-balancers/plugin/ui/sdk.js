@@ -3,15 +3,20 @@ import { I18N_NAMESPACE } from '../constants.js';
 
 export const {
   Alert,
+  Badge,
   Button,
   Card,
+  Chip,
   ContentCard,
   Divider,
   EmptyState,
   EpisodeSelector,
   Grid,
   HStack,
+  Icon,
+  Image,
   Input,
+  LoadingSpinner,
   Modal,
   Page,
   PlaybackWorkspace,
@@ -19,6 +24,7 @@ export const {
   SectionHeader,
   Skeleton,
   Text,
+  Tooltip,
   VStack,
 } = PotokSDK.ui.components;
 

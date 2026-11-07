@@ -7,7 +7,9 @@ public sealed record ProviderDescriptor(
     string Name,
     string Category = "general",
     string Access = "free",
-    string? AuthMode = null)
+    string? AuthMode = null,
+    bool Adult = false,
+    bool Slow = false)
 {
     public bool RequiresAccount => string.Equals(Access, "account", StringComparison.OrdinalIgnoreCase);
 }
@@ -46,6 +48,19 @@ public sealed record ResolvedPlayback(
     IReadOnlyDictionary<string, string>? Headers = null);
 
 public sealed record SearchResponse(IReadOnlyList<SourceItem> Items, IReadOnlyDictionary<string, string> Errors);
+
+/// <summary>
+/// One NDJSON line of the streaming search response: a provider's result (or soft error)
+/// as soon as it finishes. The stream always ends with a "done" chunk carrying the full
+/// ranked SearchResponse.
+/// </summary>
+public sealed record ProviderSearchChunk(
+    string Type,
+    string Provider,
+    IReadOnlyList<SourceItem>? Items = null,
+    string? Error = null);
+
+public sealed record SearchDoneChunk(string Type, SearchResponse Response);
 
 public sealed record PlaybackResponse(
     string StreamUrl,

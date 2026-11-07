@@ -1,5 +1,8 @@
 using System.Net;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using OnlineBalancers.Providers;
 
 namespace OnlineBalancers;
 
@@ -35,11 +38,17 @@ public static class ServiceRegistration
                 var http = serviceProvider
                     .GetRequiredService<IHttpClientFactory>()
                     .CreateClient("upstream");
-                return (IOnlineProvider)ActivatorUtilities.CreateInstance(
+                var inner = (IOnlineProvider)ActivatorUtilities.CreateInstance(
                     serviceProvider,
                     implementationType,
                     http,
                     serviceProvider.GetRequiredService<IMemoryCache>());
+                // Failure-only structured logging around every provider call (see the
+                // decorator): diagnostics in docker logs without changing API behavior.
+                return new LoggingOnlineProvider(
+                    inner,
+                    inner.Id,
+                    serviceProvider.GetRequiredService<ILogger<LoggingOnlineProvider>>());
             });
         }
 
@@ -54,6 +63,9 @@ public static class ServiceRegistration
     private static IReadOnlyList<Type> DiscoverProviderTypes() => typeof(IOnlineProvider).Assembly
         .GetTypes()
         .Where(type => typeof(IOnlineProvider).IsAssignableFrom(type) && type is { IsClass: true, IsAbstract: false })
+        // The logging decorator is applied by the registration loop itself — it must never
+        // be discovered as a provider implementation.
+        .Where(type => type != typeof(LoggingOnlineProvider))
         .OrderBy(type => type.FullName, StringComparer.Ordinal)
         .ToArray();
 }

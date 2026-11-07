@@ -1,10 +1,15 @@
+import { anidub } from './anidub.js';
 import { aniliberty } from './aniliberty.js';
+import { animevost } from './animevost.js';
 import { animego } from './animego.js';
+import { animeon } from './animeon.js';
+import { animelib } from './animelib.js';
 import { kodik } from './kodik.js';
+import { lordfilm } from './lordfilm.js';
 import { videohub } from './videohub.js';
-import { leproduction } from './leproduction.js';
 import { veoveo } from './veoveo.js';
 import { alloha } from './alloha.js';
+import { filmix } from './filmix.js';
 import { kinopub } from './kinopub.js';
 import { rezka } from './rezka.js';
 
@@ -26,13 +31,18 @@ export function createSourceRegistry(sources) {
 }
 
 export const sourceRegistry = createSourceRegistry([
+  anidub,
   aniliberty,
+  animevost,
   kodik,
+  lordfilm,
   animego,
   videohub,
-  leproduction,
+  animeon,
+  animelib,
   veoveo,
   alloha,
+  filmix,
   kinopub,
   rezka,
 ]);

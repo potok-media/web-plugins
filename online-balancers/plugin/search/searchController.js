@@ -54,40 +54,44 @@ export function mapSource(item, query) {
 
 export function createSearchService({ client, registry, accountVault = null, arm = null, getLocale = null }) {
   return Object.freeze({
-    async search(query) {
+    // Streaming search: ONE request to the backend; every provider result/error arrives
+    // as an NDJSON chunk and is forwarded to onProgress immediately (cards and chips
+    // render as providers finish). The final return value is unchanged (all items,
+    // ARM-cast, plus errors).
+    async search(query, onProgress = null) {
       const normalizedQuery = mediaQuery(query);
-      const requests = [];
-      if (registry.free.length) requests.push({
-        ids: registry.free.map(source => source.id),
-        promise: client.search(normalizedQuery, registry.free.map(source => source.id)),
-      });
+      const providerIds = registry.free.map(source => source.id);
+      const accounts = {};
       if (accountVault) {
         for (const source of registry.accounts) {
-          const account = await accountVault.getAccount(source.id);
-          if (!account) continue;
-          requests.push({
-            ids: [source.id],
-            promise: client.search(
-              normalizedQuery,
-              [source.id],
-              providerAccountEnvelope(source.id, account),
-            ),
-          });
+          const stored = await accountVault.getAccount(source.id);
+          if (!stored) continue;
+          providerIds.push(source.id);
+          accounts[source.id] = providerAccountEnvelope(source.id, stored);
         }
       }
-      const settled = await Promise.allSettled(requests.map(request => request.promise));
-      const response = settled.reduce((combined, result, index) => {
-        if (result.status === 'fulfilled') {
-          combined.items.push(...(result.value.items || []));
-          Object.assign(combined.errors, result.value.errors || {});
+
+      const combined = { items: [], errors: {} };
+      const handleChunk = (chunk) => {
+        if (!onProgress) return;
+        if (chunk.type === 'provider' && Array.isArray(chunk.items)) {
+          combined.items.push(...chunk.items.map(item => mapSource(item, normalizedQuery)));
+        } else if (chunk.type === 'provider-error' && chunk.provider) {
+          combined.errors[chunk.provider] = chunk.error || 'error';
         } else {
-          for (const id of requests[index].ids) {
-            combined.errors[id] = result.reason instanceof Error ? result.reason.message : String(result.reason);
-          }
+          return;
         }
-        return combined;
-      }, { items: [], errors: {} });
-      const mappedItems = (response.items || []).map(item => mapSource(item, normalizedQuery));
+        onProgress({ items: combined.items, errors: { ...combined.errors } });
+      };
+
+      const finalResponse = await client.search(
+        normalizedQuery,
+        providerIds,
+        handleChunk,
+        Object.keys(accounts).length ? accounts : null,
+      );
+
+      const mappedItems = (finalResponse.items || []).map(item => mapSource(item, normalizedQuery));
       const cast = await castSourcesToArmEntries({
         arm,
         context: normalizedQuery,
@@ -97,8 +101,40 @@ export function createSearchService({ client, registry, accountVault = null, arm
       return {
         items: cast.items,
         unresolvedItems: cast.unresolvedItems,
-        errors: response.errors || {},
+        errors: finalResponse.errors || {},
       };
+    },
+
+    // One-provider refresh (soft-error retry). Reuses the same client path with a
+    // single-element provider set; account providers need their stored account.
+    async searchProvider(query, providerId) {
+      const normalizedQuery = mediaQuery(query);
+      const source = [...registry.free, ...registry.accounts]
+        .find(candidate => candidate.id === providerId);
+      if (!source) throw new Error(`Unknown online source '${providerId}'`);
+
+      let account = null;
+      if (registry.accounts.some(candidate => candidate.id === providerId)) {
+        const stored = await accountVault?.getAccount(providerId);
+        if (!stored) return { items: [], error: 'locked', errors: {} };
+        account = providerAccountEnvelope(providerId, stored);
+      }
+
+      try {
+        const value = await client.search(
+          normalizedQuery,
+          [providerId],
+          null,
+          account ? { [providerId]: account } : null,
+        );
+        return {
+          items: (value.items || []).map(item => mapSource(item, normalizedQuery)),
+          error: null,
+          errors: value.errors || {},
+        };
+      } catch (reason) {
+        return { items: [], error: reason instanceof Error ? reason.message : String(reason), errors: {} };
+      }
     },
   });
 }

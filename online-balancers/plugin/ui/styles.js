@@ -170,8 +170,6 @@ export function installStyles() {
       outline-offset: 0.2rem;
     }
 
-    .online-page .online-poster-skeleton { min-height: 15rem; }
-
     @media (max-width: 1100px) {
       .online-page .online-results-toolbar {
         flex-wrap: wrap !important;
@@ -197,6 +195,107 @@ export function installStyles() {
         flex-wrap: wrap !important;
       }
     }
+
+      /* Result cards with provider chips (mock-driven layout; the host restyles on port). */
+      .online-page .online-results-list,
+      .online-page .online-loading-list { width: 100%; }
+
+      /* ── Reference header: brand + query pill, filters row beneath ── */
+      .online-page .online-header { width: 100%; align-items: center; flex-wrap: wrap; flex: 0 0 auto; }
+      .online-page .online-brand { flex: 0 0 auto; font-size: 1.0625rem; font-weight: 700; letter-spacing: .3px; }
+      .online-page .online-brand-base { color: var(--text-primary); }
+      .online-page .online-brand-accent { color: var(--accent); }
+      .online-page .online-query-pill {
+        flex: 1 1 auto; min-width: 12rem;
+        display: flex; align-items: center; gap: .5rem;
+        background: var(--bg-surface, rgba(255, 255, 255, 0.04));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: .625rem;
+        padding: .5625rem .875rem;
+        color: var(--text-secondary);
+      }
+      .online-page .online-query-pill-text {
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        color: var(--text-primary);
+      }
+      .online-page .online-filters-row { width: 100%; align-items: center; flex-wrap: wrap; flex: 0 0 auto; }
+      .online-page .online-filters-row .online-filter-row {
+        margin-left: 0;
+        justify-content: flex-start !important;
+        flex-wrap: wrap !important;
+      }
+
+      /* Badges: small uppercase text labels next to the title — no boxes. */
+      .online-page .online-badge-adult,
+      .online-page .online-badge-adult * {
+        background: transparent !important;
+        color: #e5534b !important;
+        font-size: 0.625rem !important;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 0 2px !important;
+        border-radius: 0 !important;
+        line-height: inherit;
+      }
+
+      /* Poster grid cards (the classic results view). */
+      .online-page .online-results-grid { width: 100%; align-items: start; }
+      .online-page .online-grid-card {
+        position: relative;
+        width: 100%;
+        min-width: 0;
+        flex: 0 0 auto;
+      }
+      .online-page .online-grid-poster-wrap { position: relative; width: 100%; flex: 0 0 auto; }
+      .online-page .online-grid-provider-badge,
+      .online-page .online-grid-provider-badge * {
+        position: absolute !important;
+        top: 0.375rem;
+        right: 0.375rem;
+        background: rgba(10, 11, 16, 0.72) !important;
+        color: var(--text-primary) !important;
+        font-size: 0.625rem !important;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        padding: 2px 8px !important;
+        border-radius: 999px !important;
+        line-height: 1.4;
+        backdrop-filter: blur(4px);
+      }
+      .online-page .online-grid-poster {
+        width: 100%;
+        aspect-ratio: 2 / 3;
+        object-fit: cover;
+        display: block;
+        flex: 0 0 auto;
+      }
+      .online-page .online-grid-title-row { flex-wrap: wrap; width: 100%; flex: 0 0 auto; }
+      .online-page .online-grid-title { font-weight: 600; font-size: 0.875rem; }
+      .online-page .online-grid-meta { font-size: 0.75rem; opacity: 0.7; width: 100%; flex: 0 0 auto; }
+      .online-page .online-grid-hit {
+        position: absolute;
+        inset: 0;
+        width: 100% !important;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+        border-radius: var(--radius-m, 0.75rem);
+      }
+      .online-page .online-result-selected .online-grid-poster {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .online-page .online-poster-skeleton { min-height: 15rem; }
+
+      .online-page .online-progress-pill {
+        padding: 0.125rem 0.5rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        font-size: 0.75rem;
+        opacity: 0.85;
+      }
+      .online-page .online-progress-pill-error { color: var(--warning, #d9a03f); }
 
     @media (max-width: 720px) {
       .online-page .online-results-heading { min-width: 100%; }

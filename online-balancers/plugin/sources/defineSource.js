@@ -9,6 +9,8 @@ export function defineSource(definition) {
     category: definition.category || 'general',
     access: definition.access === 'account' ? 'account' : 'free',
     authMode: definition.authMode || null,
+    adult: definition.adult === true,
+    slow: definition.slow === true,
     capabilities: Object.freeze({
       movies: definition.capabilities?.movies !== false,
       series: definition.capabilities?.series !== false,

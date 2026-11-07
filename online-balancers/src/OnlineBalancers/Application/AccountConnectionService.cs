@@ -9,6 +9,7 @@ public sealed class AccountConnectionService(IHttpClientFactory clients)
     private const string KinoPubHost = "https://api.srvkp.com";
     private const string KinoPubClientId = "xbmc";
     private const string KinoPubClientSecret = "cgg3gtifu46urtfp2zp1nqtba0k2ezxh";
+    private const string FilmixHost = "https://filmix.my";
 
     public async Task<DeviceCodeResponse> StartKinoPubAsync(CancellationToken cancellationToken)
     {
@@ -38,6 +39,37 @@ public sealed class AccountConnectionService(IHttpClientFactory clients)
         return new AccountConnectionResponse(new ProviderAccount(
             "kinopub",
             new Dictionary<string, string> { ["accessToken"] = token }));
+    }
+
+    // Filmix exposes no activation-status endpoint (the lampac flow shows a user_code and
+    // the issued `code` simply becomes the token once the user links the device on the
+    // site). Start issues the pair; poll stores the code as the access token — the first
+    // provider call validates it for real and surfaces a clear error if the user has not
+    // activated yet.
+    public async Task<DeviceCodeResponse> StartFilmixAsync(CancellationToken cancellationToken)
+    {
+        var deviceId = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
+        var url = $"{FilmixHost}/api/v2/token_request?user_dev_apk=2.2.13&user_dev_id={deviceId}" +
+            "&user_dev_name=Xiaomi&user_dev_os=12&user_dev_vendor=Xiaomi&user_dev_token=";
+        using var root = await GetJsonAsync(url, cancellationToken);
+        var element = root.RootElement;
+        return new DeviceCodeResponse(
+            RequiredString(element, "code"),
+            RequiredString(element, "user_code"),
+            "https://filmix.my/consoles",
+            null,
+            null);
+    }
+
+    public Task<AccountConnectionResponse> PollFilmixAsync(
+        KinoPubDevicePollRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Code) || request.Code.Length > 512)
+            throw new ProviderException("Filmix device code is invalid.");
+        return Task.FromResult(new AccountConnectionResponse(new ProviderAccount(
+            "filmix",
+            new Dictionary<string, string> { ["accessToken"] = request.Code })));
     }
 
     public async Task<AccountConnectionResponse> LoginRezkaAsync(
@@ -91,6 +123,15 @@ public sealed class AccountConnectionService(IHttpClientFactory clients)
         };
         using var response = await clients.CreateClient("upstream")
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: cancellationToken)
+            ?? throw new ProviderException("Account provider returned an empty response.");
+    }
+
+    private async Task<JsonDocument> GetJsonAsync(string url, CancellationToken cancellationToken)
+    {
+        using var response = await clients.CreateClient("upstream")
+            .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: cancellationToken)
             ?? throw new ProviderException("Account provider returned an empty response.");

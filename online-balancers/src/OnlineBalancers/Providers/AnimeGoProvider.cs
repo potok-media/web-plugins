@@ -12,6 +12,9 @@ public sealed partial class AnimeGoProvider(HttpClient http, IMemoryCache? cache
 
     public string Id => "animego";
     public string Name => "AnimeGo";
+    // HTML scraping of the search page — slower than the API-backed sources, searched in
+    // the second (slow) plugin batch.
+    public ProviderDescriptor Descriptor => new(Id, Name, "anime", Slow: true);
 
     public Task<IReadOnlyList<SourceItem>> SearchAsync(MediaQuery query, CancellationToken cancellationToken)
     {

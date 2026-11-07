@@ -25,6 +25,19 @@ internal static class SearchResultRanker
             .ToArray();
     }
 
+    /// <summary>
+    /// Per-item relevance gate — the same predicate FilterAndRank applies (media type, year,
+    /// title-alias score &gt; 0). Streaming chunks are pre-filtered with this so mid-flight
+    /// renders never show off-target results that the final ranked response would drop.
+    /// </summary>
+    public static bool IsRelevant(MediaQuery query, SourceItem item)
+    {
+        var queryAliases = Aliases(query.Title, query.OriginalTitle, LocalizedTitleBonus);
+        if (queryAliases.Count == 0)
+            return true;
+        return Score(query, queryAliases, item) > 0;
+    }
+
     private static int Score(
         MediaQuery query,
         IReadOnlyList<TitleAlias> queryAliases,

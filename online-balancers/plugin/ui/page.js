@@ -1,43 +1,45 @@
 import { groupSources } from '../search/grouping.js';
 import { buildFilters } from './filters.js';
-import { loadingGrid, resultGrid } from './results.js';
+import { loadingGrid, resultList } from './results.js';
 import { accountsButton, accountsModal } from './accounts.js';
 import {
   Alert,
   EmptyState,
   HStack,
+  Icon,
   Page,
   PlaybackWorkspace,
-  SectionHeader,
+  Text,
   VStack,
   t,
 } from './sdk.js';
 
 function pageContent({ state, actions, registry }) {
   const groups = groupSources(state.items);
-  const subtitle = state.status === 'loading'
-    ? t('search.loading', { query: state.query })
-    : state.status === 'ready'
-      ? t('search.matches', { count: groups.length, query: state.query })
-      : '';
-  const toolbarChildren = [SectionHeader(t('search.heading'))
-    .subtitle(subtitle)
-    .style('online-results-heading')];
-  const controls = [];
-  if (state.status === 'ready') controls.push(buildFilters({ groups, state, actions, registry }));
-  controls.push(accountsButton(state, actions));
-  toolbarChildren.push(HStack().spacing(12).style('online-results-controls').children(controls));
+  // Reference header (see /tmp/online-mock.html): brand + query pill on one row,
+  // filter row beneath. No separate "results" heading — the pill carries the query.
+  const brand = HStack().spacing(0).style('online-brand').children([
+    Text('Potok ').style('online-brand-base'),
+    Text('Online').style('online-brand-accent'),
+  ]);
+  const headerChildren = [brand];
+  if (state.status !== 'idle') {
+    headerChildren.push(HStack()
+      .spacing(8)
+      .style('online-query-pill')
+      .children([
+        Icon('search').style('online-query-pill-icon'),
+        Text(state.query).style('online-query-pill-text'),
+      ]));
+  }
+  headerChildren.push(accountsButton(state, actions));
   const children = [HStack()
-    .spacing(24)
-    .style('online-results-toolbar')
-    .children(toolbarChildren)];
+    .spacing(16)
+    .style('online-header')
+    .children(headerChildren)];
 
   if (state.status === 'idle') {
     children.push(EmptyState().icon('search').title(t('search.noContext')));
-    return VStack().spacing(16).children(children);
-  }
-  if (state.status === 'loading') {
-    children.push(loadingGrid());
     return VStack().spacing(16).children(children);
   }
   if (state.status === 'error') {
@@ -49,21 +51,26 @@ function pageContent({ state, actions, registry }) {
       .onAction(actions.retrySearch));
     return VStack().spacing(16).children(children);
   }
-
-  const failedProviders = registry.all
-    .filter(provider => state.errors[provider.id])
-    .map(provider => provider.name);
-  if (failedProviders.length) {
-    children.push(Alert(t('search.partialFailure', { providers: failedProviders.join(', ') }))
-      .variant('warning')
-      .icon('triangle-alert'));
+  if (state.status === 'ready') {
+    children.push(HStack()
+      .spacing(12)
+      .style('online-filters-row')
+      .children([buildFilters({ groups, state, actions, registry })]));
   }
+  // Loading without any arrived batch yet: card-shaped skeletons. As soon as the first
+  // providers respond, the real cards render and the remaining chips shimmer in place.
+  if (state.status === 'loading' && state.items.length === 0) {
+    children.push(loadingGrid());
+    return VStack().spacing(16).children(children);
+  }
+
+  // Per-provider failures are already visible on their chips (tooltip + retry) — no banner.
   if (state.episodeStatus === 'loading') {
     children.push(Alert(t('episodes.loading')).variant('info').icon('loader-circle'));
   } else if (state.episodeStatus === 'error') {
     children.push(Alert(state.episodeError).variant('error').icon('circle-alert'));
   }
-  children.push(resultGrid({ groups, state, actions }));
+  children.push(resultList({ groups, state, actions, registry }));
   return VStack().spacing(16).children(children);
 }
 

@@ -7,6 +7,12 @@ export function createPageState() {
     items: [],
     errors: {},
     error: '',
+    // Per-provider search status: 'loading' | 'ok' | 'empty' | 'error' | 'locked'.
+    // Drives the result-card chips (shimmer while pending, retry on soft errors, the
+    // accounts modal for locked account providers).
+    providerStatus: {},
+    // Result cards with the provider tail expanded (the "+N more" toggle), keyed by group id.
+    expandedTails: {},
     activeProvider: 'all',
     activeQuality: 'all',
     activeVoice: 'all',
@@ -32,6 +38,7 @@ export function createPageState() {
     },
     kinoPubDevice: null,
     kinoPubPollTimer: null,
+    filmixDevice: null,
   };
 }
 

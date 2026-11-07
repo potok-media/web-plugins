@@ -55,6 +55,8 @@ test('plugin registers the online-balancers source and delegates the complete fl
       seasonsLoading() { return this; },
       active() { return this; },
       rounded() { return this; },
+      fit() { return this; },
+      placement() { return this; },
       count() { return this; },
       child(child) { this.childrenList.push(child); return this; },
       children(children) { this.childrenList = children; return this; },
@@ -239,6 +241,8 @@ test('plugin registers the online-balancers source and delegates the complete fl
     },
   ]);
   assert.equal(playback.providerId, 'potok-online-balancers');
+  // Streaming search: ONE request carrying every free provider.
+  assert.equal(calls[0].body.providers.length, 10);
   assert.equal(calls[2].body.season, 1);
   assert.equal(calls[2].body.episode, 1);
 
@@ -261,18 +265,29 @@ test('plugin registers the online-balancers source and delegates the complete fl
 
   const queriedPage = pageSlot.render({ query: { q: 'Anime 2024!!!' } });
   const loadingContent = queriedPage.layout.childrenList[0].childrenList[0];
-  assert.equal(loadingContent.childrenList[0].styleValue, 'online-results-toolbar');
-  assert.equal(loadingContent.childrenList[0].childrenList[0].text, 'Результаты');
+  assert.equal(loadingContent.childrenList[0].styleValue, 'online-header');
+  assert.equal(loadingContent.childrenList[0].childrenList[0].childrenList[0].text, 'Potok ');
+  assert.equal(loadingContent.childrenList[0].childrenList[0].childrenList[1].text, 'Online');
 
-  await new Promise(resolve => setImmediate(resolve));
+  // The search now emits partial renders as providers respond — wait for the final
+  // ready render (the one carrying the filters row) instead of a single tick.
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const latest = rendered.at(-1)?.layout;
+    const latestFiltersRow = latest?.childrenList?.[0]?.childrenList?.[0]?.childrenList?.[1];
+    if (latestFiltersRow?.styleValue === 'online-filters-row') break;
+    await new Promise(resolve => setImmediate(resolve));
+  }
   const readyShell = rendered.at(-1).layout.childrenList[0];
   const readyContent = readyShell.childrenList[0];
-  const toolbar = readyContent.childrenList[0];
-  assert.equal(toolbar.styleValue, 'online-results-toolbar');
-  assert.equal(toolbar.childrenList[0].text, 'Результаты');
-  const controls = toolbar.childrenList[1];
-  assert.equal(controls.styleValue, 'online-results-controls');
-  const filters = controls.childrenList[0];
+  const header = readyContent.childrenList[0];
+  assert.equal(header.styleValue, 'online-header');
+  assert.equal(header.childrenList[0].childrenList[0].text, 'Potok ');
+  assert.equal(header.childrenList[0].childrenList[1].text, 'Online');
+  assert.equal(header.childrenList[1].styleValue, 'online-query-pill');
+  assert.equal(header.childrenList[1].childrenList[1].text, 'Anime');
+  const filtersRow = readyContent.childrenList[1];
+  assert.equal(filtersRow.styleValue, 'online-filters-row');
+  const filters = filtersRow.childrenList[0];
   assert.equal(filters.styleValue, 'online-filter-row');
   assert.deepEqual(filters.childrenList.map(item => item.childrenList[0].text), ['Источник', 'Качество', 'Озвучка']);
   const selects = filters.childrenList.map(item => item.childrenList[1]);
@@ -282,30 +297,39 @@ test('plugin registers the online-balancers source and delegates the complete fl
     'AniLiberty',
     'Kodik',
     'Alloha · Подключить аккаунт',
+    'Filmix · Подключить аккаунт',
     'KinoWatch (KinoPub) · Подключить аккаунт',
     'Rezka · Подключить аккаунт',
   ]);
   assert.deepEqual(selects[1].optionsValue.map(item => item.label), ['Все', '1080p', '720p']);
   assert.deepEqual(selects[2].optionsValue.map(item => item.label), ['Все', 'AniDUB', 'AniLiberty', 'SHIZA']);
-  assert.equal(controls.childrenList[1].text, 'Аккаунты');
-  controls.childrenList[1].click();
+  assert.equal(header.childrenList[2].text, "Аккаунты");
+  header.childrenList[2].click();
   const accountRoot = rendered.at(-1).layout;
   assert.equal(accountRoot.type, 'VStack');
   const accountModal = accountRoot.childrenList[1];
   assert.equal(accountModal.type, 'Modal');
   assert.equal(accountModal.openValue, true);
   assert.equal(accountModal.titleValue, 'Аккаунты источников');
-  assert.equal(accountModal.childrenList[0].childrenList.length, 3);
+  assert.equal(accountModal.childrenList[0].childrenList.length, 4);
   accountModal.close();
   assert.equal(rendered.at(-1).layout.type, 'Page');
   selects[0].change('alloha');
   const allohaModal = rendered.at(-1).layout.childrenList[1];
   assert.equal(allohaModal.titleValue, 'Alloha');
   allohaModal.close();
-  const grid = readyContent.childrenList.find(item => item.type === 'Grid');
-  assert.equal(grid.childrenList.length, 2);
+  const resultsList = readyContent.childrenList.find(item => item.styleValue === 'online-results-grid');
+  assert.ok(resultsList, 'expected the results grid');
+  assert.equal(resultsList.childrenList.length, 2);
+  const firstCard = resultsList.childrenList[0];
+  assert.equal(firstCard.styleValue, 'online-grid-card');
+  // Grid card: poster, title with badges, meta line and the full-card hit button.
+  assert.ok(firstCard.childrenList.some(child => child.styleValue === 'online-grid-hit'),
+    'expected the full-card hit button');
 
-  await grid.childrenList[0].click();
+  // The hit button opens the source.
+  const hit = firstCard.childrenList.find(child => child.styleValue === 'online-grid-hit');
+  await hit.click();
   // The plugin renders the playback stage only — the episode panel is the host's job now, fed with
   // the episodes presented below (ui.presentEpisodes).
   const selectorWorkspace = rendered.at(-1).layout;
