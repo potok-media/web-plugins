@@ -82,6 +82,9 @@ export function buildPage({ state, actions, registry }) {
   if (state.episodeSelectorOpen && state.selectedStream) {
     const stage = InlinePlayer().style('online-playback-workspace');
     if (state.selectedStream?.poster) stage.backdropSrc(state.selectedStream.poster);
+    // While the episode resolves upstream (playVideo not dispatched yet) the host shows a
+    // centered loading state in the stage instead of a black screen.
+    stage.loading(state.playbackPending === true);
     return stage;
   }
   const page = Page().style('online-page').child(

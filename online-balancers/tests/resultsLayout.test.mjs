@@ -44,6 +44,7 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
     onAction() { return this; },
     actionLabel() { return this; },
     backdropSrc() { return this; },
+    loading(v) { this.loadingValue = v; return this; },
     description() { return this; },
   });
 

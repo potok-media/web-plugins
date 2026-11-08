@@ -219,6 +219,8 @@ export function createAppController({
   async function playEpisode(group, episode, audioId = null) {
     try {
       ui.showHUD('info', translate('playback.opening'));
+      state.playbackPending = true;
+      emit();
       const selected = selectAudio(episode, audioId);
       const stream = group.variants.find(item =>
         item.providerId === selected?.providerId && item.sourceId === selected?.sourceId)
@@ -234,6 +236,8 @@ export function createAppController({
         group.mediaType === 'movie' ? undefined : String(selected?.id || ''),
       );
     } catch (error) {
+      state.playbackPending = false;
+      emit();
       ui.showHUD('error', error instanceof Error ? error.message : String(error));
     }
   }

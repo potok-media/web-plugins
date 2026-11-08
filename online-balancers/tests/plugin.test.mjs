@@ -51,6 +51,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
       presentation(value) { this.presentationValue = value; return this; },
       activeEpisodeId(value) { this.activeEpisodeIdValue = value; return this; },
       canReorder(value) { this.canReorderValue = value; return this; },
+      loading(value) { this.loadingValue = value; return this; },
       episodes(episodes) { this.episodesValue = episodes; return this; },
       seasonsLoading() { return this; },
       active() { return this; },

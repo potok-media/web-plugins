@@ -23,6 +23,8 @@ export function createPageState() {
     episodeSelectorOpen: false,
     episodeStatus: 'idle',
     episodeError: '',
+    /** An episode play is being resolved upstream (playVideo not dispatched yet) — the stage shows loading. */
+    playbackPending: false,
     accounts: {},
     accountsOpen: false,
     accountProvider: '',
@@ -50,6 +52,7 @@ export function resetPageSelection(state) {
   state.episodeSelectorOpen = false;
   state.episodeStatus = 'idle';
   state.episodeError = '';
+  state.playbackPending = false;
 }
 
 export function resetPageFilters(state) {

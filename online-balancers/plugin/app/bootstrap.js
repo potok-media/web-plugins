@@ -25,16 +25,21 @@ export function bootstrap({ client = createOnlineBalancersClient(), registry = s
   });
   const episodeService = createEpisodeService({ client, translate: t, accountVault, arm: PotokSDK.arm });
   const sessionStore = createSessionStore();
+  const state = createPageState();
   const playbackService = createPlaybackService({
     client,
     episodeService,
     sessionStore,
     pluginId: PLUGIN_ID,
     translate: t,
-    playVideo: payload => PotokSDK.ui.playVideo(payload),
+    // Clear the stage loading state at the exact moment the playback descriptor leaves the
+    // plugin — the host mounts the real player and takes over with its own buffering UI.
+    playVideo: (payload) => {
+      state.playbackPending = false;
+      PotokSDK.ui.playVideo(payload);
+    },
     accountVault,
   });
-  const state = createPageState();
   const controller = createAppController({
     state,
     searchService,
