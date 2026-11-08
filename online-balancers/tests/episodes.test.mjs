@@ -221,3 +221,50 @@ test('an ARM-cast source lays its episodes out by its own entry, not the franchi
   assert.equal(unscoped.episodes.length, 13);
   assert.deepEqual([...new Set(unscoped.episodes.map(episode => episode.entryId))], ['bleach-tv1']);
 });
+
+test('getEpisodes path attaches ARM identity so progress keys converge (withArmIdentity)', async () => {
+  const client = {
+    async getEpisodes() {
+      return {
+        seasonsCount: 1,
+        episodes: [
+          { id: 'kodik:serial-1:1:1', season: 1, number: 1, title: '1 серия', audios: [] },
+          { id: 'kodik:serial-1:1:2', season: 1, number: 2, title: '2 серия', audios: [] },
+        ],
+      };
+    },
+  };
+  const arm = {
+    async resolveWork() { return { workId: 'work-1', graphVersion: 'v1' }; },
+    async getEpisodeLayout() {
+      return {
+        graphVersion: 'v1',
+        groups: [{
+          id: 'entry-1', kind: 'season', number: 1, title: 'Сезон 1', aniListId: 1,
+          episodes: [
+            { id: 'arm-ep-1', number: 1, title: null },
+            { id: 'arm-ep-2', number: 2, title: null },
+          ],
+        }],
+      };
+    },
+  };
+  const service = createEpisodeService({
+    client,
+    translate: key => key,
+    arm,
+  });
+  const stream = { id: 'kodik:serial-1', provider: 'Kodik', providerId: 'kodik', sourceId: 'serial-1', query: { tmdbId: 85937 } };
+  const context = { type: 'tv', tmdbId: 85937 };
+
+  // The grouped flow stays raw (it canonicalizes itself after merging).
+  const groupedRaw = await service.fetchEpisodes(stream, context);
+  assert.equal(groupedRaw.episodes[0].workId, undefined);
+
+  // The host-facing getEpisodes path (episode panels / continue-watching resume) attaches ids.
+  const enriched = await service.fetchEpisodes(stream, context, { withArmIdentity: true });
+  assert.equal(enriched.episodes[1].workId, 'work-1');
+  assert.equal(enriched.episodes[1].episodeId, 'arm-ep-2');
+  assert.equal(enriched.episodes[1].entryId, 'entry-1');
+  assert.equal(enriched.episodes[1].episode, 2);
+});

@@ -19,7 +19,9 @@ export function registerPlugin({ controller, renderLayout, searchService, episod
     },
 
     getEpisodes(stream, context) {
-      return episodeService.fetchEpisodes(stream, context);
+      // The host calls this for episode panels and for continue-watching resume — both need
+      // the ARM identity on items so progress/resume keys converge on one identity space.
+      return episodeService.fetchEpisodes(stream, context, { withArmIdentity: true });
     },
 
     getPlaybackInfo(payload) {

@@ -19,7 +19,18 @@ import { canonicalizeAnimeEpisodes, resolveAnimeArmLayout } from './armEpisodes.
  * }} dependencies
  */
 export function createEpisodeService({ client, translate, accountVault = null, arm = null, concurrency = 6 }) {
-  async function fetchEpisodes(stream, context) {
+  // One ARM layout per service lifetime: the grouped flow resolves it separately (with
+  // entryId scoping), single-source callers (continue-watching resume) share this promise.
+  let armIdentityLayoutPromise = null;
+  const armIdentityLayout = (context) => {
+    if (!arm) return Promise.resolve(null);
+    if (!armIdentityLayoutPromise) {
+      armIdentityLayoutPromise = resolveAnimeArmLayout(arm, { ...context }).catch(() => null);
+    }
+    return armIdentityLayoutPromise;
+  };
+
+  async function fetchEpisodes(stream, context, options = {}) {
     const id = providerId(stream);
     const account = accountVault
       ? await Reflect.apply(Reflect.get(accountVault, 'getAccount'), accountVault, [id])
@@ -30,30 +41,44 @@ export function createEpisodeService({ client, translate, accountVault = null, a
       query: sourceQuery(stream, context),
       ...(account ? { account: providerAccountEnvelope(id, account) } : {}),
     });
-    return {
-      episodes: (response.episodes || []).map(item => ({
-        id: item.id,
-        season: item.season,
-        episode: item.number,
-        title: item.title || translate('episodes.fallbackTitle', { number: item.number }),
-        url: item.url || '',
-        voice: item.voice || stream.voice || '',
+    let episodes = (response.episodes || []).map(item => ({
+      id: item.id,
+      season: item.season,
+      episode: item.number,
+      title: item.title || translate('episodes.fallbackTitle', { number: item.number }),
+      url: item.url || '',
+      voice: item.voice || stream.voice || '',
+      provider: stream.provider,
+      providerId: providerId(stream),
+      sourceId: sourceId(stream),
+      quality: stream.quality,
+      query: stream.query,
+      audios: (item.audios || []).map(audio => ({
+        id: audio.id,
+        name: audio.name,
+        url: audio.url || item.url || '',
         provider: stream.provider,
         providerId: providerId(stream),
         sourceId: sourceId(stream),
         quality: stream.quality,
         query: stream.query,
-        audios: (item.audios || []).map(audio => ({
-          id: audio.id,
-          name: audio.name,
-          url: audio.url || item.url || '',
-          provider: stream.provider,
-          providerId: providerId(stream),
-          sourceId: sourceId(stream),
-          quality: stream.quality,
-          query: stream.query,
-        })),
       })),
+    }));
+
+    // Single-source callers (the continue-watching resume above all) must attach the ARM
+    // identity like the grouped flow does: without workId/episodeId the host falls back to
+    // tmdb coordinates, progress/resume keys fork into a second identity space, and the same
+    // episode lands in continue-watching twice.
+    if (options.withArmIdentity) {
+      const armLayout = await armIdentityLayout(context || {});
+      if (armLayout) {
+        const canonicalized = canonicalizeAnimeEpisodes(episodes, armLayout);
+        if (canonicalized.episodes.length) episodes = canonicalized.episodes;
+      }
+    }
+
+    return {
+      episodes,
       tmdbSeasonsCount: response.seasonsCount || 1,
     };
   }
