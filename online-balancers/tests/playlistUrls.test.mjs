@@ -664,3 +664,84 @@ test('a window anchored at the first episode has no "before" part and a far jump
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(calls.length, 11);
 });
+
+test('after a cross-provider voice switch the window resolves neighbors under the switched voice', async () => {
+  const calls = [];
+  const client = {
+    async resolvePlayback(selection) {
+      calls.push(selection);
+      const known = { aniliberty: ['AniLiberty', 'AniDUB'], kodik: ['AniDUB', 'SHIZA'] };
+      const list = known[selection.provider] || [];
+      if (selection.voice && !list.includes(selection.voice)) {
+        throw new Error(`HTTP 502: voice '${selection.voice}' not found at ${selection.provider}`);
+      }
+      return {
+        streamUrl: `https://cdn.test/${selection.provider}-${selection.voice || 'def'}-s${selection.season}e${selection.episode}.m3u8`,
+        streamType: 'm3u8',
+        voice: selection.voice,
+      };
+    },
+  };
+  const episodeService = { fetchEpisodes: async () => ({ episodes: [] }) };
+  const sessionStore = createSessionStore();
+  const service = createPlaybackService({
+    client,
+    episodeService,
+    sessionStore,
+    pluginId: 'online-balancers',
+    translate: key => key,
+    playVideo: () => {},
+  });
+
+  const stream = { id: 'aniliberty:42', title: 'Anime', mediaType: 'tv', providerId: 'aniliberty', sourceId: '42', query: { tmdbId: 1 } };
+  const mergedAudios = [
+    { name: 'AniLiberty · 1080p · AniLiberty', label: 'AniLiberty · 1080p · AniLiberty', voice: 'AniLiberty', providerId: 'aniliberty', sourceId: '42', query: { tmdbId: 1 }, url: '' },
+    { name: 'AniDUB · 720p · Kodik', label: 'AniDUB · 720p · Kodik', voice: 'AniDUB', providerId: 'kodik', sourceId: 'serial-8002', query: { tmdbId: 1 }, url: '' },
+  ];
+  const episodes = [1, 2].map(n => ({
+    id: `1:${n}`, season: 1, episode: n, title: `${n} серия`,
+    voice: 'AniLiberty', audios: mergedAudios, query: { tmdbId: 1 },
+  }));
+  const context = { type: 'tv', title: 'Anime', tmdbId: 1 };
+
+  // Play episode 1 with the default AniLiberty voice.
+  const first = await service.resolvePlayback(
+    stream,
+    { id: '1:1', season: 1, episode: 1, voice: 'AniLiberty', audios: mergedAudios },
+    context,
+    episodes,
+    '1:1',
+  );
+  assert.equal(first.streamUrl, 'https://cdn.test/aniliberty-AniLiberty-s1e1.m3u8');
+
+  // Switch to the cross-provider AniDUB (Kodik) candidate.
+  const ref = ep => ({ ...ep });
+  const switched = await service.resolvePlayback(
+    first.sourceStream,
+    { id: '1:1', season: 1, episode: 1, title: '1 серия', url: '', voice: 'AniDUB · 720p · Kodik', audios: first.audios },
+    context,
+    episodes.map(ref),
+    '1:1',
+  );
+  assert.equal(switched.streamUrl, 'https://cdn.test/kodik-AniDUB-s1e1.m3u8');
+
+  // The background window must NOT resolve episode 2 as «kodik + old voice AniLiberty»
+  // (that was the voiceNotFound that broke «Дальше» after a switch). The latest window
+  // (from the switched playback) resolves it through the switched candidate's provider.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const ep2Calls = calls.filter(c => c.episode === 2);
+  assert.equal(ep2Calls.at(-1).provider, 'kodik');
+  assert.equal(ep2Calls.at(-1).voice, 'AniDUB');
+
+  // «Дальше» to episode 2 is served from the window cache under the switched voice.
+  const callsBeforeNext = calls.length;
+  const next = await service.resolvePlayback(
+    switched.sourceStream,
+    { id: '1:2', season: 1, episode: 2, title: '2 серия', url: '', voice: 'AniDUB · 720p · Kodik', audios: switched.audios },
+    context,
+    episodes.map(ref),
+    '1:2',
+  );
+  assert.equal(next.streamUrl, 'https://cdn.test/kodik-AniDUB-s1e2.m3u8');
+  assert.equal(calls.length, callsBeforeNext);
+});

@@ -295,16 +295,36 @@ export function createPlaybackService({
       (typeof primary.target?.sourceId === 'string' && primary.target.sourceId
         ? primary.target.sourceId
         : null) || sourceId(stream);
+    // The window must follow the voice the user is actually listening to (the matched
+    // candidate's), not each episode's stored default: after a cross-provider switch the
+    // primary provider is the candidate's one, and resolving a neighbor with the OLD voice
+    // fails upstream ("voice not found") and poisons nothing but the cache slot. Each
+    // episode's own `audios` carry per-candidate provider identity — resolve through the
+    // candidate matching the remembered voice, falling back to the episode's default.
     const playlistResolverRequests = playlistEpisodes.map(async (ep) => {
       const existingUrl = ep?.streamUrl ?? ep?.url;
       if (isPlayableUrl(existingUrl)) {
         return { episodeId: ep.id, streamUrl: existingUrl, headers: ep.headers, skip: true };
       }
-      const epProviderId = ep.providerId || primary.providerId;
-      const epSourceId = ep.sourceId || primarySourceId;
+      const candidateList = Array.isArray(ep?.audios) ? ep.audios : [];
+      const matchCandidate = (voice) => {
+        const wanted = normalizeVoice(voice);
+        if (wanted == null) return -1;
+        return candidateList.findIndex(candidate =>
+          normalizeVoice(candidate?.voice) === wanted
+          || normalizeVoice(candidate?.name) === wanted);
+      };
+      let candidateIndex = matchCandidate(requestedVoice);
+      if (candidateIndex < 0) candidateIndex = matchCandidate(ep.voice);
+      if (candidateIndex < 0 && candidateList.length > 0) candidateIndex = 0;
+      const candidate = candidateIndex >= 0 ? candidateList[candidateIndex] : null;
+
+      const epProviderId = (candidate?.providerId) || ep.providerId || primary.providerId;
+      const epSourceId = (candidate?.sourceId) || ep.sourceId || primarySourceId;
       const epSeason = ep.season ?? context?.season;
       const epEpisode = ep.episode ?? context?.episode;
-      const epVoice = ep.voice || null;
+      const epVoice = (candidate?.voice || candidate?.name) || ep.voice || null;
+      const epQuery = (candidate?.query) || sourceQuery(ep, context);
 
       // Check cache before HTTP call (voice-keyed: a dub-specific stream is not interchangeable)
       const cached = sessionStore.getResolution(epProviderId, epSourceId, epSeason, epEpisode, epVoice);
@@ -319,7 +339,7 @@ export function createPlaybackService({
       const response = await client.resolvePlayback({
         provider: epProviderId,
         sourceId: epSourceId,
-        query: sourceQuery(ep, context),
+        query: epQuery,
         season: epSeason ?? null,
         episode: epEpisode ?? null,
         voice: epVoice,
