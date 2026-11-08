@@ -5,7 +5,7 @@ import { createPlaybackPayload, withAudioIndex } from '../plugin/playback/playba
 import { createPlaybackService } from '../plugin/playback/playbackController.js';
 import { createSessionStore } from '../plugin/playback/sessionStore.js';
 
-test('playback mapper keeps media tracking fields and exposes every resolved audio', () => {
+test('playback mapper keeps media tracking fields and exposes every resolved audio on the item', () => {
   const client = { audioUrl: (session, type) => `https://api.test/audio/${session}.${type}` };
   const resolved = [
     { target: { voice: 'Dub A' }, response: { streamUrl: 'https://api.test/a.m3u8', streamType: 'm3u8', session: 'a' } },
@@ -29,19 +29,30 @@ test('playback mapper keeps media tracking fields and exposes every resolved aud
     translate: key => key,
   });
 
-  // The streamUrl is the resolved URL verbatim — no `?audio=N` suffix (the backend bakes the
-  // voice into the URL; the plugin's audio-param convention is dead).
-  assert.equal(payload.streamUrl, 'https://api.test/b.m3u8');
-  assert.equal(payload.streamType, 'm3u8');
-  assert.equal(payload.title, 'Anime — S2E3');
+  // R3: NO top-level content fields — playlist[] (single synthesized item here) carries it all.
+  assert.equal('streamUrl' in payload, false);
+  assert.equal('streamType' in payload, false);
+  assert.equal('audios' in payload, false);
+  assert.equal('season' in payload, false);
+  assert.equal('episode' in payload, false);
+  assert.equal('headers' in payload, false);
+  assert.equal('session' in payload, false);
+  assert.equal(payload.title, 'Anime');
   assert.equal(payload.id, 42);
   assert.equal(payload.workId, 'work-42');
   assert.equal(payload.entryId, 'entry-2');
   assert.equal(payload.episodeId, 'episode-3');
-  assert.equal('session' in payload, false);
+
+  const item = payload.playlist[payload.playlistIndex];
+  // The streamUrl is the resolved URL verbatim — no `?audio=N` suffix (the backend bakes the
+  // voice into the URL; the plugin's audio-param convention is dead).
+  assert.equal(item.streamUrl, 'https://api.test/b.m3u8');
+  assert.equal(item.streamType, 'm3u8');
+  assert.equal(item.season, 2);
+  assert.equal(item.episode, 3);
   // No candidates were provided, so the no-candidates fallback list still derives its
   // `?audio=N` urls from the resolved responses via withAudioIndex/resolvedAudioUrl.
-  assert.deepEqual(payload.audios, [
+  assert.deepEqual(item.audios, [
     { name: 'Dub A', url: 'https://api.test/a.m3u8?audio=0' },
     { name: 'Dub B', url: 'https://api.test/b.m3u8?audio=1' },
   ]);
@@ -69,17 +80,16 @@ test('single-candidate resolution still exposes the full voice list from episode
     translate: key => key,
   });
 
-  // Only Dub B was resolved upstream, but every voice variant is listed. Candidate entries
-  // carry plain names, preserved identity fields and blank urls — no fabricated `?audio=N`
-  // links into the one resolved stream; switching a voice always re-resolves upstream.
-  assert.equal(payload.streamUrl, 'https://api.test/b.m3u8');
-  assert.deepEqual(payload.audios, [
+  // Only Dub B was resolved upstream, but every voice variant is listed on the current item.
+  const item = payload.playlist[payload.playlistIndex];
+  assert.equal(item.streamUrl, 'https://api.test/b.m3u8');
+  assert.deepEqual(item.audios, [
     { name: 'Dub A', label: 'Dub A', voice: 'Dub A', providerId: null, sourceId: null, query: null, url: '' },
     { name: 'Dub B', label: 'Dub B', voice: 'Dub B', providerId: null, sourceId: null, query: null, url: '' },
   ]);
 });
 
-test('playlist items carry their voice variants with blank urls, forcing a re-resolve on switch', () => {
+test('playlist items carry their voice variants; the active item owns the full candidate menu', () => {
   const client = { audioUrl: () => '' };
   const resolved = [
     { candidateIndex: 0, target: { voice: 'Dub A' }, response: { streamUrl: 'https://api.test/a.m3u8', streamType: 'm3u8' } },
@@ -99,18 +109,29 @@ test('playlist items carry their voice variants with blank urls, forcing a re-re
         id: '1:1', season: 1, episode: 1, title: 'Ep 1',
         audios: [{ voice: 'Dub A' }, { voice: 'Dub B' }],
       },
+      {
+        id: '1:2', season: 1, episode: 2, title: 'Ep 2',
+        audios: [{ voice: 'Dub A' }],
+      },
     ],
     activeEpisodeId: '1:1',
-    resolvedUrlMap: new Map([['1:1', { streamUrl: 'https://api.test/ep1.m3u8' }]]),
+    resolvedUrlMap: new Map([
+      ['1:1', { streamUrl: 'https://api.test/ep1.m3u8' }],
+      ['1:2', { streamUrl: 'https://api.test/ep2.m3u8' }],
+    ]),
   });
 
-  // The item's own streamUrl is the resolved per-episode base url, verbatim.
+  assert.equal(payload.playlistIndex, 0);
+  // The active item's own streamUrl is the resolved per-episode base url, verbatim, and it owns
+  // the resolved voice candidate (ready url — the host switches by a local swap, R1).
   assert.equal(payload.playlist[0].streamUrl, 'https://api.test/ep1.m3u8');
-  // Voice entries keep their plain names but blank urls — a host-side voice switch must
-  // re-resolve through the candidate's provider instead of reusing this item's stream.
   assert.deepEqual(payload.playlist[0].audios, [
+    { name: 'Dub A', url: 'https://api.test/a.m3u8?audio=0' },
+  ]);
+  // Other items keep their per-episode voice lists.
+  assert.equal(payload.playlist[1].streamUrl, 'https://api.test/ep2.m3u8');
+  assert.deepEqual(payload.playlist[1].audios, [
     { name: 'Dub A', label: null, voice: 'Dub A', providerId: null, sourceId: null, query: null, url: '' },
-    { name: 'Dub B', label: null, voice: 'Dub B', providerId: null, sourceId: null, query: null, url: '' },
   ]);
 });
 
@@ -163,7 +184,8 @@ test('playback payload leaves complete: window episodes carry ready streamUrls a
     '1:5',
   );
 
-  assert.equal(payload.streamUrl, 'https://cdn.test/ep5.m3u8');
+  assert.equal('streamUrl' in payload, false);
+  assert.equal(payload.playlist[payload.playlistIndex].streamUrl, 'https://cdn.test/ep5.m3u8');
   // Window: anchor ep5 (index 4) → indices 1..9 (eps 2..10). The anchor item itself
   // carries the primary URL; every in-window item has a ready streamUrl; ep1 is outside.
   assert.ok(!payload.playlist[0].streamUrl);

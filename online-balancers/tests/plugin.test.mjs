@@ -225,11 +225,11 @@ test('plugin registers the online-balancers source and delegates the complete fl
   };
   const playback = await provider.getPlaybackInfo({ stream: streams[0], episode: normalizedEpisode, context: { type: 'tv', title: 'Anime' } });
   // The streamUrl is the backend's resolved URL verbatim — no `?audio=N` suffix appended.
-  assert.equal(playback.streamUrl, 'https://api.test/stream/42.m3u8');
-  assert.equal(playback.streamType, 'm3u8');
+  assert.equal(playback.playlist[playback.playlistIndex].streamUrl, 'https://api.test/stream/42.m3u8');
+  assert.equal(playback.playlist[playback.playlistIndex].streamType, 'm3u8');
   // One candidate (the episode itself): it keeps its provider identity and its own directly
   // playable url — no fabricated `?audio=N` link into the resolved stream.
-  assert.deepEqual(playback.audios, [
+  assert.deepEqual(playback.playlist[playback.playlistIndex].audios, [
     {
       name: 'AniLiberty',
       label: null,
@@ -247,7 +247,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(calls[2].body.episode, 1);
 
   const directPlayback = await provider.getPlaybackInfo({ stream: streams[0], episode: undefined, context: { type: 'movie', title: 'Anime' } });
-  assert.equal(directPlayback.episode, 1);
+  assert.equal(directPlayback.playlist[directPlayback.playlistIndex].episode, 1);
   // The second getPlaybackInfo resolves the same episode (S1E1) which is served from cache,
   // so no additional /api/v1/playback call is made — the cached streamUrl is reused.
   assert.equal(calls.length, 4);
@@ -356,15 +356,15 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(played.length, 1);
   assert.equal(played[0].mount, 'inline');
   assert.equal(played[0].voice, 'AniLiberty');
-  assert.equal(played[0].streamType, 'm3u8');
-  assert.equal(played[0].streamUrl, 'https://api.test/stream/42.m3u8');
+  assert.equal(played[0].playlist[played[0].playlistIndex].streamType, 'm3u8');
+  assert.equal(played[0].playlist[played[0].playlistIndex].streamUrl, 'https://api.test/stream/42.m3u8');
   // One upstream resolution, but the descriptor carries every voice variant of the episode.
   // The FULL "Voice · Quality · Provider" label is the canonical name (the balancer identity in
   // it is information, not noise); the plain voice label and each candidate's OWN provider
   // identity (the merged list spans AniLiberty + two Kodik sources) ride along — urls are the
   // candidates' own links, never fabricated `?audio=N` variants of one stream.
   const mergedQuery = { imdbId: null, kinopoiskId: null, originalTitle: null, title: 'Anime', tmdbId: null, type: null, year: null };
-  assert.deepEqual(played[0].audios, [
+  assert.deepEqual(played[0].playlist[played[0].playlistIndex].audios, [
     {
       name: 'AniLiberty · 1080p · AniLiberty', label: 'AniLiberty · 1080p · AniLiberty',
       voice: 'AniLiberty', providerId: 'aniliberty', sourceId: '42', query: mergedQuery,

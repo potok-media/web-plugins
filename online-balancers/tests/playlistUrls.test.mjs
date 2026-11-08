@@ -7,6 +7,8 @@ import { createSessionStore } from '../plugin/playback/sessionStore.js';
 
 const pseudoUrl = 'online-balancers://kodik/serial-4898';
 
+const currentItem = (payload) => payload.playlist[payload.playlistIndex];
+
 const kodikStream = {
   id: 'kodik:serial-4898',
   title: 'Serial',
@@ -113,8 +115,8 @@ test('playback payload resolves playlist episodes that only carry a pseudo strea
 
   // The primary streamUrl is used verbatim — the backend bakes the voice into the URL and
   // no `?audio=N` selector is appended.
-  assert.equal(payload.streamUrl, 'https://cdn.test/s1e1.m3u8');
-  assert.deepEqual(payload.headers, streamHeaders);
+  assert.equal(currentItem(payload).streamUrl, 'https://cdn.test/s1e1.m3u8');
+  assert.deepEqual(currentItem(payload).headers, streamHeaders);
   assert.equal(payload.playlist.length, 3);
   // Blocking "everything ready" contract: the anchor item carries the primary URL, the
   // pseudo-URL episode is resolved inside the window, real URLs are untouched.
@@ -131,8 +133,8 @@ test('playback payload resolves playlist episodes that only carry a pseudo strea
     episodes,
     '1:2',
   );
-  assert.equal(replay.streamUrl, 'https://cdn.test/s1e2.m3u8');
-  assert.deepEqual(replay.headers, streamHeaders);
+  assert.equal(currentItem(replay).streamUrl, 'https://cdn.test/s1e2.m3u8');
+  assert.deepEqual(currentItem(replay).headers, streamHeaders);
 });
 
 test('a multi-voice episode resolves every voice candidate and lists each with a ready url', async () => {
@@ -178,8 +180,8 @@ test('a multi-voice episode resolves every voice candidate and lists each with a
   // Every candidate is resolved upfront (one per voice) — the player switches voices by a
   // local swap on the ready url, never by re-resolving.
   assert.equal(playbackCalls, 2);
-  assert.equal(payload.streamUrl, 'https://cdn.test/s1e1.m3u8');
-  assert.deepEqual(payload.audios, [
+  assert.equal(currentItem(payload).streamUrl, 'https://cdn.test/s1e1.m3u8');
+  assert.deepEqual(currentItem(payload).audios, [
     { name: 'Dub A', label: 'Dub A', voice: 'Dub A', providerId: null, sourceId: null, query: null, url: 'https://cdn.test/s1e1.m3u8' },
     { name: 'Dub B', label: 'Dub B', voice: 'Dub B', providerId: null, sourceId: null, query: null, url: 'https://cdn.test/s1e1.m3u8' },
   ]);
@@ -233,11 +235,11 @@ test('a host-forwarded episode without audio ids keeps its voice via name matchi
   // survives separately for matching, and every entry carries its ready url.
   assert.equal(playbackCalls, 2);
   assert.equal(payload.voice, 'Dub B');
-  assert.equal(payload.streamUrl, 'https://cdn.test/s1e1.m3u8');
-  assert.deepEqual(payload.audios.map(audio => audio.label), ['Dub A', 'Dub B']);
-  assert.deepEqual(payload.audios.map(audio => audio.name), ['Dub A', 'Dub B']);
-  assert.deepEqual(payload.audios.map(audio => audio.voice), [null, null]);
-  assert.ok(payload.audios.every(audio => audio.url === 'https://cdn.test/s1e1.m3u8'));
+  assert.equal(currentItem(payload).streamUrl, 'https://cdn.test/s1e1.m3u8');
+  assert.deepEqual(currentItem(payload).audios.map(audio => audio.label), ['Dub A', 'Dub B']);
+  assert.deepEqual(currentItem(payload).audios.map(audio => audio.name), ['Dub A', 'Dub B']);
+  assert.deepEqual(currentItem(payload).audios.map(audio => audio.voice), [null, null]);
+  assert.ok(currentItem(payload).audios.every(audio => audio.url === 'https://cdn.test/s1e1.m3u8'));
 });
 
 
@@ -328,9 +330,9 @@ test('an explicitly requested voice wins over selectedAudioId and resolves every
   assert.equal(payload.voice, 'Анилибрия');
   // The streamUrl is the resolved URL verbatim — the matched candidate is resolved through
   // its own provider (calls[0]), not selected via a `?audio=N` suffix.
-  assert.equal(payload.streamUrl, 'https://cdn.test/s1e1.m3u8');
-  assert.deepEqual(payload.audios.map(audio => audio.name), ['Кодик', 'Анилибрия', 'SHIZA']);
-  assert.ok(payload.audios.every(audio => audio.url === 'https://cdn.test/s1e1.m3u8'));
+  assert.equal(currentItem(payload).streamUrl, 'https://cdn.test/s1e1.m3u8');
+  assert.deepEqual(currentItem(payload).audios.map(audio => audio.name), ['Кодик', 'Анилибрия', 'SHIZA']);
+  assert.ok(currentItem(payload).audios.every(audio => audio.url === 'https://cdn.test/s1e1.m3u8'));
 });
 
 test('a requested voice that matches no candidate rejects without any upstream resolution', async () => {
@@ -402,7 +404,7 @@ test('no requested voice keeps the stored selection semantics unchanged', async 
     { type: 'tv', title: 'Serial', tmdbId: 1 },
     [],
   );
-  assert.equal(bySelection.streamUrl, 'https://cdn.test/s1e1.m3u8');
+  assert.equal(currentItem(bySelection).streamUrl, 'https://cdn.test/s1e1.m3u8');
 
   // Without any hint the first candidate is resolved.
   const byDefault = await service.resolvePlayback(
@@ -411,7 +413,7 @@ test('no requested voice keeps the stored selection semantics unchanged', async 
     { type: 'tv', title: 'Serial', tmdbId: 1 },
     [],
   );
-  assert.equal(byDefault.streamUrl, 'https://cdn.test/s1e2.m3u8');
+  assert.equal(currentItem(byDefault).streamUrl, 'https://cdn.test/s1e2.m3u8');
   // Each of the two episodes resolved both of its candidates upfront.
   assert.equal(calls.length, 4);
 });
@@ -453,7 +455,7 @@ test('a repeat voice switch for the same episode is served from the resolution c
 
   // Both candidates resolved once; the repeat playback is served entirely from the cache.
   assert.equal(calls.length, 2);
-  assert.equal(second.streamUrl, first.streamUrl);
+  assert.equal(currentItem(second).streamUrl, currentItem(first).streamUrl);
   assert.equal(second.voice, 'Анилибрия');
 });
 
@@ -512,13 +514,13 @@ test('a cross-provider merged episode preserves per-candidate identity and re-re
 
   assert.equal(calls[0].provider, 'aniliberty');
   assert.equal(calls[0].sourceId, '42');
-  assert.equal(payload.streamUrl, 'https://cdn.test/aniliberty-s1e1.m3u8');
+  assert.equal(currentItem(payload).streamUrl, 'https://cdn.test/aniliberty-s1e1.m3u8');
   assert.equal(payload.voice, 'AniLiberty');
   // Top-level audios carry the FULL "Voice · Quality · Provider" label as the canonical name
   // (plus each candidate's OWN provider identity) and READY urls — both candidates were
   // resolved upfront, so the player switches voices locally.
   assert.deepEqual(
-    payload.audios.map(audio => ({ name: audio.name, voice: audio.voice, providerId: audio.providerId, sourceId: audio.sourceId, url: audio.url })),
+    currentItem(payload).audios.map(audio => ({ name: audio.name, voice: audio.voice, providerId: audio.providerId, sourceId: audio.sourceId, url: audio.url })),
     [
       { name: 'AniDUB · 720p · Kodik', voice: 'AniDUB', providerId: 'kodik', sourceId: 'serial-4898', url: 'https://cdn.test/kodik-s1e1.m3u8' },
       { name: 'AniLiberty · 1080p · AniLiberty', voice: 'AniLiberty', providerId: 'aniliberty', sourceId: '42', url: 'https://cdn.test/aniliberty-s1e1.m3u8' },
@@ -591,7 +593,7 @@ test('playlist resolution is a sliding window: 3 before the selected episode, 5 
     episodes,
     episodes[9].id,
   );
-  assert.equal(repeat.streamUrl, 'https://cdn.test/s1e10.m3u8');
+  assert.equal(currentItem(repeat).streamUrl, 'https://cdn.test/s1e10.m3u8');
   assert.equal(calls.length, 9);
 });
 
@@ -646,7 +648,7 @@ test('a window anchored at the first episode has no "before" part and a far jump
     episodes,
     '1:12',
   );
-  assert.equal(jumped.streamUrl, 'https://cdn.test/s1e12.m3u8');
+  assert.equal(currentItem(jumped).streamUrl, 'https://cdn.test/s1e12.m3u8');
   assert.equal(jumped.playlist[10].streamUrl, 'https://cdn.test/s1e11.m3u8');
   assert.equal(jumped.playlist[7].streamUrl, pseudoUrl);
   assert.equal(calls.length, 10);
@@ -659,7 +661,7 @@ test('a window anchored at the first episode has no "before" part and a far jump
     episodes,
     '1:11',
   );
-  assert.equal(back.streamUrl, 'https://cdn.test/s1e11.m3u8');
+  assert.equal(currentItem(back).streamUrl, 'https://cdn.test/s1e11.m3u8');
   assert.equal(calls.length, 11);
 });
 
@@ -710,18 +712,18 @@ test('after a cross-provider voice switch the window resolves neighbors under th
     episodes,
     '1:1',
   );
-  assert.equal(first.streamUrl, 'https://cdn.test/aniliberty-AniLiberty-s1e1.m3u8');
+  assert.equal(currentItem(first).streamUrl, 'https://cdn.test/aniliberty-AniLiberty-s1e1.m3u8');
 
   // Switch to the cross-provider AniDUB (Kodik) candidate.
   const ref = ep => ({ ...ep });
   const switched = await service.resolvePlayback(
     first.sourceStream,
-    { id: '1:1', season: 1, episode: 1, title: '1 серия', url: '', voice: 'AniDUB · 720p · Kodik', audios: first.audios },
+    { id: '1:1', season: 1, episode: 1, title: '1 серия', url: '', voice: 'AniDUB · 720p · Kodik', audios: currentItem(first).audios },
     context,
     episodes.map(ref),
     '1:1',
   );
-  assert.equal(switched.streamUrl, 'https://cdn.test/kodik-AniDUB-s1e1.m3u8');
+  assert.equal(currentItem(switched).streamUrl, 'https://cdn.test/kodik-AniDUB-s1e1.m3u8');
 
   // The background window must NOT resolve episode 2 as «kodik + old voice AniLiberty»
   // (that was the voiceNotFound that broke «Дальше» after a switch). The latest window
@@ -735,12 +737,12 @@ test('after a cross-provider voice switch the window resolves neighbors under th
   const callsBeforeNext = calls.length;
   const next = await service.resolvePlayback(
     switched.sourceStream,
-    { id: '1:2', season: 1, episode: 2, title: '2 серия', url: '', voice: 'AniDUB · 720p · Kodik', audios: switched.audios },
+    { id: '1:2', season: 1, episode: 2, title: '2 серия', url: '', voice: 'AniDUB · 720p · Kodik', audios: currentItem(switched).audios },
     context,
     episodes.map(ref),
     '1:2',
   );
-  assert.equal(next.streamUrl, 'https://cdn.test/kodik-AniDUB-s1e2.m3u8');
+  assert.equal(currentItem(next).streamUrl, 'https://cdn.test/kodik-AniDUB-s1e2.m3u8');
   assert.equal(calls.length, callsBeforeNext);
 });
 
