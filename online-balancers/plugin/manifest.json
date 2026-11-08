@@ -1,5 +1,5 @@
 {
-  "id": "potok-online-balancers-234234",
+  "id": "potok-online-balancers",
   "name": "\u041e\u043d\u043b\u0430\u0439\u043d-\u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a\u0438",
   "category": "sources",
   "entrypoint": "index.js",
