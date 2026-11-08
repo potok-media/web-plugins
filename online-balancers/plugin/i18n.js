@@ -54,7 +54,7 @@ PotokSDK.i18n.registerTranslations({
         fallbackMediaTitle: 'Online video',
         fallbackVoice: 'Primary stream',
         voiceNumber: 'Audio {{number}}',
-        voiceNotFound: 'Voice "{{voice}}" is not available for this episode',
+        voiceNotFound: 'Voice "{{voice}}" is not available for this episode (available: {{available}})',
       },
       action: {
         watch: 'Online',
@@ -156,7 +156,7 @@ PotokSDK.i18n.registerTranslations({
         fallbackMediaTitle: 'Онлайн-видео',
         fallbackVoice: 'Основной поток',
         voiceNumber: 'Озвучка {{number}}',
-        voiceNotFound: 'Озвучка «{{voice}}» недоступна для этой серии',
+        voiceNotFound: 'Озвучка «{{voice}}» недоступна для этой серии (доступны: {{available}})',
       },
       action: {
         watch: 'Онлайн',

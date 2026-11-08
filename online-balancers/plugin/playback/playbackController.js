@@ -56,16 +56,27 @@ export function createPlaybackService({
     // An explicitly requested voice (the host sends episode.voice when the user switches the
     // dub) beats the stored selectedAudioId — an explicit user request outranks a stored
     // selection. Match case-insensitively against the candidate's plain voice label or its
-    // display name; the host may strip audio ids when forwarding a playlist item, so the
-    // voice/name match is also what keeps the selected dub alive across the round trip.
+    // display name; the host may send EITHER the plain label ("Studio Band") or the full
+    // "Voice · Quality · Provider" form ("Studio Band · 720p · Kodik") depending on which
+    // surface produced it (menu entry vs remembered HLS track), so both sides are reduced to
+    // the plain segment before comparison.
     const normalizeVoice = (value) =>
       (typeof value === 'string' && value.trim()) ? value.trim().toLowerCase() : null;
+    const plainVoice = (value) => {
+      const normalized = normalizeVoice(value);
+      return normalized ? normalized.split('·')[0].trim() : null;
+    };
     const requestedVoice = normalizeVoice(selected?.voice);
+    const requestedPlain = plainVoice(selected?.voice);
+    const voicesMatch = (candidate) =>
+      normalizeVoice(candidate?.voice) === requestedVoice
+      || normalizeVoice(candidate?.name) === requestedVoice
+      || (requestedPlain != null && (
+        plainVoice(candidate?.voice) === requestedPlain
+        || plainVoice(candidate?.name) === requestedPlain));
     const byRequestedVoice = requestedVoice == null
       ? -1
-      : candidates.findIndex(candidate =>
-          normalizeVoice(candidate?.voice) === requestedVoice
-          || normalizeVoice(candidate?.name) === requestedVoice);
+      : candidates.findIndex(voicesMatch);
     const byId = candidates.findIndex(candidate =>
       candidate?.id != null && candidate?.id === selected?.selectedAudioId);
     let selectedCandidateIndex;
@@ -74,7 +85,13 @@ export function createPlaybackService({
     } else if (requestedVoice != null) {
       // The requested dub is not among this episode's candidates — fail loudly so the host
       // keeps the current audio instead of silently playing the wrong voice.
-      throw new Error(translate('playback.voiceNotFound', { voice: selected.voice }));
+      throw new Error(translate('playback.voiceNotFound', {
+        voice: selected.voice,
+        available: candidates
+          .map(candidate => candidate?.name || candidate?.voice)
+          .filter(Boolean)
+          .join(', '),
+      }));
     } else {
       selectedCandidateIndex = byId >= 0 ? byId : 0;
     }
@@ -389,13 +406,19 @@ export function createPlaybackService({
       }));
 
       // The item's streamUrl follows the voice being listened to (the matched candidate),
-      // falling back to the episode's default voice, then any resolved variant.
+      // falling back to the episode's default voice, then any resolved variant. Match on the
+      // plain voice segment — the remembered voice may arrive as a short label or a full
+      // "Voice · Quality · Provider" form.
       const matchIndex = (voice) => {
         const wanted = normalizeVoice(voice);
+        const wantedPlain = plainVoice(voice);
         if (wanted == null) return -1;
         return candidateList.findIndex(candidate =>
           normalizeVoice(candidate?.voice) === wanted
-          || normalizeVoice(candidate?.name) === wanted);
+          || normalizeVoice(candidate?.name) === wanted
+          || (wantedPlain != null && (
+            plainVoice(candidate?.voice) === wantedPlain
+            || plainVoice(candidate?.name) === wantedPlain)));
       };
       let chosenIndex = matchIndex(requestedVoice);
       if (chosenIndex < 0) chosenIndex = matchIndex(ep.voice);

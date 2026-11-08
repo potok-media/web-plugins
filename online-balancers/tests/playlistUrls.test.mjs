@@ -743,3 +743,50 @@ test('after a cross-provider voice switch the window resolves neighbors under th
   assert.equal(next.streamUrl, 'https://cdn.test/kodik-AniDUB-s1e2.m3u8');
   assert.equal(calls.length, callsBeforeNext);
 });
+
+test('a short voice label matches a full "Voice · Quality · Provider" candidate and vice versa', async () => {
+  const calls = [];
+  const client = {
+    async resolvePlayback(selection) {
+      calls.push(selection);
+      return { streamUrl: `https://cdn.test/s${selection.season}e${selection.episode}.m3u8`, streamType: 'm3u8', voice: selection.voice };
+    },
+  };
+  const episodeService = { fetchEpisodes: async () => ({ episodes: [] }) };
+  const service = createPlaybackService({
+    client,
+    episodeService,
+    sessionStore: createSessionStore(),
+    pluginId: 'online-balancers',
+    translate: (key, values) => (values?.voice ? `${key}:${values.voice}` : key),
+    playVideo: () => {},
+  });
+  const fullAudios = [
+    { name: 'Studio Band · 720p · Kodik', label: 'Studio Band · 720p · Kodik', voice: 'Studio Band', providerId: 'kodik', sourceId: 'serial-1', query: null, url: '' },
+    { name: 'AniLibria · 1080p · Kodik', label: 'AniLibria · 1080p · Kodik', voice: 'AniLibria', providerId: 'kodik', sourceId: 'serial-1', query: null, url: '' },
+  ];
+
+  // Host sends the SHORT label (remembered HLS track name).
+  const byShort = await service.resolvePlayback(
+    kodikStream,
+    { id: '1:1', season: 1, episode: 1, voice: 'studio band', audios: fullAudios },
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    [],
+  );
+  assert.equal(byShort.voice, 'Studio Band');
+  assert.equal(calls[0].voice, 'Studio Band');
+
+  // Host sends the FULL label (menu entry name).
+  const byFull = await service.resolvePlayback(
+    kodikStream,
+    { id: '1:2', season: 1, episode: 2, voice: 'AniLibria · 1080p · Kodik', audios: fullAudios },
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    [],
+  );
+  assert.equal(byFull.voice, 'AniLibria');
+  // The primary ep2 resolution used the matched candidate's plain voice (the extra call is
+  // the other candidate resolved for the ready-urls menu).
+  const ep2Voices = calls.filter(c => c.episode === 2).map(c => c.voice);
+  assert.ok(ep2Voices.includes('AniLibria'));
+  assert.equal(ep2Voices[0], 'AniLibria');
+});
