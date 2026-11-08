@@ -18,17 +18,27 @@ test('resolution cache returns a stored entry and returns a defensive copy', () 
   assert.equal(store.getResolution('kodik', 'serial-4898', 1, 2).streamUrl, 'https://cdn.test/ep.m3u8');
 });
 
-test('resolution cache keys by provider, source, season and episode — not voice', () => {
+test('resolution cache keys by provider, source, season, episode AND voice', () => {
   const store = createSessionStore();
-  store.setResolution('kodik', 'serial-4898', 1, 2, resolution);
+  const anidub = { ...resolution, streamUrl: 'https://cdn.test/anidub.m3u8', voice: 'AniDUB' };
+  const anilibria = { ...resolution, streamUrl: 'https://cdn.test/anilibria.m3u8', voice: 'AniLibria' };
 
-  // Voices of one source share the resolved stream — they must hit the same entry.
-  assert.deepEqual(store.getResolution('kodik', 'serial-4898', 1, 2), resolution);
+  // Online streams bake the dub into the URL — each voice is its own cached stream.
+  store.setResolution('aniliberty', 'source-1', 1, 2, anidub, 'AniDUB');
+  store.setResolution('aniliberty', 'source-1', 1, 2, anilibria, 'AniLibria');
+
+  assert.deepEqual(store.getResolution('aniliberty', 'source-1', 1, 2, 'AniDUB'), anidub);
+  assert.deepEqual(store.getResolution('aniliberty', 'source-1', 1, 2, 'AniLibria'), anilibria);
+  // Voice lookup is case-insensitive / whitespace-tolerant.
+  assert.deepEqual(store.getResolution('aniliberty', 'source-1', 1, 2, ' anidub '), anidub);
+  // No voice given → no hit on a voice-specific entry.
+  assert.equal(store.getResolution('aniliberty', 'source-1', 1, 2), null);
+  assert.equal(store.getResolution('aniliberty', 'source-1', 1, 2, 'SHIZA'), null);
   // A different source, season or episode is a different stream.
-  assert.equal(store.getResolution('kodik', 'other-source', 1, 2), null);
-  assert.equal(store.getResolution('kodik', 'serial-4898', 1, 3), null);
-  assert.equal(store.getResolution('rezka', 'serial-4898', 1, 2), null);
-  assert.equal(store.getResolution(null, 'serial-4898', 1, 2), null);
+  assert.equal(store.getResolution('aniliberty', 'other-source', 1, 2, 'AniDUB'), null);
+  assert.equal(store.getResolution('aniliberty', 'source-1', 1, 3, 'AniDUB'), null);
+  assert.equal(store.getResolution('kodik', 'source-1', 1, 2, 'AniDUB'), null);
+  assert.equal(store.getResolution(null, 'source-1', 1, 2, 'AniDUB'), null);
 });
 
 test('resolution cache entries expire after the TTL', () => {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createPlaybackPayload, withAudioIndex } from '../plugin/playback/playbackMapper.js';
+import { createPlaybackService } from '../plugin/playback/playbackController.js';
 import { createSessionStore } from '../plugin/playback/sessionStore.js';
 
 test('playback mapper keeps media tracking fields and exposes every resolved audio', () => {
@@ -123,4 +124,66 @@ test('session store owns refresh state independently from page state', () => {
   assert.deepEqual(store.get(), { session: 'paid-session', providerId: 'kinopub' });
   store.clear();
   assert.equal(store.get(), null);
+});
+
+test('playback window resolves in the background and caches episodes under their voice', async () => {
+  const sessionStore = createSessionStore();
+  const pending = new Map();
+  const client = {
+    resolvePlayback: async (request) => {
+      if (request.episode === 4) {
+        // One window episode hangs: the payload must not wait for it.
+        return new Promise(() => {});
+      }
+      return {
+        streamUrl: `https://cdn.test/ep${request.episode}.m3u8`,
+        streamType: 'm3u8',
+        voice: request.voice,
+      };
+    },
+  };
+  const service = createPlaybackService({
+    client,
+    episodeService: { fetchEpisodes: async () => ({ episodes: [] }) },
+    sessionStore,
+    pluginId: 'potok-online-balancers',
+    translate: key => key,
+    playVideo: () => {},
+  });
+
+  const episodes = Array.from({ length: 10 }, (_, idx) => ({
+    id: `1:${idx + 1}`,
+    season: 1,
+    episode: idx + 1,
+    voice: 'AniDUB',
+    providerId: 'aniliberty',
+    sourceId: 'src-1',
+    query: { tmdbId: 1 },
+  }));
+
+  const payload = await service.resolvePlayback(
+    { id: 'stream-1', title: 'Anime', mediaType: 'tv', providerId: 'aniliberty', sourceId: 'src-1', query: { tmdbId: 1 } },
+    { id: '1:5', season: 1, episode: 5, voice: 'AniDUB', providerId: 'aniliberty', sourceId: 'src-1' },
+    { type: 'tv', title: 'Anime', tmdbId: 1 },
+    episodes,
+    '1:5',
+  );
+
+  // Primary resolves immediately even though a window episode (ep 4) never answers.
+  assert.equal(payload.streamUrl, 'https://cdn.test/ep5.m3u8');
+
+  // Let the background window land (ep 4 stays pending forever).
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  // Window: anchor ep5 (index 4) → indices 1..9 (eps 2..10), minus the anchor and the
+  // pending ep4. The primary itself cached ep5.
+  for (const ep of [2, 3, 5, 6, 7, 8, 9, 10]) {
+    const hit = sessionStore.getResolution('aniliberty', 'src-1', 1, ep, 'AniDUB');
+    assert.ok(hit, `episode ${ep} should be cached`);
+    assert.equal(hit.streamUrl, `https://cdn.test/ep${ep}.m3u8`);
+  }
+  // Episode 1 is outside the window — it was never requested.
+  assert.equal(sessionStore.getResolution('aniliberty', 'src-1', 1, 1, 'AniDUB'), null);
+  // A different voice does not see the AniDUB cache.
+  assert.equal(sessionStore.getResolution('aniliberty', 'src-1', 1, 5, 'AniLibria'), null);
 });

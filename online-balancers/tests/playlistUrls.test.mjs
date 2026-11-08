@@ -116,12 +116,23 @@ test('playback payload resolves playlist episodes that only carry a pseudo strea
   assert.equal(payload.streamUrl, 'https://cdn.test/s1e1.m3u8');
   assert.deepEqual(payload.headers, streamHeaders);
   assert.equal(payload.playlist.length, 3);
-  assert.equal(payload.playlist[0].streamUrl, 'https://cdn.test/s1e1.m3u8');
-  assert.deepEqual(payload.playlist[0].headers, streamHeaders);
-  assert.equal(payload.playlist[1].streamUrl, 'https://cdn.test/s1e2.m3u8');
-  assert.deepEqual(payload.playlist[1].headers, streamHeaders);
+  // The window resolves in the background: playlist items keep their own handles until the
+  // cache lands — navigation re-resolves and hits the window cache.
+  assert.equal(payload.playlist[0].streamUrl, undefined);
+  assert.equal(payload.playlist[1].streamUrl, pseudoUrl);
   assert.equal(payload.playlist[2].streamUrl, 'https://cdn.test/direct.m3u8');
   assert.deepEqual(payload.sourceStream.query, kodikStream.query);
+
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const replay = await service.resolvePlayback(
+    kodikStream,
+    episodes[1],
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    episodes,
+    '1:2',
+  );
+  assert.equal(replay.streamUrl, 'https://cdn.test/s1e2.m3u8');
+  assert.deepEqual(replay.headers, streamHeaders);
 });
 
 test('a multi-voice episode resolves one upstream stream but lists every voice', async () => {
@@ -258,13 +269,16 @@ test('resolution cache serves repeat episode switches without extra API calls', 
   await service.resolvePlayback(stream, episode, { type: 'tv', title: 'Serial' });
   assert.equal(playbackCalls, 1);
 
-  // A voice of the SAME source shares the cached stream — no extra call.
+  // A DIFFERENT voice is a different baked-in stream — it must resolve again (voice-keyed cache).
   await service.resolvePlayback(stream, { ...episode, voice: 'SHIZA' }, { type: 'tv', title: 'Serial' });
-  assert.equal(playbackCalls, 1);
+  assert.equal(playbackCalls, 2);
+  // Re-requesting that same voice hits the cache.
+  await service.resolvePlayback(stream, { ...episode, voice: 'SHIZA' }, { type: 'tv', title: 'Serial' });
+  assert.equal(playbackCalls, 2);
 
   // A different source is a different stream and must resolve again.
   await service.resolvePlayback(stream, { ...episode, sourceId: 'serial-9999' }, { type: 'tv', title: 'Serial' });
-  assert.equal(playbackCalls, 2);
+  assert.equal(playbackCalls, 3);
 });
 
 test('an explicitly requested voice wins over selectedAudioId and resolves exactly one candidate', async () => {
@@ -558,16 +572,27 @@ test('playlist resolution is a sliding window: 3 before the selected episode, 5 
     selected.id,
   );
 
-  // Window = indices 1..9 (episodes 2..10): 3 before + selected + 5 after = 9 items. The
-  // selected episode itself is served from the just-populated cache, so upstream sees exactly
-  // 9 resolutions — NOT 10 (one per playlist item).
-  assert.equal(calls.length, 9);
+  // The payload does NOT wait for the window (a slow window episode must not delay the
+  // player open) — with synchronous mocks the window may already have landed by the time
+  // the payload resolves, so only the post-flush totals are asserted below.
   assert.equal(payload.playlist.length, 10);
-  // Episode 1 (index 0) is OUTSIDE the window — it keeps the pseudo handle for click-time resolve.
+  // Playlist items keep their handles; stream URLs come from the cache on navigation.
   assert.equal(payload.playlist[0].streamUrl, pseudoUrl);
-  // Everything inside the window is resolved, including the last episode (window end reaches it).
-  assert.equal(payload.playlist[4].streamUrl, 'https://cdn.test/s1e5.m3u8');
-  assert.equal(payload.playlist[9].streamUrl, 'https://cdn.test/s1e10.m3u8');
+  assert.equal(payload.playlist[4].streamUrl, pseudoUrl);
+
+  await new Promise(resolve => setTimeout(resolve, 0));
+  // Window = indices 1..9 (episodes 2..10), minus the just-resolved anchor: 8 background calls.
+  assert.equal(calls.length, 9);
+  // Episodes inside the window are cached — a repeat navigation costs no upstream call.
+  const repeat = await service.resolvePlayback(
+    kodikStream,
+    episodes[9],
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    episodes,
+    episodes[9].id,
+  );
+  assert.equal(repeat.streamUrl, 'https://cdn.test/s1e10.m3u8');
+  assert.equal(calls.length, 9);
 });
 
 test('a window anchored at the first episode has no "before" part and a far jump re-windows', async () => {
@@ -598,7 +623,8 @@ test('a window anchored at the first episode has no "before" part and a far jump
     url: pseudoUrl,
   }));
 
-  // Anchor at index 0 → window is exactly 6 items (0..5), no "before" slice to pad it.
+  // Anchor at index 0 → the payload carries the primary immediately; the window
+  // (episodes 2..6 — 5 after) lands in the background cache.
   const first = await service.resolvePlayback(
     kodikStream,
     episodes[0],
@@ -606,13 +632,13 @@ test('a window anchored at the first episode has no "before" part and a far jump
     episodes,
     '1:1',
   );
-  assert.equal(calls.length, 6);
-  assert.equal(first.playlist[5].streamUrl, 'https://cdn.test/s1e6.m3u8');
+  assert.equal(first.playlist[5].streamUrl, pseudoUrl);
   assert.equal(first.playlist[6].streamUrl, pseudoUrl);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(calls.length, 6);
 
-  // Far jump to episode 12: new window = indices 8..11 (3 before + selected). Only episodes
-  // 1..6 were resolved before, so upstream sees 4 new resolutions: the primary 12 plus the
-  // not-yet-cached 9, 10 and 11 from the new window's "before" slice.
+  // Far jump to episode 12: the primary resolves live, the new window's "before"
+  // slice (9, 10, 11) resolves in the background — 6 + 1 + 3 = 10 upstream calls total.
   const jumped = await service.resolvePlayback(
     kodikStream,
     episodes[11],
@@ -620,8 +646,21 @@ test('a window anchored at the first episode has no "before" part and a far jump
     episodes,
     '1:12',
   );
-  assert.equal(calls.length, 10);
   assert.equal(jumped.streamUrl, 'https://cdn.test/s1e12.m3u8');
-  assert.equal(jumped.playlist[10].streamUrl, 'https://cdn.test/s1e11.m3u8');
+  assert.equal(jumped.playlist[10].streamUrl, pseudoUrl);
   assert.equal(jumped.playlist[7].streamUrl, pseudoUrl);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(calls.length, 10);
+  // The window cache serves a back-navigation to episode 11 without a new primary call;
+  // the re-window around ep11 resolves the one still-missing episode (ep8) in the background.
+  const back = await service.resolvePlayback(
+    kodikStream,
+    episodes[10],
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    episodes,
+    '1:11',
+  );
+  assert.equal(back.streamUrl, 'https://cdn.test/s1e11.m3u8');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(calls.length, 11);
 });

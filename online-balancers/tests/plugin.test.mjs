@@ -382,7 +382,10 @@ test('plugin registers the online-balancers source and delegates the complete fl
     },
   ]);
   const groupedPlaybackCalls = calls.filter(call => new URL(call.url).pathname === '/api/v1/playback');
-  assert.deepEqual(groupedPlaybackCalls.map(call => call.body.sourceId), ['42']);
-  // voice field is optional in resolvePlayback — only used for logging
-  assert.equal(groupedPlaybackCalls.length, 1);
+  assert.deepEqual(groupedPlaybackCalls.map(call => call.body.sourceId), ['42', '42']);
+  // Voice-keyed cache: the warm-up resolution cached a stream with NO declared dub, so the
+  // panel play that explicitly requests «AniLiberty» cannot reuse it — one extra upstream
+  // call. (Before voice-keying the second request silently replayed the unknown-dub stream.)
+  assert.equal(groupedPlaybackCalls.length, 2);
+  assert.equal(groupedPlaybackCalls[1].body.voice, 'AniLiberty');
 });

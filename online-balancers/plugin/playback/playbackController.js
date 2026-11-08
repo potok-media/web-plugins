@@ -96,6 +96,7 @@ export function createPlaybackService({
         sourceId(selected) || sourceId(stream),
         selected?.season,
         selected?.episode,
+        selected?.voice,
       );
       const response = refreshResult
         ? { ...cachedResolution, ...Object.fromEntries(Object.entries(refreshResult).filter(([, v]) => v != null)) }
@@ -206,7 +207,7 @@ export function createPlaybackService({
       // Check cache before HTTP call — keyed by provider+source+episode, NOT voice:
       // voices of one source share the same resolved stream, and the episode-selector
       // voice labels would otherwise fragment the cache into misses.
-      const cached = sessionStore.getResolution(id, src, season, episode);
+      const cached = sessionStore.getResolution(id, src, season, episode, voice);
       if (cached) {
         console.log('[Playback] resolvePlayback — cache HIT for', { id, src, season, episode });
         return {
@@ -228,14 +229,15 @@ export function createPlaybackService({
         ...(account ? { account: providerAccountEnvelope(id, account) } : {}),
       });
 
-      // Cache the streamUrl and voice — createPlaybackPayload needs both
+      // Cache the streamUrl and voice — createPlaybackPayload needs both (voice-keyed: a
+      // dub-specific stream must never satisfy a different-dub request).
       if (response?.streamUrl) {
         sessionStore.setResolution(id, src, season, episode, {
           streamUrl: response.streamUrl,
           streamType: response.streamType,
           voice: response.voice,
           headers: response.headers,
-        });
+        }, voice);
       }
 
       return { candidateIndex: selectedCandidateIndex, target, response, providerId: id };
@@ -258,6 +260,10 @@ export function createPlaybackService({
     // once). Episodes outside the window keep their pseudo `online-balancers://` handle in the
     // playlist — the host resolves on click when the user jumps far away. Episodes with a real
     // http(s) URL cost nothing and are still skipped below.
+    //
+    // The window runs in the BACKGROUND: the payload (and the player open) must not wait for
+    // up to 9 upstream resolutions. Playlist navigation re-resolves through the host resolver
+    // and hits the voice-keyed cache below once the window lands.
     const allPlaylistEpisodes = episodes || [];
     const WINDOW_BEFORE = 3;
     const WINDOW_AFTER = 5;
@@ -274,9 +280,15 @@ export function createPlaybackService({
         (ep.season ?? null) === selectedSeason && (ep.episode ?? null) === selectedEpisode);
     }
     if (windowAnchor < 0) windowAnchor = 0;
+    const anchorEpisodeId = allPlaylistEpisodes[windowAnchor]?.id ?? null;
     const windowStart = Math.max(0, windowAnchor - WINDOW_BEFORE);
     const windowEnd = Math.min(allPlaylistEpisodes.length, windowAnchor + WINDOW_AFTER + 1);
-    const playlistEpisodes = allPlaylistEpisodes.slice(windowStart, windowEnd);
+    // The anchor was JUST resolved as the primary — including it would re-resolve the same
+    // episode (the episode's default voice often differs from the requested one, so the
+    // voice-keyed cache misses) and waste an upstream call.
+    const playlistEpisodes = allPlaylistEpisodes
+      .slice(windowStart, windowEnd)
+      .filter(ep => String(ep.id) !== String(anchorEpisodeId));
     // Explicit field only on the target — episode ids ("kodik:serial-16224:1:2") must not be
     // id-derived into polluted sourceIds; the stream's sourceId is the correct fallback.
     const primarySourceId =
@@ -292,11 +304,12 @@ export function createPlaybackService({
       const epSourceId = ep.sourceId || primarySourceId;
       const epSeason = ep.season ?? context?.season;
       const epEpisode = ep.episode ?? context?.episode;
+      const epVoice = ep.voice || null;
 
-      // Check cache before HTTP call
-      const cached = sessionStore.getResolution(epProviderId, epSourceId, epSeason, epEpisode);
+      // Check cache before HTTP call (voice-keyed: a dub-specific stream is not interchangeable)
+      const cached = sessionStore.getResolution(epProviderId, epSourceId, epSeason, epEpisode, epVoice);
       if (isPlayableUrl(cached?.streamUrl)) {
-        console.log('[Playback] playlist cache HIT for', { episodeId: ep.id, season: epSeason, episode: epEpisode });
+        console.log('[Playback] playlist cache HIT for', { episodeId: ep.id, season: epSeason, episode: epEpisode, voice: epVoice });
         return { episodeId: ep.id, streamUrl: cached.streamUrl, headers: cached.headers, skip: true };
       }
 
@@ -309,7 +322,7 @@ export function createPlaybackService({
         query: sourceQuery(ep, context),
         season: epSeason ?? null,
         episode: epEpisode ?? null,
-        voice: ep.voice || null,
+        voice: epVoice,
         ...(account ? { account: providerAccountEnvelope(epProviderId, account) } : {}),
       });
 
@@ -320,27 +333,34 @@ export function createPlaybackService({
           streamType: response.streamType,
           voice: response.voice,
           headers: response.headers,
-        });
+        }, epVoice);
       }
 
       return { episodeId: ep.id, streamUrl: response?.streamUrl, headers: response?.headers };
     });
-    const playlistResolutions = await Promise.allSettled(playlistResolverRequests);
-    const resolvedUrlMap = new Map();
-    playlistResolutions.forEach((result, idx) => {
-      if (result.status === 'fulfilled' && result.value?.streamUrl) {
-        resolvedUrlMap.set(playlistEpisodes[idx].id, {
-          streamUrl: result.value.streamUrl,
-          headers: result.value.headers,
-        });
-      }
-    });
-    console.log('[Playback] playlist episodes resolved', {
-      total: allPlaylistEpisodes.length,
-      window: playlistEpisodes.length,
-      windowStart,
-      windowAnchor,
-      resolved: resolvedUrlMap.size,
+
+    // Background window: the payload returns immediately; window failures stay in the log.
+    void Promise.allSettled(playlistResolverRequests).then((playlistResolutions) => {
+      const resolvedCount = playlistResolutions.filter(
+        result => result.status === 'fulfilled' && result.value?.streamUrl,
+      ).length;
+      const failedCount = playlistResolutions.length - resolvedCount;
+      console.log('[Playback] playlist window resolved (background)', {
+        total: allPlaylistEpisodes.length,
+        window: playlistEpisodes.length,
+        windowStart,
+        windowAnchor,
+        resolved: resolvedCount,
+        failed: failedCount,
+      });
+      playlistResolutions.forEach((result, idx) => {
+        if (result.status === 'rejected') {
+          console.warn('[Playback] window episode resolve failed:', {
+            episodeId: playlistEpisodes[idx]?.id,
+            reason: result.reason instanceof Error ? result.reason.message : String(result.reason),
+          });
+        }
+      });
     });
 
     return createPlaybackPayload({
@@ -356,7 +376,7 @@ export function createPlaybackService({
       translate,
       episodes,
       activeEpisodeId,
-      resolvedUrlMap,
+      resolvedUrlMap: new Map(),
     });
   }
 
