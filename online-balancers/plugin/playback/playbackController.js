@@ -183,87 +183,122 @@ export function createPlaybackService({
       });
     }
 
-    // Full resolution — check cache for the selected candidate first
-    const settled = await Promise.allSettled([candidateToResolve].map(async (candidate) => {
-      const target = {
-        ...selected,
-        ...candidate,
-        voice: candidate?.voice || candidate?.name || selected?.voice || stream?.voice || null,
-      };
-      // Provider for the resolve call: ONLY an explicit providerId on the target counts —
-      // episode ids like "1:1" (season:episode) must never be id-derived into a bogus slug,
-      // and the host may leave its own plugin id there (sanitized above). Fall back to the
-      // sourceStream's provider — the stream the user actually clicked.
-      const explicitTargetProvider =
-        typeof target?.providerId === 'string' && target.providerId ? target.providerId : null;
-      const explicitTargetSource =
-        typeof target?.sourceId === 'string' && target.sourceId ? target.sourceId : null;
-      const id = explicitTargetProvider || providerId(stream);
-      const src = explicitTargetSource || sourceId(stream);
-      const season = target?.season ?? context?.season ?? null;
-      const episode = target?.episode ?? context?.episode ?? null;
-      const voice = target?.voice || null;
-
-      // Check cache before HTTP call — keyed by provider+source+episode, NOT voice:
-      // voices of one source share the same resolved stream, and the episode-selector
-      // voice labels would otherwise fragment the cache into misses.
-      const cached = sessionStore.getResolution(id, src, season, episode, voice);
+    // Full resolution. The payload must leave this function COMPLETE: every voice candidate
+    // of the current episode and every episode of the window carries a ready streamUrl, so
+    // the player never resolves anything itself. All resolutions go through the voice-keyed
+    // cache and the candidate's OWN provider/source/query.
+    const resolveCandidateStream = async ({ provider: candidateProvider, source: candidateSource, query: candidateQuery, season, episode, voice }) => {
+      const cached = sessionStore.getResolution(candidateProvider, candidateSource, season, episode, voice);
       if (cached) {
-        console.log('[Playback] resolvePlayback — cache HIT for', { id, src, season, episode });
-        return {
-          candidateIndex: selectedCandidateIndex,
-          target,
-          response: cached,
-          providerId: id,
-        };
+        console.log('[Playback] resolvePlayback — cache HIT for', { id: candidateProvider, src: candidateSource, season, episode, voice });
+        return cached;
       }
-
-      const account = accountVault ? await accountVault.getAccount(id) : null;
+      const account = candidateProvider && accountVault ? await accountVault.getAccount(candidateProvider) : null;
       const response = await client.resolvePlayback({
-        provider: id,
-        sourceId: src,
-        query: sourceQuery(target, context),
+        provider: candidateProvider,
+        sourceId: candidateSource,
+        query: candidateQuery,
         season,
         episode,
         voice,
-        ...(account ? { account: providerAccountEnvelope(id, account) } : {}),
+        ...(account ? { account: providerAccountEnvelope(candidateProvider, account) } : {}),
       });
-
-      // Cache the streamUrl and voice — createPlaybackPayload needs both (voice-keyed: a
-      // dub-specific stream must never satisfy a different-dub request).
       if (response?.streamUrl) {
-        sessionStore.setResolution(id, src, season, episode, {
+        sessionStore.setResolution(candidateProvider, candidateSource, season, episode, {
           streamUrl: response.streamUrl,
           streamType: response.streamType,
           voice: response.voice,
           headers: response.headers,
         }, voice);
       }
+      return response;
+    };
 
-      return { candidateIndex: selectedCandidateIndex, target, response, providerId: id };
+    const target = {
+      ...selected,
+      ...candidateToResolve,
+      voice: candidateToResolve?.voice || candidateToResolve?.name || selected?.voice || stream?.voice || null,
+    };
+    // Provider for the resolve call: ONLY an explicit providerId on the target counts —
+    // episode ids like "1:1" (season:episode) must never be id-derived into a bogus slug,
+    // and the host may leave its own plugin id there (sanitized above). Fall back to the
+    // sourceStream's provider — the stream the user actually clicked.
+    const explicitTargetProvider =
+      typeof target?.providerId === 'string' && target.providerId ? target.providerId : null;
+    const explicitTargetSource =
+      typeof target?.sourceId === 'string' && target.sourceId ? target.sourceId : null;
+    const primaryProvider = explicitTargetProvider || providerId(stream);
+    const primarySource = explicitTargetSource || sourceId(stream);
+    const primarySeason = target?.season ?? context?.season ?? null;
+    const primaryEpisode = target?.episode ?? context?.episode ?? null;
+    const primaryVoice = target?.voice || null;
+
+    const primaryResponse = await resolveCandidateStream({
+      provider: primaryProvider,
+      source: primarySource,
+      query: sourceQuery(target, context),
+      season: primarySeason,
+      episode: primaryEpisode,
+      voice: primaryVoice,
+    });
+    if (!primaryResponse?.streamUrl) {
+      throw new Error(translate('playback.failed'));
+    }
+    if (primaryResponse.session) {
+      sessionStore.set(primaryResponse.session, primaryProvider);
+    }
+    const primary = {
+      candidateIndex: selectedCandidateIndex,
+      target,
+      response: primaryResponse,
+      providerId: primaryProvider,
+    };
+    const primaryIndex = 0;
+    const resolved = [primary];
+    // Explicit field only on the target — episode ids ("kodik:serial-16224:1:2") must not be
+    // id-derived into polluted sourceIds; the stream's sourceId is the correct fallback.
+    const primarySourceId =
+      (typeof primary.target?.sourceId === 'string' && primary.target.sourceId
+        ? primary.target.sourceId
+        : null) || sourceId(stream);
+
+    // Remaining voice candidates of the CURRENT episode — resolved so the player's audio
+    // menu holds ready URLs (a voice switch is a local swap, not a re-resolve). Failures
+    // leave the candidate's url blank; the selected one above is the only hard requirement.
+    const candidateUrls = new Map([[selectedCandidateIndex, {
+      url: primaryResponse.streamUrl,
+      headers: primaryResponse.headers,
+    }]]);
+    await Promise.all(candidates.map(async (candidate, index) => {
+      if (index === selectedCandidateIndex) return;
+      const voice = candidate?.voice || candidate?.name || null;
+      if (!voice) return;
+      try {
+        const response = await resolveCandidateStream({
+          provider: candidate?.providerId || providerId(stream),
+          source: candidate?.sourceId || sourceId(stream),
+          query: candidate?.query || sourceQuery(selected, context),
+          season: primarySeason,
+          episode: primaryEpisode,
+          voice,
+        });
+        if (response?.streamUrl) {
+          candidateUrls.set(index, { url: response.streamUrl, headers: response.headers });
+        }
+      } catch (error) {
+        console.warn('[Playback] candidate voice resolve failed:', {
+          voice,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
     }));
-    const resolved = settled.filter(result => result.status === 'fulfilled').map(result => result.value);
-    if (!resolved.length) {
-      const failure = settled.find(result => result.status === 'rejected');
-      throw failure?.reason || new Error(translate('playback.failed'));
-    }
 
-    const primary = resolved.find(item => item.candidateIndex === selectedCandidateIndex) || resolved[0];
-    const primaryIndex = resolved.indexOf(primary);
-    if (primary.response?.session) {
-      sessionStore.set(primary.response.session, primary.providerId);
-    }
-
-    // Resolve ONLY a sliding window around the selected episode — 3 before, the selected one,
-    // 5 after (≤9 upstream resolutions per playback start). Resolving the whole list up front
-    // fires one backend/balancer request per episode (a 148-episode series = 148 requests at
-    // once). Episodes outside the window keep their pseudo `online-balancers://` handle in the
-    // playlist — the host resolves on click when the user jumps far away. Episodes with a real
-    // http(s) URL cost nothing and are still skipped below.
-    //
-    // The window runs in the BACKGROUND: the payload (and the player open) must not wait for
-    // up to 9 upstream resolutions. Playlist navigation re-resolves through the host resolver
-    // and hits the voice-keyed cache below once the window lands.
+    // Resolve a sliding window around the selected episode — 3 before, 5 after. EVERY voice
+    // candidate of EVERY window episode is resolved (through the candidate's OWN provider),
+    // so the payload leaves complete: playlist items carry ready streamUrls and ready
+    // per-candidate audios; the player never resolves anything. Episodes outside the window
+    // keep their pseudo `online-balancers://` handle — the plugin re-windows on a far-jump
+    // click via replacePlaylist. Episodes with a real http(s) URL are skipped.
     const allPlaylistEpisodes = episodes || [];
     const WINDOW_BEFORE = 3;
     const WINDOW_AFTER = 5;
@@ -289,98 +324,118 @@ export function createPlaybackService({
     const playlistEpisodes = allPlaylistEpisodes
       .slice(windowStart, windowEnd)
       .filter(ep => String(ep.id) !== String(anchorEpisodeId));
-    // Explicit field only on the target — episode ids ("kodik:serial-16224:1:2") must not be
-    // id-derived into polluted sourceIds; the stream's sourceId is the correct fallback.
-    const primarySourceId =
-      (typeof primary.target?.sourceId === 'string' && primary.target.sourceId
-        ? primary.target.sourceId
-        : null) || sourceId(stream);
-    // The window must follow the voice the user is actually listening to (the matched
-    // candidate's), not each episode's stored default: after a cross-provider switch the
-    // primary provider is the candidate's one, and resolving a neighbor with the OLD voice
-    // fails upstream ("voice not found") and poisons nothing but the cache slot. Each
-    // episode's own `audios` carry per-candidate provider identity — resolve through the
-    // candidate matching the remembered voice, falling back to the episode's default.
-    const playlistResolverRequests = playlistEpisodes.map(async (ep) => {
+
+    const windowResults = await Promise.all(playlistEpisodes.map(async (ep) => {
       const existingUrl = ep?.streamUrl ?? ep?.url;
       if (isPlayableUrl(existingUrl)) {
-        return { episodeId: ep.id, streamUrl: existingUrl, headers: ep.headers, skip: true };
+        return { episodeId: ep.id, streamUrl: existingUrl, headers: ep.headers, audios: null, skip: true };
       }
+      const epSeason = ep.season ?? context?.season ?? null;
+      const epNumber = ep.episode ?? context?.episode ?? null;
       const candidateList = Array.isArray(ep?.audios) ? ep.audios : [];
-      const matchCandidate = (voice) => {
+
+      // Episodes without candidate metadata: one legacy resolution through the stream's
+      // provider with the episode's own voice.
+      if (candidateList.length === 0) {
+        const voice = ep.voice || null;
+        try {
+          const response = await resolveCandidateStream({
+            provider: ep.providerId || primary.providerId,
+            source: ep.sourceId || primarySourceId,
+            query: sourceQuery(ep, context),
+            season: epSeason,
+            episode: epNumber,
+            voice,
+          });
+          return {
+            episodeId: ep.id,
+            streamUrl: response?.streamUrl ?? null,
+            headers: response?.headers ?? null,
+            audios: null,
+          };
+        } catch (error) {
+          console.warn('[Playback] window episode resolve failed:', {
+            episodeId: ep.id,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          return { episodeId: ep.id, streamUrl: null, headers: null, audios: null };
+        }
+      }
+
+      // Full candidate set: resolve every voice variant so the player's menu is ready-made.
+      const resolvedAudios = [];
+      await Promise.all(candidateList.map(async (candidate, index) => {
+        const voice = candidate?.voice || candidate?.name || null;
+        if (!voice) return;
+        try {
+          const response = await resolveCandidateStream({
+            provider: candidate?.providerId || ep.providerId || primary.providerId,
+            source: candidate?.sourceId || ep.sourceId || primarySourceId,
+            query: candidate?.query || sourceQuery(ep, context),
+            season: epSeason,
+            episode: epNumber,
+            voice,
+          });
+          if (response?.streamUrl) {
+            resolvedAudios[index] = { url: response.streamUrl, headers: response.headers };
+          }
+        } catch (error) {
+          console.warn('[Playback] window candidate resolve failed:', {
+            episodeId: ep.id,
+            voice,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }));
+
+      // The item's streamUrl follows the voice being listened to (the matched candidate),
+      // falling back to the episode's default voice, then any resolved variant.
+      const matchIndex = (voice) => {
         const wanted = normalizeVoice(voice);
         if (wanted == null) return -1;
         return candidateList.findIndex(candidate =>
           normalizeVoice(candidate?.voice) === wanted
           || normalizeVoice(candidate?.name) === wanted);
       };
-      let candidateIndex = matchCandidate(requestedVoice);
-      if (candidateIndex < 0) candidateIndex = matchCandidate(ep.voice);
-      if (candidateIndex < 0 && candidateList.length > 0) candidateIndex = 0;
-      const candidate = candidateIndex >= 0 ? candidateList[candidateIndex] : null;
+      let chosenIndex = matchIndex(requestedVoice);
+      if (chosenIndex < 0) chosenIndex = matchIndex(ep.voice);
+      if (chosenIndex < 0) chosenIndex = resolvedAudios.findIndex(entry => entry?.url);
+      const chosen = chosenIndex >= 0 ? resolvedAudios[chosenIndex] : null;
+      return {
+        episodeId: ep.id,
+        streamUrl: chosen?.url ?? null,
+        headers: chosen?.headers ?? null,
+        audios: resolvedAudios,
+      };
+    }));
 
-      const epProviderId = (candidate?.providerId) || ep.providerId || primary.providerId;
-      const epSourceId = (candidate?.sourceId) || ep.sourceId || primarySourceId;
-      const epSeason = ep.season ?? context?.season;
-      const epEpisode = ep.episode ?? context?.episode;
-      const epVoice = (candidate?.voice || candidate?.name) || ep.voice || null;
-      const epQuery = (candidate?.query) || sourceQuery(ep, context);
-
-      // Check cache before HTTP call (voice-keyed: a dub-specific stream is not interchangeable)
-      const cached = sessionStore.getResolution(epProviderId, epSourceId, epSeason, epEpisode, epVoice);
-      if (isPlayableUrl(cached?.streamUrl)) {
-        console.log('[Playback] playlist cache HIT for', { episodeId: ep.id, season: epSeason, episode: epEpisode, voice: epVoice });
-        return { episodeId: ep.id, streamUrl: cached.streamUrl, headers: cached.headers, skip: true };
+    const resolvedUrlMap = new Map();
+    let windowResolved = 0;
+    for (const result of windowResults) {
+      if (result.streamUrl) {
+        resolvedUrlMap.set(result.episodeId, {
+          streamUrl: result.streamUrl,
+          headers: result.headers,
+          audios: result.audios,
+        });
+        windowResolved += 1;
       }
-
-      const account = epProviderId && accountVault
-        ? await accountVault.getAccount(epProviderId)
-        : null;
-      const response = await client.resolvePlayback({
-        provider: epProviderId,
-        sourceId: epSourceId,
-        query: epQuery,
-        season: epSeason ?? null,
-        episode: epEpisode ?? null,
-        voice: epVoice,
-        ...(account ? { account: providerAccountEnvelope(epProviderId, account) } : {}),
+    }
+    // The anchor itself is resolved (it IS the primary) — publish its ready urls into the
+    // playlist item too, so every item of the payload is complete.
+    if (anchorEpisodeId != null && !resolvedUrlMap.has(anchorEpisodeId)) {
+      resolvedUrlMap.set(anchorEpisodeId, {
+        streamUrl: primaryResponse.streamUrl,
+        headers: primaryResponse.headers,
+        audios: candidates.map((candidate, index) => candidateUrls.get(index) ?? null),
       });
-
-      // Cache only the streamUrl, streamType, voice and headers — other fields come from the episode/target
-      if (response?.streamUrl) {
-        sessionStore.setResolution(epProviderId, epSourceId, epSeason, epEpisode, {
-          streamUrl: response.streamUrl,
-          streamType: response.streamType,
-          voice: response.voice,
-          headers: response.headers,
-        }, epVoice);
-      }
-
-      return { episodeId: ep.id, streamUrl: response?.streamUrl, headers: response?.headers };
-    });
-
-    // Background window: the payload returns immediately; window failures stay in the log.
-    void Promise.allSettled(playlistResolverRequests).then((playlistResolutions) => {
-      const resolvedCount = playlistResolutions.filter(
-        result => result.status === 'fulfilled' && result.value?.streamUrl,
-      ).length;
-      const failedCount = playlistResolutions.length - resolvedCount;
-      console.log('[Playback] playlist window resolved (background)', {
-        total: allPlaylistEpisodes.length,
-        window: playlistEpisodes.length,
-        windowStart,
-        windowAnchor,
-        resolved: resolvedCount,
-        failed: failedCount,
-      });
-      playlistResolutions.forEach((result, idx) => {
-        if (result.status === 'rejected') {
-          console.warn('[Playback] window episode resolve failed:', {
-            episodeId: playlistEpisodes[idx]?.id,
-            reason: result.reason instanceof Error ? result.reason.message : String(result.reason),
-          });
-        }
-      });
+    }
+    console.log('[Playback] playlist window resolved', {
+      total: allPlaylistEpisodes.length,
+      window: playlistEpisodes.length,
+      windowStart,
+      windowAnchor,
+      resolved: windowResolved,
     });
 
     return createPlaybackPayload({
@@ -396,7 +451,8 @@ export function createPlaybackService({
       translate,
       episodes,
       activeEpisodeId,
-      resolvedUrlMap: new Map(),
+      resolvedUrlMap,
+      candidateUrls,
     });
   }
 

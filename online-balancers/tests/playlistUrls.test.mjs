@@ -116,14 +116,14 @@ test('playback payload resolves playlist episodes that only carry a pseudo strea
   assert.equal(payload.streamUrl, 'https://cdn.test/s1e1.m3u8');
   assert.deepEqual(payload.headers, streamHeaders);
   assert.equal(payload.playlist.length, 3);
-  // The window resolves in the background: playlist items keep their own handles until the
-  // cache lands — navigation re-resolves and hits the window cache.
-  assert.equal(payload.playlist[0].streamUrl, undefined);
-  assert.equal(payload.playlist[1].streamUrl, pseudoUrl);
+  // Blocking "everything ready" contract: the anchor item carries the primary URL, the
+  // pseudo-URL episode is resolved inside the window, real URLs are untouched.
+  assert.equal(payload.playlist[0].streamUrl, 'https://cdn.test/s1e1.m3u8');
+  assert.equal(payload.playlist[1].streamUrl, 'https://cdn.test/s1e2.m3u8');
   assert.equal(payload.playlist[2].streamUrl, 'https://cdn.test/direct.m3u8');
   assert.deepEqual(payload.sourceStream.query, kodikStream.query);
 
-  await new Promise(resolve => setTimeout(resolve, 0));
+  // A repeat navigation is served from the window cache — same stream, no extra work.
   const replay = await service.resolvePlayback(
     kodikStream,
     episodes[1],
@@ -135,7 +135,7 @@ test('playback payload resolves playlist episodes that only carry a pseudo strea
   assert.deepEqual(replay.headers, streamHeaders);
 });
 
-test('a multi-voice episode resolves one upstream stream but lists every voice', async () => {
+test('a multi-voice episode resolves every voice candidate and lists each with a ready url', async () => {
   let playbackCalls = 0;
   const client = {
     async resolvePlayback(selection) {
@@ -175,15 +175,13 @@ test('a multi-voice episode resolves one upstream stream but lists every voice',
     '1:1',
   );
 
-  // One upstream resolution total — the "million requests" guard stays in place.
-  assert.equal(playbackCalls, 1);
-  // The resolved streamUrl is used verbatim (no `?audio=N`); every voice is still listed, but
-  // entries carry plain names and blank urls — switching a voice re-resolves upstream through
-  // the candidate's own provider instead of swapping a fabricated audio-param link.
+  // Every candidate is resolved upfront (one per voice) — the player switches voices by a
+  // local swap on the ready url, never by re-resolving.
+  assert.equal(playbackCalls, 2);
   assert.equal(payload.streamUrl, 'https://cdn.test/s1e1.m3u8');
   assert.deepEqual(payload.audios, [
-    { name: 'Dub A', label: 'Dub A', voice: 'Dub A', providerId: null, sourceId: null, query: null, url: '' },
-    { name: 'Dub B', label: 'Dub B', voice: 'Dub B', providerId: null, sourceId: null, query: null, url: '' },
+    { name: 'Dub A', label: 'Dub A', voice: 'Dub A', providerId: null, sourceId: null, query: null, url: 'https://cdn.test/s1e1.m3u8' },
+    { name: 'Dub B', label: 'Dub B', voice: 'Dub B', providerId: null, sourceId: null, query: null, url: 'https://cdn.test/s1e1.m3u8' },
   ]);
 });
 
@@ -229,17 +227,17 @@ test('a host-forwarded episode without audio ids keeps its voice via name matchi
     '1:1',
   );
 
-  assert.equal(playbackCalls, 1);
-  // The voice was matched by NAME (audio ids were stripped) — the resolved candidate drives
-  // the verbatim streamUrl and payload.voice. The full display name is the canonical `name`
-  // (here the fixtures' names ARE the full labels); the plain voice label survives separately
-  // for matching, and urls stay blank so any switch re-resolves upstream.
+  // Both candidates are resolved upfront (the payload leaves complete); the voice was matched
+  // by NAME (audio ids were stripped) — the resolved candidate drives the verbatim streamUrl
+  // and payload.voice. The full display name is the canonical `name`; the plain voice label
+  // survives separately for matching, and every entry carries its ready url.
+  assert.equal(playbackCalls, 2);
   assert.equal(payload.voice, 'Dub B');
   assert.equal(payload.streamUrl, 'https://cdn.test/s1e1.m3u8');
   assert.deepEqual(payload.audios.map(audio => audio.label), ['Dub A', 'Dub B']);
   assert.deepEqual(payload.audios.map(audio => audio.name), ['Dub A', 'Dub B']);
   assert.deepEqual(payload.audios.map(audio => audio.voice), [null, null]);
-  assert.ok(payload.audios.every(audio => audio.url === ''));
+  assert.ok(payload.audios.every(audio => audio.url === 'https://cdn.test/s1e1.m3u8'));
 });
 
 
@@ -281,7 +279,7 @@ test('resolution cache serves repeat episode switches without extra API calls', 
   assert.equal(playbackCalls, 3);
 });
 
-test('an explicitly requested voice wins over selectedAudioId and resolves exactly one candidate', async () => {
+test('an explicitly requested voice wins over selectedAudioId and resolves every candidate', async () => {
   const calls = [];
   const client = {
     async resolvePlayback(selection) {
@@ -324,14 +322,15 @@ test('an explicitly requested voice wins over selectedAudioId and resolves exact
     '1:1',
   );
 
-  assert.equal(calls.length, 1);
+  // All three candidates resolve upfront; the FIRST call is the requested voice.
+  assert.equal(calls.length, 3);
   assert.equal(calls[0].voice, 'Анилибрия');
   assert.equal(payload.voice, 'Анилибрия');
   // The streamUrl is the resolved URL verbatim — the matched candidate is resolved through
   // its own provider (calls[0]), not selected via a `?audio=N` suffix.
   assert.equal(payload.streamUrl, 'https://cdn.test/s1e1.m3u8');
   assert.deepEqual(payload.audios.map(audio => audio.name), ['Кодик', 'Анилибрия', 'SHIZA']);
-  assert.ok(payload.audios.every(audio => audio.url === ''));
+  assert.ok(payload.audios.every(audio => audio.url === 'https://cdn.test/s1e1.m3u8'));
 });
 
 test('a requested voice that matches no candidate rejects without any upstream resolution', async () => {
@@ -413,7 +412,8 @@ test('no requested voice keeps the stored selection semantics unchanged', async 
     [],
   );
   assert.equal(byDefault.streamUrl, 'https://cdn.test/s1e2.m3u8');
-  assert.equal(calls.length, 2);
+  // Each of the two episodes resolved both of its candidates upfront.
+  assert.equal(calls.length, 4);
 });
 
 test('a repeat voice switch for the same episode is served from the resolution cache', async () => {
@@ -451,7 +451,8 @@ test('a repeat voice switch for the same episode is served from the resolution c
   const first = await service.resolvePlayback(kodikStream, episode, { type: 'tv', title: 'Serial', tmdbId: 1 }, [episode], '1:1');
   const second = await service.resolvePlayback(kodikStream, episode, { type: 'tv', title: 'Serial', tmdbId: 1 }, [episode], '1:1');
 
-  assert.equal(calls.length, 1);
+  // Both candidates resolved once; the repeat playback is served entirely from the cache.
+  assert.equal(calls.length, 2);
   assert.equal(second.streamUrl, first.streamUrl);
   assert.equal(second.voice, 'Анилибрия');
 });
@@ -514,22 +515,21 @@ test('a cross-provider merged episode preserves per-candidate identity and re-re
   assert.equal(payload.streamUrl, 'https://cdn.test/aniliberty-s1e1.m3u8');
   assert.equal(payload.voice, 'AniLiberty');
   // Top-level audios carry the FULL "Voice · Quality · Provider" label as the canonical name
-  // (plus each candidate's OWN provider identity); urls are blank (candidates were never
-  // resolved), so any switch re-resolves through the candidate's provider instead of reusing
-  // one fabricated `?audio=N` link.
+  // (plus each candidate's OWN provider identity) and READY urls — both candidates were
+  // resolved upfront, so the player switches voices locally.
   assert.deepEqual(
     payload.audios.map(audio => ({ name: audio.name, voice: audio.voice, providerId: audio.providerId, sourceId: audio.sourceId, url: audio.url })),
     [
-      { name: 'AniDUB · 720p · Kodik', voice: 'AniDUB', providerId: 'kodik', sourceId: 'serial-4898', url: '' },
-      { name: 'AniLiberty · 1080p · AniLiberty', voice: 'AniLiberty', providerId: 'aniliberty', sourceId: '42', url: '' },
+      { name: 'AniDUB · 720p · Kodik', voice: 'AniDUB', providerId: 'kodik', sourceId: 'serial-4898', url: 'https://cdn.test/kodik-s1e1.m3u8' },
+      { name: 'AniLiberty · 1080p · AniLiberty', voice: 'AniLiberty', providerId: 'aniliberty', sourceId: '42', url: 'https://cdn.test/aniliberty-s1e1.m3u8' },
     ],
   );
-  // Playlist items carry the same per-candidate identity for host-side voice switching.
+  // Playlist items carry the same per-candidate identity with ready urls.
   assert.deepEqual(
     payload.playlist[0].audios.map(audio => ({ name: audio.name, providerId: audio.providerId, sourceId: audio.sourceId, url: audio.url })),
     [
-      { name: 'AniDUB · 720p · Kodik', providerId: 'kodik', sourceId: 'serial-4898', url: '' },
-      { name: 'AniLiberty · 1080p · AniLiberty', providerId: 'aniliberty', sourceId: '42', url: '' },
+      { name: 'AniDUB · 720p · Kodik', providerId: 'kodik', sourceId: 'serial-4898', url: 'https://cdn.test/kodik-s1e1.m3u8' },
+      { name: 'AniLiberty · 1080p · AniLiberty', providerId: 'aniliberty', sourceId: '42', url: 'https://cdn.test/aniliberty-s1e1.m3u8' },
     ],
   );
 });
@@ -572,16 +572,16 @@ test('playlist resolution is a sliding window: 3 before the selected episode, 5 
     selected.id,
   );
 
-  // The payload does NOT wait for the window (a slow window episode must not delay the
-  // player open) — with synchronous mocks the window may already have landed by the time
-  // the payload resolves, so only the post-flush totals are asserted below.
+  // Blocking "everything ready" contract: the payload returns with the window resolved.
   assert.equal(payload.playlist.length, 10);
-  // Playlist items keep their handles; stream URLs come from the cache on navigation.
+  // Episode 1 (index 0) is OUTSIDE the window — it keeps the pseudo handle for click-time
+  // resolve; everything inside the window (including the anchor item) has a ready streamUrl.
   assert.equal(payload.playlist[0].streamUrl, pseudoUrl);
-  assert.equal(payload.playlist[4].streamUrl, pseudoUrl);
+  assert.equal(payload.playlist[4].streamUrl, 'https://cdn.test/s1e5.m3u8');
+  assert.equal(payload.playlist[9].streamUrl, 'https://cdn.test/s1e10.m3u8');
 
-  await new Promise(resolve => setTimeout(resolve, 0));
-  // Window = indices 1..9 (episodes 2..10), minus the just-resolved anchor: 8 background calls.
+  // Window = indices 1..9 (episodes 2..10), minus the just-resolved anchor: 8 window calls
+  // + the primary = 9 upstream resolutions total.
   assert.equal(calls.length, 9);
   // Episodes inside the window are cached — a repeat navigation costs no upstream call.
   const repeat = await service.resolvePlayback(
@@ -623,8 +623,8 @@ test('a window anchored at the first episode has no "before" part and a far jump
     url: pseudoUrl,
   }));
 
-  // Anchor at index 0 → the payload carries the primary immediately; the window
-  // (episodes 2..6 — 5 after) lands in the background cache.
+  // Anchor at index 0 → window is exactly episodes 2..6 (5 after) — resolved before the
+  // payload returns; the anchor item itself carries the primary URL.
   const first = await service.resolvePlayback(
     kodikStream,
     episodes[0],
@@ -632,13 +632,13 @@ test('a window anchored at the first episode has no "before" part and a far jump
     episodes,
     '1:1',
   );
-  assert.equal(first.playlist[5].streamUrl, pseudoUrl);
+  assert.equal(first.playlist[0].streamUrl, 'https://cdn.test/s1e1.m3u8');
+  assert.equal(first.playlist[5].streamUrl, 'https://cdn.test/s1e6.m3u8');
   assert.equal(first.playlist[6].streamUrl, pseudoUrl);
-  await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(calls.length, 6);
 
-  // Far jump to episode 12: the primary resolves live, the new window's "before"
-  // slice (9, 10, 11) resolves in the background — 6 + 1 + 3 = 10 upstream calls total.
+  // Far jump to episode 12: the primary resolves live, the new window's "before" slice
+  // (9, 10, 11) resolves with it — 6 + 1 + 3 = 10 upstream calls total.
   const jumped = await service.resolvePlayback(
     kodikStream,
     episodes[11],
@@ -647,12 +647,11 @@ test('a window anchored at the first episode has no "before" part and a far jump
     '1:12',
   );
   assert.equal(jumped.streamUrl, 'https://cdn.test/s1e12.m3u8');
-  assert.equal(jumped.playlist[10].streamUrl, pseudoUrl);
+  assert.equal(jumped.playlist[10].streamUrl, 'https://cdn.test/s1e11.m3u8');
   assert.equal(jumped.playlist[7].streamUrl, pseudoUrl);
-  await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(calls.length, 10);
   // The window cache serves a back-navigation to episode 11 without a new primary call;
-  // the re-window around ep11 resolves the one still-missing episode (ep8) in the background.
+  // the re-window around ep11 resolves the one still-missing episode (ep8).
   const back = await service.resolvePlayback(
     kodikStream,
     episodes[10],
@@ -661,7 +660,6 @@ test('a window anchored at the first episode has no "before" part and a far jump
     '1:11',
   );
   assert.equal(back.streamUrl, 'https://cdn.test/s1e11.m3u8');
-  await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(calls.length, 11);
 });
 

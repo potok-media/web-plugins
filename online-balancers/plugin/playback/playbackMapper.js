@@ -24,6 +24,7 @@ export function createPlaybackPayload({
   episodes,
   activeEpisodeId,
   resolvedUrlMap,
+  candidateUrls,
 }) {
   const safeStr = (v) => v != null ? JSON.parse(JSON.stringify(v)) : undefined;
   console.log('[PlaybackMapper] createPlaybackPayload ENTER', {
@@ -43,6 +44,7 @@ export function createPlaybackPayload({
   const playlist = (episodes || []).map((ep) => {
     const resolved = urlMap.get(ep.id);
     const epAudios = ep?.audios || [];
+    const resolvedAudios = resolved?.audios ?? null;
     return {
       id: ep.id,
       season: ep.season,
@@ -56,22 +58,19 @@ export function createPlaybackPayload({
       filler: ep.filler ?? null,
       streamUrl: resolved?.streamUrl ?? ep?.streamUrl ?? ep?.url,
       headers: resolved?.headers ?? ep?.headers,
-      // Voice variants travel with the item so host-side playlist navigation and voice switching
-      // can rebuild the full candidate list. Candidates KEEP their provider identity — a merged
-      // list may span providers (e.g. "AniDUB · Kodik" next to "AniLiberty"), and switching to one
-      // re-resolves through ITS provider. `name` is the FULL "Voice · Quality · Provider" label:
-      // the balancer identity in it is useful info and one canonical naming everywhere keeps
-      // voice matching and session memory consistent across open paths. The `?audio=N` url
-      // convention is dead (CDNs ignore it), so entries carry their own resolved url or '' —
-      // switching always re-resolves by voice.
-      audios: epAudios.map((audio) => ({
+      // Voice variants travel with ready urls — the player switches voices by a local swap,
+      // never by re-resolving. Candidates KEEP their provider identity — a merged list may
+      // span providers. `name` is the FULL "Voice · Quality · Provider" label: the balancer
+      // identity in it is useful info and one canonical naming everywhere keeps voice
+      // matching and session memory consistent across open paths.
+      audios: epAudios.map((audio, audioIndex) => ({
         name: audio?.name || audio?.voice || undefined,
         label: audio?.name || null,
         voice: audio?.voice || null,
         providerId: audio?.providerId || null,
         sourceId: audio?.sourceId || null,
         query: audio?.query || null,
-        url: isPlayableUrl(audio?.url) ? audio.url : '',
+        url: isPlayableUrl(audio?.url) ? audio.url : resolvedAudios?.[audioIndex]?.url ?? '',
       })),
       voice: epAudios[0]?.voice || epAudios[0]?.name || undefined,
     };
@@ -112,7 +111,7 @@ export function createPlaybackPayload({
           providerId: candidate?.providerId || null,
           sourceId: candidate?.sourceId || null,
           query: candidate?.query || null,
-          url: isPlayableUrl(candidate?.url) ? candidate.url : '',
+          url: isPlayableUrl(candidate?.url) ? candidate.url : candidateUrls?.get(index)?.url ?? '',
         }))
       : resolved.map((item, index) => ({
           name: item.target.voice || item.response.voice
