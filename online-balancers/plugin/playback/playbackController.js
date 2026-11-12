@@ -3,6 +3,17 @@ import { createPlaybackPayload } from './playbackMapper.js';
 import { providerAccountEnvelope } from '../accounts/accountVault.js';
 import { PLUGIN_ID } from '../constants.js';
 
+// Providers whose resolve REQUIRES a playback locator captured at search time (AnimeLib has no
+// query/sourceId resolve path). Descriptors restored from a saved lastSource do not carry the
+// locator, so resolving them is a guaranteed upstream failure — skip them instead of burning a
+// request and a PROVIDER FAILED log line on every resume.
+const LOCATOR_REQUIRED_PROVIDERS = new Set(['animelib']);
+
+const isLocatorMissing = (candidate) =>
+  candidate?.providerId != null
+  && LOCATOR_REQUIRED_PROVIDERS.has(String(candidate.providerId).toLowerCase())
+  && !candidate?.locator;
+
 export function selectAudio(episode, audioId) {
   const audios = episode?.audios || [];
   const audio = audios.find(item => item.id === audioId) || audios[0];
@@ -97,11 +108,8 @@ export function createPlaybackService({
     }
     // Resolve ONLY the selected candidate. Every extra candidate is a separate upstream
     // resolution of a stream the player will not open — that is the "million requests" trap.
-    const candidateToResolve = candidates[selectedCandidateIndex];
-
     // Refresh path disabled — always do full resolution so episode params reach the API
     const useRefresh = false;
-
     if (useRefresh) {
       console.log('[Playback] resolvePlayback — using refresh (session exists, episode switch)');
       const refreshResult = await refresh({
@@ -231,11 +239,63 @@ export function createPlaybackService({
       return response;
     };
 
-    const target = {
-      ...selected,
-      ...candidateToResolve,
-      voice: candidateToResolve?.voice || candidateToResolve?.name || selected?.voice || stream?.voice || null,
-    };
+    // Resolve the primary: the selected candidate first, then the remaining ones in order.
+    // A saved/selected voice whose provider cannot resolve (AnimeLib without its playback
+    // locator, a dead balancer) must not kill the whole playback — the first resolvable
+    // candidate becomes the primary and the menus/session memory follow it.
+    const candidateOrder = [
+      selectedCandidateIndex,
+      ...candidates.map((_, index) => index).filter((index) => index !== selectedCandidateIndex),
+    ];
+    let primaryResponse = null;
+    let primaryCandidateIndex = selectedCandidateIndex;
+    let primaryTarget = null;
+    let lastPrimaryError = null;
+    for (const index of candidateOrder) {
+      const candidate = candidates[index];
+      if (isLocatorMissing(candidate)) {
+        console.warn('[Playback] candidate skipped: provider requires a locator the descriptor does not carry', {
+          providerId: candidate?.providerId,
+          voice: candidate?.voice || candidate?.name || null,
+        });
+        continue;
+      }
+      const candidateTarget = {
+        ...selected,
+        ...candidate,
+        voice: candidate?.voice || candidate?.name || selected?.voice || stream?.voice || null,
+      };
+      try {
+        const response = await resolveCandidateStream({
+          provider: (typeof candidateTarget?.providerId === 'string' && candidateTarget.providerId
+            ? candidateTarget.providerId
+            : null) || providerId(stream),
+          source: (typeof candidateTarget?.sourceId === 'string' && candidateTarget.sourceId
+            ? candidateTarget.sourceId
+            : null) || sourceId(stream),
+          query: sourceQuery(candidateTarget, context),
+          season: candidateTarget?.season ?? context?.season ?? null,
+          episode: candidateTarget?.episode ?? context?.episode ?? null,
+          voice: candidateTarget?.voice || null,
+        });
+        if (response?.streamUrl) {
+          primaryResponse = response;
+          primaryCandidateIndex = index;
+          primaryTarget = candidateTarget;
+          break;
+        }
+      } catch (error) {
+        lastPrimaryError = error;
+        console.warn('[Playback] candidate resolve failed, trying the next one:', {
+          voice: candidateTarget?.voice,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    if (!primaryResponse?.streamUrl || !primaryTarget) {
+      throw new Error(translate('playback.failed'), { cause: lastPrimaryError ?? undefined });
+    }
+    const target = primaryTarget;
     // Provider for the resolve call: ONLY an explicit providerId on the target counts —
     // episode ids like "1:1" (season:episode) must never be id-derived into a bogus slug,
     // and the host may leave its own plugin id there (sanitized above). Fall back to the
@@ -250,22 +310,11 @@ export function createPlaybackService({
     const primaryEpisode = target?.episode ?? context?.episode ?? null;
     const primaryVoice = target?.voice || null;
 
-    const primaryResponse = await resolveCandidateStream({
-      provider: primaryProvider,
-      source: primarySource,
-      query: sourceQuery(target, context),
-      season: primarySeason,
-      episode: primaryEpisode,
-      voice: primaryVoice,
-    });
-    if (!primaryResponse?.streamUrl) {
-      throw new Error(translate('playback.failed'));
-    }
     if (primaryResponse.session) {
       sessionStore.set(primaryResponse.session, primaryProvider);
     }
     const primary = {
-      candidateIndex: selectedCandidateIndex,
+      candidateIndex: primaryCandidateIndex,
       target,
       response: primaryResponse,
       providerId: primaryProvider,
@@ -281,15 +330,15 @@ export function createPlaybackService({
 
     // Remaining voice candidates of the CURRENT episode — resolved so the player's audio
     // menu holds ready URLs (a voice switch is a local swap, not a re-resolve). Failures
-    // leave the candidate's url blank; the selected one above is the only hard requirement.
-    const candidateUrls = new Map([[selectedCandidateIndex, {
+    // leave the candidate's url blank; the primary above is the only hard requirement.
+    const candidateUrls = new Map([[primaryCandidateIndex, {
       url: primaryResponse.streamUrl,
       headers: primaryResponse.headers,
     }]]);
     await Promise.all(candidates.map(async (candidate, index) => {
-      if (index === selectedCandidateIndex) return;
+      if (index === primaryCandidateIndex) return;
       const voice = candidate?.voice || candidate?.name || null;
-      if (!voice) return;
+      if (!voice || isLocatorMissing(candidate)) return;
       try {
         const response = await resolveCandidateStream({
           provider: candidate?.providerId || providerId(stream),
@@ -354,6 +403,9 @@ export function createPlaybackService({
       // Episodes without candidate metadata: one legacy resolution through the stream's
       // provider with the episode's own voice.
       if (candidateList.length === 0) {
+        if (isLocatorMissing(ep)) {
+          return { episodeId: ep.id, streamUrl: null, headers: null, audios: null };
+        }
         const voice = ep.voice || null;
         try {
           const response = await resolveCandidateStream({
@@ -383,7 +435,7 @@ export function createPlaybackService({
       const resolvedAudios = [];
       await Promise.all(candidateList.map(async (candidate, index) => {
         const voice = candidate?.voice || candidate?.name || null;
-        if (!voice) return;
+        if (!voice || isLocatorMissing(candidate)) return;
         try {
           const response = await resolveCandidateStream({
             provider: candidate?.providerId || ep.providerId || primary.providerId,
@@ -473,7 +525,10 @@ export function createPlaybackService({
       pluginId,
       translate,
       episodes,
-      activeEpisodeId,
+      // The payload index must anchor on the actually-resolved episode even when the caller
+      // did not name it (older hosts) — otherwise the payload points at playlist[0] and the
+      // player mounts the wrong, unresolved item.
+      activeEpisodeId: activeEpisodeId ?? anchorEpisodeId ?? selected?.id ?? null,
       resolvedUrlMap,
       candidateUrls,
     });

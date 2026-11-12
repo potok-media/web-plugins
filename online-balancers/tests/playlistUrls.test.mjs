@@ -792,3 +792,152 @@ test('a short voice label matches a full "Voice · Quality · Provider" candidat
   assert.ok(ep2Voices.includes('AniLibria'));
   assert.equal(ep2Voices[0], 'AniLibria');
 });
+
+
+test('resume without activeEpisodeId anchors the payload index on the selected episode', async () => {
+  const calls = [];
+  const client = {
+    async resolvePlayback(selection) {
+      calls.push(selection);
+      return { streamUrl: `https://cdn.test/s${selection.season}e${selection.episode}.m3u8`, streamType: 'm3u8' };
+    },
+  };
+  const episodeService = { fetchEpisodes: async () => ({ episodes: [] }) };
+  const service = createPlaybackService({
+    client,
+    episodeService,
+    sessionStore: createSessionStore(),
+    pluginId: 'online-balancers',
+    translate: key => key,
+    playVideo: () => {},
+  });
+
+  const episodes = Array.from({ length: 10 }, (_, i) => ({
+    id: `1:${i + 1}`,
+    season: 1,
+    episode: i + 1,
+    providerId: 'kodik',
+    sourceId: 'serial-4898',
+    query: kodikStream.query,
+    url: pseudoUrl,
+  }));
+  const selected = episodes[4];
+
+  // The host resume path historically omitted activeEpisodeId — the payload must still point
+  // at the resumed episode (anchor of the resolved window), not at playlist[0], otherwise the
+  // player mounts an out-of-window item whose streamUrl is still the pseudo handle/empty.
+  const payload = await service.resolvePlayback(
+    kodikStream,
+    selected,
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    episodes,
+    undefined,
+  );
+
+  assert.equal(payload.playlistIndex, 4);
+  assert.equal(currentItem(payload).streamUrl, 'https://cdn.test/s1e5.m3u8');
+  // Episode 1 is outside the resolved window — it keeps the pseudo handle untouched.
+  assert.equal(payload.playlist[0].streamUrl, pseudoUrl);
+});
+
+test('an AnimeLib candidate without its playback locator is skipped without an upstream call', async () => {
+  const calls = [];
+  const client = {
+    async resolvePlayback(selection) {
+      calls.push(selection);
+      return { streamUrl: `https://cdn.test/${selection.provider}-s${selection.season}e${selection.episode}.m3u8`, streamType: 'm3u8' };
+    },
+  };
+  const episodeService = { fetchEpisodes: async () => ({ episodes: [] }) };
+  const service = createPlaybackService({
+    client,
+    episodeService,
+    sessionStore: createSessionStore(),
+    pluginId: 'online-balancers',
+    translate: key => key,
+    playVideo: () => {},
+  });
+
+  // Shape restored from a saved lastSource: the AnimeLib candidate has no locator (the server
+  // does not persist it), so resolving it is a guaranteed "playback locator is missing" failure.
+  const episode = {
+    id: '1:1',
+    season: 1,
+    episode: 1,
+    providerId: 'kodik',
+    sourceId: 'serial-4898',
+    query: kodikStream.query,
+    voice: 'AnimeLib',
+    audios: [
+      { name: 'AnimeLib', voice: 'AnimeLib', providerId: 'animelib', sourceId: '8562--x', query: kodikStream.query, url: '' },
+      { name: 'Dub A', voice: 'Dub A', providerId: 'kodik', sourceId: 'serial-4898', query: kodikStream.query, url: '' },
+    ],
+  };
+
+  const payload = await service.resolvePlayback(
+    kodikStream,
+    episode,
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    [episode],
+    '1:1',
+  );
+
+  // The requested AnimeLib voice is unresolvable — playback falls back to the next candidate
+  // and the doomed AnimeLib resolve never hits the upstream.
+  assert.ok(calls.every(call => call.provider !== 'animelib'));
+  assert.equal(currentItem(payload).streamUrl, 'https://cdn.test/kodik-s1e1.m3u8');
+  assert.equal(payload.voice, 'Dub A');
+  // The skipped candidate stays in the menu with a blank url; the resolved one is ready.
+  assert.equal(currentItem(payload).audios[0].url, '');
+  assert.equal(currentItem(payload).audios[1].url, 'https://cdn.test/kodik-s1e1.m3u8');
+});
+
+test('a failing primary candidate falls back to the next resolvable one', async () => {
+  const calls = [];
+  const client = {
+    async resolvePlayback(selection) {
+      calls.push(selection);
+      if (selection.voice === 'Dead') throw new Error('HTTP 502: balancer down');
+      return { streamUrl: `https://cdn.test/${selection.voice || 'def'}-s${selection.season}e${selection.episode}.m3u8`, streamType: 'm3u8' };
+    },
+  };
+  const episodeService = { fetchEpisodes: async () => ({ episodes: [] }) };
+  const service = createPlaybackService({
+    client,
+    episodeService,
+    sessionStore: createSessionStore(),
+    pluginId: 'online-balancers',
+    translate: key => key,
+    playVideo: () => {},
+  });
+
+  const episode = {
+    id: '1:1',
+    season: 1,
+    episode: 1,
+    providerId: 'kodik',
+    sourceId: 'serial-4898',
+    query: kodikStream.query,
+    selectedAudioId: 'kodik:1:1:0',
+    audios: [
+      { id: 'kodik:1:1:0', voice: 'Dead', name: 'Dead' },
+      { id: 'kodik:1:1:1', voice: 'Alive', name: 'Alive' },
+    ],
+  };
+
+  const payload = await service.resolvePlayback(
+    kodikStream,
+    episode,
+    { type: 'tv', title: 'Serial', tmdbId: 1 },
+    [episode],
+    '1:1',
+  );
+
+  assert.equal(calls[0].voice, 'Dead');
+  assert.equal(calls[1].voice, 'Alive');
+  assert.equal(currentItem(payload).streamUrl, 'https://cdn.test/Alive-s1e1.m3u8');
+  assert.equal(payload.voice, 'Alive');
+  // The dead candidate ships in the menu with a blank url.
+  assert.equal(currentItem(payload).audios[0].url, '');
+  assert.equal(currentItem(payload).audios[1].url, 'https://cdn.test/Alive-s1e1.m3u8');
+});
