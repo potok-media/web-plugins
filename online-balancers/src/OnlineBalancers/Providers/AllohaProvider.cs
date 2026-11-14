@@ -39,7 +39,7 @@ public sealed class AllohaProvider(HttpClient http, IMemoryCache? cache = null)
                 return root.Data is null ? [] : [MapSource(root.Data)];
             }
 
-            var title = query.OriginalTitle ?? query.Title;
+            var title = query.Title ?? query.OriginalTitle;
             if (string.IsNullOrWhiteSpace(title))
                 return [];
             var list = await GetJsonAsync<SearchRoot>(AuthorizedGet(

@@ -15,6 +15,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Kodik maps API seasons and decodes player streams", KodikContract),
     ("Kodik supports the current spaced bootstrap contract", KodikCurrentPlayerContract),
     ("KinoPub uses a request account for search, episodes and audio selection", KinoPubContract),
+    ("KinoPub finds multi-season series like The Mentalist with Russian title and broadcast season year", KinoPubMentalistContract),
     ("Filmix maps app search, post playback and the device flow", FilmixContract),
     ("AnimeON maps search, translations and direct episode streams", AnimeONContract),
     ("AnimeLib maps adult search, episodes and video-server streams", AnimeLibContract),
@@ -275,6 +276,53 @@ static async Task KinoPubContract()
     Equal("https://cdn.test/a2.m3u8", playback.Url);
     Equal("Dub B", playback.Voice);
     Equal(0, cache.Count);
+}
+
+static async Task KinoPubMentalistContract()
+{
+    var http = FakeHttp.Create(request =>
+    {
+        var q = request.RequestUri!.Query;
+        if (request.RequestUri.AbsolutePath == "/v1/items/search")
+        {
+            if (q.Contains("%D0%9C%D0%B5%D0%BD%D1%82%D0%B0%D0%BB%D0%B8%D1%81%D1%82") || q.Contains("Менталист"))
+            {
+                return """
+                    {"items":[{"id":686,"title":"Менталист / The Mentalist","original_title":"The Mentalist","year":2008,"type":"serial","kinopoisk":395620,"imdb":1196946,"quality":1080,"posters":{"big":"https://img.test/mentalist.jpg"}}]}
+                    """;
+            }
+            if (q.Contains("The%20Mentalist") && q.Contains("field=title"))
+            {
+                return """{"items":[]}""";
+            }
+        }
+        throw new InvalidOperationException(request.RequestUri.ToString());
+    });
+
+    var provider = new KinoPubProvider(http);
+    var context = ProviderRequestContext.For(provider, new ProviderAccount("kinopub",
+        new Dictionary<string, string> { ["accessToken"] = "test-token" }));
+
+    // User navigates from Season 4 (year 2011) of The Mentalist:
+    var query = new MediaQuery(
+        Type: "tv",
+        Title: "Менталист",
+        OriginalTitle: "The Mentalist",
+        ImdbId: "tt1196946",
+        Year: 2011,
+        TmdbId: 5920,
+        KinopoiskId: 395620);
+
+    var items = await provider.SearchAsync(query, context, default);
+    Equal(1, items.Count);
+    var source = Single(items);
+    Equal("686", source.SourceId);
+    Equal("The Mentalist", source.OriginalTitle);
+    Equal(2008, source.Year);
+
+    Equal(true, SearchResultRanker.IsRelevant(query, source));
+    var ranked = SearchResultRanker.FilterAndRank(query, [source]);
+    Equal(1, ranked.Count);
 }
 
 static async Task KinoWatchDeviceFlowContract()

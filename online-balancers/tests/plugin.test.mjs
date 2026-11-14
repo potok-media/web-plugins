@@ -295,7 +295,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.deepEqual(selects.map(item => item.type), ['Select', 'Select', 'Select']);
   assert.deepEqual(selects[0].optionsValue.map(item => item.label), [
     'Все',
-    'AniLiberty',
+    'AniLibria',
     'Kodik',
     'Alloha · Подключить аккаунт',
     'Filmix · Подключить аккаунт',

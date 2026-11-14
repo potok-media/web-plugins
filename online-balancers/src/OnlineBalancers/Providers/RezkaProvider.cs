@@ -29,29 +29,47 @@ public sealed partial class RezkaProvider(HttpClient http, IMemoryCache? cache =
         CancellationToken cancellationToken)
     {
         var account = ReadAccount(context);
-        var title = query.OriginalTitle ?? query.Title;
-        if (string.IsNullOrWhiteSpace(title))
+        var searchQueries = new List<string>();
+        if (!string.IsNullOrWhiteSpace(query.Title))
+            searchQueries.Add(query.Title.Trim());
+        if (!string.IsNullOrWhiteSpace(query.OriginalTitle) &&
+            !searchQueries.Contains(query.OriginalTitle.Trim(), StringComparer.OrdinalIgnoreCase))
+            searchQueries.Add(query.OriginalTitle.Trim());
+
+        if (searchQueries.Count == 0)
             return [];
-        var url = $"{account.Host}/search/?do=search&subaction=search&q={Uri.EscapeDataString(title)}";
-        var html = await SendStringAsync(GetWithAccount(url, account, account.Host + "/"), cancellationToken);
-        return SearchCardRegex().Matches(html).Select(match =>
+
+        var results = new List<SourceItem>();
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var title in searchQueries)
         {
-            var cardTitle = Clean(match.Groups["title"].Value);
-            var path = WebUtility.HtmlDecode(match.Groups["path"].Value);
-            var poster = WebUtility.HtmlDecode(match.Groups["poster"].Value);
-            var year = int.TryParse(match.Groups["year"].Value, out var number) ? number : (int?)null;
-            return new SourceItem(
-                IdValue,
-                "Rezka",
-                path,
-                cardTitle,
-                null,
-                year,
-                string.IsNullOrWhiteSpace(poster) ? null : Absolute(account.Host, poster),
-                "1080p",
-                null,
-                CardMediaType(match.Value));
-        }).Where(item => !string.IsNullOrWhiteSpace(item.Title)).ToArray();
+            var url = $"{account.Host}/search/?do=search&subaction=search&q={Uri.EscapeDataString(title)}";
+            var html = await SendStringAsync(GetWithAccount(url, account, account.Host + "/"), cancellationToken);
+            foreach (Match match in SearchCardRegex().Matches(html))
+            {
+                var cardTitle = Clean(match.Groups["title"].Value);
+                var path = WebUtility.HtmlDecode(match.Groups["path"].Value);
+                if (string.IsNullOrWhiteSpace(path) || !seenPaths.Add(path))
+                    continue;
+
+                var poster = WebUtility.HtmlDecode(match.Groups["poster"].Value);
+                var year = int.TryParse(match.Groups["year"].Value, out var number) ? number : (int?)null;
+                results.Add(new SourceItem(
+                    IdValue,
+                    "Rezka",
+                    path,
+                    cardTitle,
+                    query.OriginalTitle,
+                    year,
+                    string.IsNullOrWhiteSpace(poster) ? null : Absolute(account.Host, poster),
+                    "1080p",
+                    null,
+                    CardMediaType(match.Value)));
+            }
+        }
+
+        return results.Where(item => !string.IsNullOrWhiteSpace(item.Title)).ToArray();
     }
 
     public async Task<EpisodesResult> GetEpisodesAsync(

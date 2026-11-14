@@ -40,17 +40,26 @@ public sealed class FilmixProvider(HttpClient http, IMemoryCache? cache = null)
         MediaQuery query, ProviderRequestContext context, CancellationToken cancellationToken)
     {
         var token = ReadToken(context);
-        var story = query.OriginalTitle ?? query.Title;
+        var story = query.Title ?? query.OriginalTitle;
         if (string.IsNullOrWhiteSpace(story))
             return Task.FromResult<IReadOnlyList<SourceItem>>([]);
 
         return CachedAsync<IReadOnlyList<SourceItem>>(
-            $"filmix:search:{story}:{query.Year}",
+            $"filmix:search:{story}:{query.OriginalTitle}:{query.Year}",
             TimeSpan.FromHours(4),
             async () =>
             {
                 var items = await SearchAppAsync(story, token, cancellationToken);
                 items ??= await SearchFallbackAsync(story, token, cancellationToken);
+
+                if ((items is null || items.Count == 0) &&
+                    !string.IsNullOrWhiteSpace(query.OriginalTitle) &&
+                    !string.Equals(story, query.OriginalTitle, StringComparison.OrdinalIgnoreCase))
+                {
+                    items = await SearchAppAsync(query.OriginalTitle, token, cancellationToken);
+                    items ??= await SearchFallbackAsync(query.OriginalTitle, token, cancellationToken);
+                }
+
                 var mediaType = string.Equals(query.Type, "movie", StringComparison.OrdinalIgnoreCase) ? "movie" : "tv";
                 return (items ?? [])
                     .Select(item => new SourceItem(

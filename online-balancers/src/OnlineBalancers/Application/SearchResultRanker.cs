@@ -43,7 +43,7 @@ internal static class SearchResultRanker
         IReadOnlyList<TitleAlias> queryAliases,
         SourceItem item)
     {
-        if (!CompatibleMediaType(query.Type, item.MediaType) || !CompatibleYear(query.Year, item.Year))
+        if (!CompatibleMediaType(query.Type, item.MediaType) || !CompatibleYear(query, item))
             return 0;
 
         var itemAliases = Aliases(item.Title, item.OriginalTitle, DisplayTitleBonus);
@@ -150,8 +150,23 @@ internal static class SearchResultRanker
         _ => null,
     };
 
-    private static bool CompatibleYear(int? expected, int? actual) =>
-        expected is null || actual is null || Math.Abs(expected.Value - actual.Value) <= 1;
+    private static bool CompatibleYear(MediaQuery query, SourceItem item)
+    {
+        var expected = query.Year;
+        var actual = item.Year;
+        if (expected is null || actual is null)
+            return true;
+
+        var isTv = CanonicalMediaType(query.Type) == "tv" || CanonicalMediaType(item.MediaType) == "tv";
+        if (isTv)
+        {
+            // For TV series, seasons span multiple years (e.g. The Mentalist 2008-2015).
+            // The query year can be the season broadcast year while the provider year is the series start year.
+            return Math.Abs(expected.Value - actual.Value) <= 25;
+        }
+
+        return Math.Abs(expected.Value - actual.Value) <= 1;
+    }
 
     private static double Similarity(string left, string right)
     {

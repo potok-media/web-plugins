@@ -10,7 +10,7 @@ public sealed partial class AniLibertyProvider(HttpClient http, IMemoryCache? ca
     private const string Host = "https://api.anilibria.app";
 
     public string Id => "aniliberty";
-    public string Name => "AniLiberty";
+    public string Name => "AniLibria";
 
     public Task<IReadOnlyList<SourceItem>> SearchAsync(MediaQuery query, CancellationToken cancellationToken)
     {

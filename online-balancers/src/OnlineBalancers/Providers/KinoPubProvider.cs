@@ -28,21 +28,72 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
         CancellationToken cancellationToken)
     {
         var token = ReadToken(context);
-        var title = query.OriginalTitle ?? query.Title;
-        if (string.IsNullOrWhiteSpace(title))
+        var searchQueries = new List<string>();
+
+        // Prefer Title (localized name, e.g. "Менталист") because Russian balancers index Russian titles
+        if (!string.IsNullOrWhiteSpace(query.Title))
+            searchQueries.Add(query.Title.Trim());
+
+        // Also query OriginalTitle (e.g. "The Mentalist") if provided and different
+        if (!string.IsNullOrWhiteSpace(query.OriginalTitle) &&
+            !searchQueries.Contains(query.OriginalTitle.Trim(), StringComparer.OrdinalIgnoreCase))
+        {
+            searchQueries.Add(query.OriginalTitle.Trim());
+        }
+
+        if (searchQueries.Count == 0)
             return [];
 
-        var url = $"{ApiHost}/v1/items/search?q={Uri.EscapeDataString(title)}" +
-            $"&access_token={Uri.EscapeDataString(token)}&field=title&perpage=200";
-        using var root = await GetJsonAsync<JsonDocument>(Get(url), cancellationToken);
-        if (!TryProperty(root.RootElement, "items", out var items) || items.ValueKind != JsonValueKind.Array)
-            return [];
+        var seenIds = new HashSet<int>();
+        var exactMatches = new List<SourceItem>();
+        var otherMatches = new List<SourceItem>();
 
-        return items.EnumerateArray()
-            .Select(MapSource)
-            .Where(item => item is not null)
-            .Cast<SourceItem>()
-            .ToArray();
+        foreach (var searchTitle in searchQueries)
+        {
+            var url = $"{ApiHost}/v1/items/search?q={Uri.EscapeDataString(searchTitle)}" +
+                $"&access_token={Uri.EscapeDataString(token)}&field=title&perpage=200";
+
+            try
+            {
+                using var root = await GetJsonAsync<JsonDocument>(Get(url), cancellationToken);
+                if (!TryProperty(root.RootElement, "items", out var items) || items.ValueKind != JsonValueKind.Array)
+                    continue;
+
+                foreach (var element in items.EnumerateArray())
+                {
+                    var id = Int(element, "id");
+                    if (id is null || !seenIds.Add(id.Value))
+                        continue;
+
+                    var mapped = MapSource(element);
+                    if (mapped is null)
+                        continue;
+
+                    var isExactId = (Int(element, "kinopoisk") is { } kp && kp > 0 && query.KinopoiskId.HasValue && kp == query.KinopoiskId.Value) ||
+                                    (Int(element, "imdb") is { } imdb && imdb > 0 && !string.IsNullOrWhiteSpace(query.ImdbId) &&
+                                     ($"tt{imdb}" == query.ImdbId || imdb.ToString(CultureInfo.InvariantCulture) == query.ImdbId));
+
+                    if (isExactId)
+                    {
+                        if (string.IsNullOrWhiteSpace(mapped.OriginalTitle) && !string.IsNullOrWhiteSpace(query.OriginalTitle))
+                        {
+                            mapped = mapped with { OriginalTitle = query.OriginalTitle };
+                        }
+                        exactMatches.Add(mapped);
+                    }
+                    else
+                    {
+                        otherMatches.Add(mapped);
+                    }
+                }
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Continue with next query
+            }
+        }
+
+        return [.. exactMatches, .. otherMatches];
     }
 
     public async Task<EpisodesResult> GetEpisodesAsync(
@@ -158,13 +209,24 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
         var title = String(item, "title");
         if (id is null || string.IsNullOrWhiteSpace(title))
             return null;
+
+        var origTitle = String(item, "original_title") ?? String(item, "originalTitle");
+        if (string.IsNullOrWhiteSpace(origTitle) && title.Contains('/'))
+        {
+            var parts = title.Split(['/'], 2, StringSplitOptions.TrimEntries);
+            if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
+            {
+                origTitle = parts[1];
+            }
+        }
+
         var type = String(item, "type");
         return new SourceItem(
             IdValue,
             "KinoWatch (KinoPub)",
             id.Value.ToString(CultureInfo.InvariantCulture),
             title,
-            String(item, "original_title") ?? String(item, "originalTitle"),
+            origTitle,
             Int(item, "year"),
             TryProperty(item, "posters", out var posters) ? FindFirstUrl(posters) : null,
             (Int(item, "quality") is { } quality ? $"{quality}p" : "2160p"),

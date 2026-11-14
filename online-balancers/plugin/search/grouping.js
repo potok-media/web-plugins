@@ -30,7 +30,9 @@ export function groupSources(items) {
       ? groups.find(candidate => candidate.entryId === item.entryId)
       : groups.find(candidate => {
         const sameType = candidate.mediaType === mediaType;
-        const compatibleYear = !candidate.year || !item.year || candidate.year === item.year;
+        const compatibleYear = !candidate.year || !item.year
+          || candidate.year === item.year
+          || (sameType && mediaType === 'tv' && Math.abs(candidate.year - item.year) <= 25);
         return sameType && compatibleYear && aliases.some(alias => candidate.aliases.has(alias));
       });
 
