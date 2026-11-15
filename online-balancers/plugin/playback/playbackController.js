@@ -173,7 +173,7 @@ export function createPlaybackService({
             headers: response.headers,
           });
         }
-        return { episodeId: ep.id, streamUrl: response?.streamUrl, headers: response?.headers };
+        return { episodeId: ep.id, streamUrl: response?.streamUrl, headers: response?.headers, variants: response?.variants };
       });
       const playlistResolutions = await Promise.allSettled(playlistResolverRequests);
       const resolvedUrlMap = new Map();
@@ -182,6 +182,7 @@ export function createPlaybackService({
           resolvedUrlMap.set(playlistEpisodes[idx].id, {
             streamUrl: result.value.streamUrl,
             headers: result.value.headers,
+            variants: result.value.variants,
           });
         }
       });
@@ -234,6 +235,7 @@ export function createPlaybackService({
           streamType: response.streamType,
           voice: response.voice,
           headers: response.headers,
+          variants: response.variants,
         }, voice);
       }
       return response;
