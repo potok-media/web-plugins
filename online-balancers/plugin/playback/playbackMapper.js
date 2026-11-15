@@ -87,7 +87,7 @@ export function createPlaybackPayload({
       // used to create a duplicate/conflicting param — CDNs ignore it anyway (proven: segments
       // keep `-a1` names).
       streamUrl: resolved?.streamUrl ?? ep?.streamUrl ?? ep?.url,
-      streamType: String(resolved?.streamUrl ?? ep?.streamUrl ?? ep?.url ?? '').startsWith('data:') ? 'm3u8' : (resolved?.streamType ?? ep?.streamType ?? 'm3u8'),
+      streamType: resolved?.streamType ?? ep?.streamType ?? 'm3u8',
       headers: resolved?.headers ?? ep?.headers,
       variants: resolved?.variants ?? ep?.variants ?? (isActive ? primary?.response?.variants : undefined),
       // Voice variants travel with ready urls — the player switches voices by a local swap.
@@ -123,7 +123,7 @@ export function createPlaybackPayload({
       episodeId: selected?.episodeId || context?.episodeId || null,
       entryId: selected?.entryId || context?.entryId || null,
       streamUrl: primary.response.streamUrl,
-      streamType: String(primary.response.streamUrl || '').startsWith('data:') ? 'm3u8' : (primary.response.streamType || 'm3u8'),
+      streamType: primary.response.streamType || 'm3u8',
       headers: primary.response.headers ?? undefined,
       variants: primary.response.variants ?? undefined,
       audios: activeAudios,

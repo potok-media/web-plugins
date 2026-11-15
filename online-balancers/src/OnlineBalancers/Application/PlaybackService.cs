@@ -33,11 +33,7 @@ public sealed class PlaybackService
         var provider = _registry.Get(providerId);
         var context = ProviderRequestContext.For(provider, account);
         var resolved = await provider.ResolveAsync(selection, context, cancellationToken);
-        var isHls = resolved.Url.Contains(".m3u8", StringComparison.OrdinalIgnoreCase)
-            || resolved.Url.StartsWith("data:application/vnd.apple.mpegurl", StringComparison.OrdinalIgnoreCase)
-            || resolved.Url.StartsWith("data:application/x-mpegurl", StringComparison.OrdinalIgnoreCase)
-            || resolved.Url.StartsWith("data:audio/x-mpegurl", StringComparison.OrdinalIgnoreCase);
-        var streamType = isHls ? "m3u8" : "mp4";
+        var streamType = resolved.Url.Contains(".m3u8", StringComparison.OrdinalIgnoreCase) ? "m3u8" : "mp4";
         return new PlaybackResponse(
             resolved.Url,
             streamType,
