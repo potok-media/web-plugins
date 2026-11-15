@@ -39,6 +39,7 @@ public sealed class PlaybackService
             streamType,
             resolved.Quality,
             resolved.Voice,
-            resolved.Headers);
+            resolved.Headers,
+            resolved.Variants);
     }
 }

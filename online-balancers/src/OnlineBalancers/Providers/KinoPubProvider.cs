@@ -160,23 +160,37 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
         var streams = files.EnumerateArray()
             .Select(file => new
             {
-                Quality = String(file, "quality") ?? "720p",
+                RawQuality = String(file, "quality") ?? "720p",
                 Hls = NestedString(file, "url", "hls"),
                 Http = NestedString(file, "url", "http"),
             })
             .Select(file => new
             {
-                file.Quality,
+                file.RawQuality,
                 Url = !string.IsNullOrWhiteSpace(file.Hls)
                     ? ReplaceAudio(file.Hls!, locator.AudioIndex)
                     : file.Http,
             })
             .Where(file => !string.IsNullOrWhiteSpace(file.Url))
-            .OrderByDescending(file => QualityNumber(file.Quality))
+            .OrderByDescending(file => QualityNumber(file.RawQuality))
             .ToArray();
-        var best = streams.FirstOrDefault()
-            ?? throw new ProviderException("KinoWatch (KinoPub) did not return a playable stream.");
-        return new ResolvedPlayback(ProviderParsing.AbsoluteHttps(best.Url!), best.Quality, locator.Voice);
+
+        if (streams.Length == 0)
+            throw new ProviderException("KinoWatch (KinoPub) did not return a playable stream.");
+
+        var variants = streams.Select(s => new PlaybackVariant(
+            Quality: NormalizeQualityLabel(s.RawQuality),
+            Url: ProviderParsing.AbsoluteHttps(s.Url!),
+            Width: EstimateWidth(s.RawQuality),
+            Height: EstimateHeight(s.RawQuality)
+        )).ToList();
+
+        var primary = variants[0];
+        return new ResolvedPlayback(
+            primary.Url,
+            primary.Quality,
+            locator.Voice,
+            Variants: variants);
     }
 
     private async Task<JsonDocument> LoadItemAsync(
@@ -323,8 +337,52 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
 
     private static int QualityNumber(string value)
     {
+        var lower = value.ToLowerInvariant();
+        if (lower.Contains("4k") || lower.Contains("2160") || lower.Contains("1600")) return 4000;
+        if (lower.Contains("1080") || lower.Contains("800")) return 1080;
+        if (lower.Contains("720")) return 720;
+        if (lower.Contains("480")) return 480;
         var digits = new string(value.Where(char.IsDigit).ToArray());
         return int.TryParse(digits, out var number) ? number : 0;
+    }
+
+    private static string NormalizeQualityLabel(string value)
+    {
+        var lower = value.ToLowerInvariant();
+        if (lower.Contains("4k") || lower.Contains("2160") || lower.Contains("1600")) return "4K";
+        if (lower.Contains("1080") || lower.Contains("800")) return "1080p";
+        if (lower.Contains("720")) return "720p";
+        if (lower.Contains("480")) return "480p";
+        return value;
+    }
+
+    private static int EstimateWidth(string quality)
+    {
+        var q = NormalizeQualityLabel(quality);
+        return q switch
+        {
+            "4K" => 3840,
+            "1080p" => 1920,
+            "720p" => 1280,
+            "480p" => 854,
+            _ => 0
+        };
+    }
+
+    private static int EstimateHeight(string rawQuality)
+    {
+        var lower = rawQuality.ToLowerInvariant();
+        if (lower.Contains("1600")) return 1600;
+        if (lower.Contains("800")) return 800;
+        var q = NormalizeQualityLabel(rawQuality);
+        return q switch
+        {
+            "4K" => 2160,
+            "1080p" => 1080,
+            "720p" => 720,
+            "480p" => 480,
+            _ => 0
+        };
     }
 
     private static ProviderException AccountRequired() =>

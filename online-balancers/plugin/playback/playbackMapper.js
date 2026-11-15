@@ -89,6 +89,8 @@ export function createPlaybackPayload({
       streamUrl: resolved?.streamUrl ?? ep?.streamUrl ?? ep?.url,
       streamType: resolved?.streamType ?? ep?.streamType ?? 'm3u8',
       headers: resolved?.headers ?? ep?.headers,
+      quality: isActive ? primary.response.quality : (resolved?.quality ?? ep?.quality),
+      variants: isActive ? primary.response.variants : (resolved?.variants ?? ep?.variants),
       // Voice variants travel with ready urls — the player switches voices by a local swap.
       // The ACTIVE item gets the full cross-provider candidate menu; other items keep their own
       // per-episode lists.
@@ -126,6 +128,8 @@ export function createPlaybackPayload({
       headers: primary.response.headers ?? undefined,
       audios: activeAudios,
       voice: primary.target.voice || primary.response.voice || undefined,
+      quality: primary.response.quality,
+      variants: primary.response.variants || undefined,
     });
   }
   const resolvedPlaylistIndex = playlistIndex !== -1 ? playlistIndex : 0;
@@ -142,6 +146,8 @@ export function createPlaybackPayload({
     onlineProviderId: primary.providerId,
     voice: primary.target.voice || primary.response.voice || stream?.voice
       || translate('playback.fallbackVoice'),
+    quality: primary.response.quality,
+    variants: primary.response.variants || undefined,
     playlist,
     playlistIndex: resolvedPlaylistIndex,
     sourceStream: {
