@@ -195,19 +195,8 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
             s.Height
         )).ToArray();
 
-        string masterUrl;
-        if (streams.Count(s => s.IsHls) > 1)
-        {
-            var hlsVariants = variantItems.Where((_, idx) => streams[idx].IsHls).ToArray();
-            masterUrl = BuildMasterPlaylist(hlsVariants);
-        }
-        else
-        {
-            masterUrl = ProviderParsing.AbsoluteHttps(streams[0].Url!);
-        }
-
         return new ResolvedPlayback(
-            masterUrl,
+            ProviderParsing.AbsoluteHttps(streams[0].Url!),
             streams[0].Quality,
             locator.Voice,
             Variants: variantItems
@@ -392,20 +381,6 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
         if (qNum >= 700 || lower.Contains("720")) return 720;
         if (qNum >= 450 || lower.Contains("480")) return 480;
         return 360;
-    }
-
-    private static string BuildMasterPlaylist(IReadOnlyList<StreamVariantItem> variants)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("#EXTM3U");
-        sb.AppendLine("#EXT-X-VERSION:3");
-        foreach (var v in variants)
-        {
-            sb.AppendLine($"#EXT-X-STREAM-INF:BANDWIDTH={v.Bandwidth},RESOLUTION={v.Width}x{v.Height},NAME=\"{v.Quality}\"");
-            sb.AppendLine(v.Url);
-        }
-        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
-        return $"data:application/vnd.apple.mpegurl;base64,{Convert.ToBase64String(bytes)}";
     }
 
     private static ProviderException AccountRequired() =>
