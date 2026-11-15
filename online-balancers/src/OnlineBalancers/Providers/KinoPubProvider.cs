@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -159,59 +158,25 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
             throw new ProviderException("KinoWatch (KinoPub) did not return video files.");
 
         var streams = files.EnumerateArray()
-            .Select(file =>
+            .Select(file => new
             {
-                var q = String(file, "quality") ?? "720p";
-                var hls = NestedString(file, "url", "hls");
-                var http = NestedString(file, "url", "http");
-                var url = !string.IsNullOrWhiteSpace(hls)
-                    ? ReplaceAudio(hls!, locator.AudioIndex)
-                    : http;
-                var isHls = !string.IsNullOrWhiteSpace(hls);
-                var qNum = QualityNumber(q);
-                return new
-                {
-                    Quality = q,
-                    Url = url,
-                    IsHls = isHls,
-                    QualityNumber = qNum,
-                    Bandwidth = GetEstimatedBandwidth(qNum),
-                    Width = GetEstimatedWidth(qNum, q),
-                    Height = GetEstimatedHeight(qNum, q)
-                };
+                Quality = String(file, "quality") ?? "720p",
+                Hls = NestedString(file, "url", "hls"),
+                Http = NestedString(file, "url", "http"),
+            })
+            .Select(file => new
+            {
+                file.Quality,
+                Url = !string.IsNullOrWhiteSpace(file.Hls)
+                    ? ReplaceAudio(file.Hls!, locator.AudioIndex)
+                    : file.Http,
             })
             .Where(file => !string.IsNullOrWhiteSpace(file.Url))
-            .OrderByDescending(file => file.QualityNumber)
+            .OrderByDescending(file => QualityNumber(file.Quality))
             .ToArray();
-
-        if (streams.Length == 0)
-            throw new ProviderException("KinoWatch (KinoPub) did not return a playable video.");
-
-        var variantItems = streams.Select(s => new StreamVariantItem(
-            s.Quality,
-            ProviderParsing.AbsoluteHttps(s.Url!),
-            s.Bandwidth,
-            s.Width,
-            s.Height
-        )).ToArray();
-
-        string masterUrl;
-        if (streams.Count(s => s.IsHls) > 1)
-        {
-            var hlsVariants = variantItems.Where((_, idx) => streams[idx].IsHls).ToArray();
-            masterUrl = BuildMasterPlaylist(hlsVariants);
-        }
-        else
-        {
-            masterUrl = ProviderParsing.AbsoluteHttps(streams[0].Url!);
-        }
-
-        return new ResolvedPlayback(
-            masterUrl,
-            streams[0].Quality,
-            locator.Voice,
-            Variants: variantItems
-        );
+        var best = streams.FirstOrDefault()
+            ?? throw new ProviderException("KinoWatch (KinoPub) did not return a playable stream.");
+        return new ResolvedPlayback(ProviderParsing.AbsoluteHttps(best.Url!), best.Quality, locator.Voice);
     }
 
     private async Task<JsonDocument> LoadItemAsync(
@@ -360,52 +325,6 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
     {
         var digits = new string(value.Where(char.IsDigit).ToArray());
         return int.TryParse(digits, out var number) ? number : 0;
-    }
-
-    private static int GetEstimatedBandwidth(int qNum) => qNum switch
-    {
-        >= 2100 or 1600 => 25_000_000,
-        >= 1000 or 800 => 8_000_000,
-        >= 700 or 536 => 4_000_000,
-        >= 450 => 1_500_000,
-        _ => 800_000
-    };
-
-    private static int GetEstimatedWidth(int qNum, string q)
-    {
-        var lower = q.ToLowerInvariant();
-        if (qNum == 1600 || qNum >= 2100 || lower.Contains("4k") || lower.Contains("uhd")) return 3840;
-        if (qNum == 800 || qNum >= 1000 || lower.Contains("1080")) return 1920;
-        if (qNum == 536 || qNum >= 700 || lower.Contains("720")) return 1280;
-        if (qNum >= 450 || lower.Contains("480")) return 854;
-        return 640;
-    }
-
-    private static int GetEstimatedHeight(int qNum, string q)
-    {
-        var lower = q.ToLowerInvariant();
-        if (qNum == 1600 || lower.Contains("1600")) return 1600;
-        if (qNum >= 2100 || lower.Contains("4k") || lower.Contains("2160")) return 2160;
-        if (qNum == 800 || lower.Contains("800")) return 800;
-        if (qNum >= 1000 || lower.Contains("1080")) return 1080;
-        if (qNum == 536 || lower.Contains("536")) return 536;
-        if (qNum >= 700 || lower.Contains("720")) return 720;
-        if (qNum >= 450 || lower.Contains("480")) return 480;
-        return 360;
-    }
-
-    private static string BuildMasterPlaylist(IReadOnlyList<StreamVariantItem> variants)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("#EXTM3U");
-        sb.AppendLine("#EXT-X-VERSION:3");
-        foreach (var v in variants)
-        {
-            sb.AppendLine($"#EXT-X-STREAM-INF:BANDWIDTH={v.Bandwidth},RESOLUTION={v.Width}x{v.Height},NAME=\"{v.Quality}\"");
-            sb.AppendLine(v.Url);
-        }
-        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
-        return $"data:application/vnd.apple.mpegurl;base64,{Convert.ToBase64String(bytes)}";
     }
 
     private static ProviderException AccountRequired() =>

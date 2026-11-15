@@ -41,19 +41,11 @@ public sealed record EpisodeItem(
 
 public sealed record EpisodesResult(IReadOnlyList<EpisodeItem> Episodes, int SeasonsCount);
 
-public sealed record StreamVariantItem(
-    string Quality,
-    string Url,
-    int Bandwidth,
-    int Width,
-    int Height);
-
 public sealed record ResolvedPlayback(
     string Url,
     string Quality,
     string? Voice,
-    IReadOnlyDictionary<string, string>? Headers = null,
-    IReadOnlyList<StreamVariantItem>? Variants = null);
+    IReadOnlyDictionary<string, string>? Headers = null);
 
 public sealed record SearchResponse(IReadOnlyList<SourceItem> Items, IReadOnlyDictionary<string, string> Errors);
 
@@ -75,8 +67,7 @@ public sealed record PlaybackResponse(
     string StreamType,
     string Quality,
     string? Voice,
-    IReadOnlyDictionary<string, string>? Headers = null,
-    IReadOnlyList<StreamVariantItem>? Variants = null);
+    IReadOnlyDictionary<string, string>? Headers = null);
 
 public sealed record DeviceCodeResponse(
     string Code,
