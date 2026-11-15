@@ -91,6 +91,7 @@ export function createPlaybackPayload({
       headers: resolved?.headers ?? ep?.headers,
       quality: isActive ? primary.response.quality : (resolved?.quality ?? ep?.quality),
       variants: isActive ? primary.response.variants : (resolved?.variants ?? ep?.variants),
+      // еуые
       // Voice variants travel with ready urls — the player switches voices by a local swap.
       // The ACTIVE item gets the full cross-provider candidate menu; other items keep their own
       // per-episode lists.
