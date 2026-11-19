@@ -353,8 +353,12 @@ test('plugin registers the online-balancers source and delegates the complete fl
 
   presented[1].onPlay(presented[1].episodes[1]);
   assert.equal(rendered.at(-1).layout.type, 'InlinePlayer');
+  assert.equal(rendered.at(-1).layout.loadingValue, true);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(played.length, 1);
+  // Once the host owns the real player, the plugin must publish loading=false. Otherwise the
+  // stale loading schema is revealed as soon as the host closes the inline player.
+  assert.equal(rendered.at(-1).layout.loadingValue, false);
   assert.equal(played[0].mount, 'inline');
   assert.equal(played[0].voice, 'AniLiberty');
   assert.equal(played[0].playlist[played[0].playlistIndex].streamType, 'm3u8');

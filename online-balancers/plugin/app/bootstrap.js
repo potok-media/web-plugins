@@ -32,12 +32,7 @@ export function bootstrap({ client = createOnlineBalancersClient(), registry = s
     sessionStore,
     pluginId: PLUGIN_ID,
     translate: t,
-    // Clear the stage loading state at the exact moment the playback descriptor leaves the
-    // plugin — the host mounts the real player and takes over with its own buffering UI.
-    playVideo: (payload) => {
-      state.playbackPending = false;
-      PotokSDK.ui.playVideo(payload);
-    },
+    playVideo: (payload) => PotokSDK.ui.playVideo(payload),
     accountVault,
   });
   const controller = createAppController({

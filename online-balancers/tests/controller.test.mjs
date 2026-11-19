@@ -149,6 +149,7 @@ test('opening a source presents episodes to the host panel and play routes back 
   assert.equal(presented.length, 1);
   assert.equal(presented[0].title, 'Demo');
   assert.equal(presented[0].canReorder, true);
+  assert.equal(presented[0].closePlaybackOnDismiss, true);
   assert.deepEqual(presented[0].episodes, episodes);
   assert.match(presented[0].subtitle, /1080/);
 
@@ -174,4 +175,31 @@ test('reorder re-presents episodes to the host panel', async () => {
   presented[0].onReorder([...episodes].reverse());
   assert.equal(presented.length, 2);
   assert.deepEqual(presented[1].episodes.map(item => item.id), ['2', '1']);
+});
+
+test('a single playable item autoplays without presenting a fake episode selector', async () => {
+  const group = {
+    id: 'movie',
+    title: 'Heart of the Beast',
+    mediaType: 'movie',
+    variants: [{ providerId: 'a', sourceId: '1' }],
+  };
+  const episodes = [{
+    id: 'movie:1',
+    season: 1,
+    episode: 1,
+    audios: [{ id: 'voice-1' }, { id: 'voice-2' }],
+  }];
+  const { controller, presented, dismissed, playCalls } = createController({
+    episodeService: { fetchGroupedEpisodes: async () => ({ episodes }) },
+  });
+
+  controller.applyRoute({ query: { q: 'Heart of the Beast', type: 'movie' } });
+  await controller.actions.openSource(group);
+
+  assert.equal(presented.length, 0);
+  assert.ok(dismissed() > 0);
+  assert.equal(playCalls().length, 1);
+  assert.equal(playCalls()[0][1].season, null);
+  assert.equal(playCalls()[0][1].episode, null);
 });

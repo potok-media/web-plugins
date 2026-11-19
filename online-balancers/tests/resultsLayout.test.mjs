@@ -141,7 +141,7 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
   await import('../plugin/i18n.js');
   const { bootstrap } = await import('../plugin/app/bootstrap.js');
   const app = bootstrap();
-  const { controller, registry } = app;
+  const { controller, registry, state } = app;
 
   const waitFor = async (predicate, attempts = 400) => {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -195,10 +195,12 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
     'the adult provider is marked on the card',
   );
 
-  // The full-card hit button opens the source (episode panel hand-off).
+  // The full-card hit button opens the source. A single playable item autoplays and does not hand a
+  // fake one-row episode selector to the host.
   const hit = card.childrenList.find(child => child.styleValue === 'online-grid-hit');
   assert.ok(hit, 'expected the full-card hit button');
   hit.click();
-  await waitFor(() => presented.length > 0);
-  assert.equal(presented[0].title, 'Тайтл');
+  await waitFor(() => state.selectedEpisodes.length === 1);
+  assert.equal(state.activeEpisodeId, '1:1');
+  assert.equal(presented.length, 0);
 });

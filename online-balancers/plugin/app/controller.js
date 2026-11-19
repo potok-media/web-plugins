@@ -205,11 +205,16 @@ export function createAppController({
   // in the workspace rail and routes play/reorder/close back through the callbacks registered here.
   function presentSelectedEpisodes() {
     if (!state.episodeSelectorOpen || !state.selectedStream) return;
+    if (state.selectedEpisodes.length <= 1) {
+      ui.dismissEpisodes?.();
+      return;
+    }
     ui.presentEpisodes?.({
       title: state.selectedStream.title || state.context.title || '',
       subtitle: sourceSubtitle(state.selectedStream, translate),
       episodes: state.selectedEpisodes,
       canReorder: true,
+      closePlaybackOnDismiss: true,
       onPlay: (episode, audioId) => actions.playEpisode(episode, audioId),
       onClose: () => actions.closeEpisodeSelector(),
       onReorder: (episodes) => actions.reorderEpisodes(episodes),
@@ -235,6 +240,11 @@ export function createAppController({
         group.mediaType === 'movie' ? undefined : state.selectedEpisodes,
         group.mediaType === 'movie' ? undefined : String(selected?.id || ''),
       );
+      // Publish the completed transition as well as mutating the local state. While the host player
+      // is mounted it masks this stage, but after the player closes the latest plugin schema becomes
+      // visible again; leaving the last emitted schema at loading=true resurrects a phantom loader.
+      state.playbackPending = false;
+      emit();
     } catch (error) {
       state.playbackPending = false;
       emit();
@@ -261,7 +271,7 @@ export function createAppController({
       state.selectedEpisodes = result.episodes;
       state.episodeSelectorOpen = true;
       const first = result.episodes[0];
-      const shouldAutoplay = result.episodes.length === 1 && (first.audios?.length || 0) <= 1;
+      const shouldAutoplay = result.episodes.length === 1;
       if (shouldAutoplay) state.activeEpisodeId = String(first.id || '');
       presentSelectedEpisodes();
       emit();
