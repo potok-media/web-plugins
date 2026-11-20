@@ -363,6 +363,10 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(played[0].voice, 'AniLiberty');
   assert.equal(played[0].playlist[played[0].playlistIndex].streamType, 'm3u8');
   assert.equal(played[0].playlist[played[0].playlistIndex].streamUrl, 'https://api.test/stream/42.m3u8');
+  assert.equal(typeof rendered.at(-1).layout.close, 'function');
+  rendered.at(-1).layout.close();
+  assert.equal(rendered.at(-1).layout.type, 'Page');
+  assert.equal(rendered.at(-1).layout.childrenList[0].childrenList[0].childrenList[0].styleValue, 'online-header');
   // One upstream resolution, but the descriptor carries every voice variant of the episode.
   // The FULL "Voice · Quality · Provider" label is the canonical name (the balancer identity in
   // it is information, not noise); the plain voice label and each candidate's OWN provider

@@ -93,6 +93,35 @@ test('closing the selector dismisses the host episode panel and closes the plugi
   assert.equal(state.episodeStatus, 'idle');
 });
 
+test('host inline-player close restores results without stopping playback a second time', () => {
+  const { controller, state, stopped, dismissed } = createController();
+  state.query = 'Anime';
+  state.items = [{ id: 'result-1' }];
+  state.activeProvider = 'kodik';
+  state.activeQuality = '1080p';
+  state.activeVoice = 'Studio';
+  state.selectedId = 'group-1';
+  state.selectedStream = { id: 'group-1' };
+  state.selectedEpisodes = [{ id: 'episode-1' }];
+  state.activeEpisodeId = 'episode-1';
+  state.episodeSelectorOpen = true;
+  state.episodeStatus = 'ready';
+  state.playbackPending = true;
+
+  controller.actions.restoreResults();
+
+  assert.equal(stopped(), 0);
+  assert.equal(dismissed(), 1);
+  assert.equal(state.query, 'Anime');
+  assert.deepEqual(state.items, [{ id: 'result-1' }]);
+  assert.equal(state.activeProvider, 'kodik');
+  assert.equal(state.activeQuality, '1080p');
+  assert.equal(state.activeVoice, 'Studio');
+  assert.equal(state.selectedStream, null);
+  assert.equal(state.episodeSelectorOpen, false);
+  assert.equal(state.playbackPending, false);
+});
+
 test('episode order remains page state and playback errors are surfaced', async () => {
   const group = { id: 'group', mediaType: 'tv', variants: [{ providerId: 'a', sourceId: '1' }] };
   const episodes = [{ id: '1', season: 1, episode: 1 }, { id: '2', season: 1, episode: 2 }];

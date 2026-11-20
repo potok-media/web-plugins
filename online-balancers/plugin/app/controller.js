@@ -285,6 +285,13 @@ export function createAppController({
     }
   }
 
+  function restoreResults({ stopPlayback = false } = {}) {
+    ui.dismissEpisodes?.();
+    if (stopPlayback) ui.stopVideo?.();
+    resetPageSelection(state);
+    emit();
+  }
+
   const actions = Object.freeze({
     retrySearch() { return runSearch(true); },
     // Soft-error retry: re-runs ONE provider against the current query and merges its
@@ -315,11 +322,11 @@ export function createAppController({
       emit();
     },
     openSource,
+    restoreResults() {
+      restoreResults();
+    },
     closeEpisodeSelector() {
-      ui.dismissEpisodes?.();
-      ui.stopVideo?.();
-      resetPageSelection(state);
-      emit();
+      restoreResults({ stopPlayback: true });
     },
     reorderEpisodes(episodes) {
       if (!Array.isArray(episodes)) return;

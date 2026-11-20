@@ -80,7 +80,9 @@ export function buildPage({ state, actions, registry }) {
   // controller (ui.presentEpisodes). The InlinePlayer itself is host-rendered into the stage while
   // the playback opened with mount='inline' (see playbackController).
   if (state.episodeSelectorOpen && state.selectedStream) {
-    const stage = InlinePlayer().style('online-playback-workspace');
+    const stage = InlinePlayer()
+      .style('online-playback-workspace')
+      .onClose(actions.restoreResults);
     if (state.selectedStream?.poster) stage.backdropSrc(state.selectedStream.poster);
     // While the episode resolves upstream (playVideo not dispatched yet) the host shows a
     // centered loading state in the stage instead of a black screen.
