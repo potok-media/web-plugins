@@ -116,18 +116,28 @@ public sealed class LordFilmProvider(HttpClient http, IMemoryCache? cache = null
             embed.Seasons.Select(season => season.Season).DefaultIfEmpty(1).Max());
     }
 
-    public Task<ResolvedPlayback> ResolveAsync(PlaybackSelection selection, CancellationToken cancellationToken)
+    public async Task<ResolvedPlayback> ResolveAsync(PlaybackSelection selection, CancellationToken cancellationToken)
     {
-        var locator = string.IsNullOrWhiteSpace(selection.Locator)
-            ? throw new ProviderException("LordFilm playback locator is missing.")
-            : LocatorCodec.Decode<LordFilmLocator>(selection.Locator);
+        LordFilmLocator locator;
+        if (!string.IsNullOrWhiteSpace(selection.Locator))
+        {
+            locator = LocatorCodec.Decode<LordFilmLocator>(selection.Locator);
+        }
+        else
+        {
+            var embed = await LoadEmbedAsync(selection.SourceId, cancellationToken)
+                ?? throw new ProviderException("LordFilm did not return the title's embed data.");
+            var movie = embed.Movie
+                ?? throw new ProviderException("LordFilm playback locator is missing for a series.");
+            locator = new LordFilmLocator(movie.Hls, movie.Dash);
+        }
         // DASH carries up to 1080p; HLS of this player tops out around 530p.
         if (!string.IsNullOrWhiteSpace(locator.Dash))
-            return Task.FromResult(new ResolvedPlayback(locator.Dash, "1080p", selection.Voice,
-                new Dictionary<string, string> { ["Referer"] = Referer }));
+            return new ResolvedPlayback(locator.Dash, "1080p", selection.Voice,
+                new Dictionary<string, string> { ["Referer"] = Referer });
         if (!string.IsNullOrWhiteSpace(locator.Hls))
-            return Task.FromResult(new ResolvedPlayback(locator.Hls, "720p", selection.Voice,
-                new Dictionary<string, string> { ["Referer"] = Referer }));
+            return new ResolvedPlayback(locator.Hls, "720p", selection.Voice,
+                new Dictionary<string, string> { ["Referer"] = Referer });
         throw new ProviderException("LordFilm did not return a playable stream.");
     }
 

@@ -160,10 +160,23 @@ public sealed class FilmixProvider(HttpClient http, IMemoryCache? cache = null)
     public async Task<ResolvedPlayback> ResolveAsync(
         PlaybackSelection selection, ProviderRequestContext context, CancellationToken cancellationToken)
     {
-        ReadToken(context);
-        var locator = string.IsNullOrWhiteSpace(selection.Locator)
-            ? throw new ProviderException("Filmix playback locator is missing.")
-            : LocatorCodec.Decode<FilmixLocator>(selection.Locator);
+        var token = ReadToken(context);
+        FilmixLocator locator;
+        if (!string.IsNullOrWhiteSpace(selection.Locator))
+        {
+            locator = LocatorCodec.Decode<FilmixLocator>(selection.Locator);
+        }
+        else
+        {
+            if (!int.TryParse(selection.SourceId, out var postId))
+                throw new ProviderException("Filmix post id is invalid.");
+            var post = await LoadPostAsync(postId, token, cancellationToken)
+                ?? throw new ProviderException("Filmix did not return the title's player data.");
+            var movie = post.PlayerLinks?.Movie?
+                .FirstOrDefault(candidate => !string.IsNullOrWhiteSpace(candidate.Link))
+                ?? throw new ProviderException("Filmix playback locator is missing for a series.");
+            locator = new FilmixLocator(postId, movie.Translation, movie.Link, movie.Qualities ?? []);
+        }
         if (string.IsNullOrWhiteSpace(locator.Link))
             throw new ProviderException("Filmix did not return a playable stream.");
 

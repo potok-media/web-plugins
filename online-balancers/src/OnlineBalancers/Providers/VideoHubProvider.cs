@@ -72,7 +72,24 @@ public sealed partial class VideoHubProvider(HttpClient http, IMemoryCache? cach
 
     public async Task<ResolvedPlayback> ResolveAsync(PlaybackSelection selection, CancellationToken cancellationToken)
     {
-        var locator = LocatorCodec.Decode<VideoHubLocator>(selection.Locator);
+        VideoHubLocator locator;
+        if (!string.IsNullOrWhiteSpace(selection.Locator))
+        {
+            locator = LocatorCodec.Decode<VideoHubLocator>(selection.Locator);
+        }
+        else
+        {
+            if (!long.TryParse(selection.SourceId, out var kinopoiskId))
+                throw new ProviderException("VideoHUB source id is invalid.");
+            var playlist = await GetPlaylistAsync(kinopoiskId, cancellationToken);
+            if (playlist.IsSerial)
+                throw new ProviderException("VideoHUB playback locator is missing.");
+            var item = (playlist.Items ?? []).FirstOrDefault(candidate => !string.IsNullOrWhiteSpace(candidate.VkId))
+                ?? throw new ProviderException("VideoHUB did not return a playable movie.");
+            locator = new VideoHubLocator(
+                item.VkId!,
+                item.VoiceStudio ?? item.VoiceType ?? "Основной поток");
+        }
         var request = Get($"{Host}/api/v1/player/sv/video/{Uri.EscapeDataString(locator.VkId)}", Referer);
         var payload = await GetStringAsync(request, cancellationToken);
         var hls = TryReadHls(payload) ?? throw new ProviderException("VideoHUB did not return a playable stream.");

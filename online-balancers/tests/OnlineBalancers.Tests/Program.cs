@@ -21,6 +21,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("AnimeLib maps adult search, episodes and video-server streams", AnimeLibContract),
     ("Animevost parses the DLE search, page playlist and frame streams", AnimevostContract),
     ("LordFilm parses DLE search and the nextembed player config", LordFilmContract),
+    ("VideoHUB resolves a movie directly from its search source id", VideoHubMovieContract),
+    ("RUTUBE finds full-length movies and resolves play options", RutubeMovieContract),
     ("AniDUB rotates dead CDN nodes and force-proxies sibnet streams", AniDubContract),
     ("KinoWatch device flow exposes the current activation domain", KinoWatchDeviceFlowContract),
     ("Alloha keeps account tokens request-scoped across search and playback", AllohaContract),
@@ -467,7 +469,7 @@ static async Task FilmixContract()
     var movieEpisode = Single(movie.Episodes);
     Equal("Фильм", movieEpisode.Title);
     var playback = await provider.ResolveAsync(
-        new PlaybackSelection("55", query, null, null, movieEpisode.Audios[0].Name, movieEpisode.Audios[0].Locator),
+        new PlaybackSelection("55", query, null, null, null, null),
         context,
         default);
     Equal("https://s.test/hls/dir/movie_1080.mp4/index.m3u8?hash=hash55", playback.Url);
@@ -679,11 +681,70 @@ static async Task LordFilmContract()
     Equal("Фильм", episode.Title);
 
     var playback = await provider.ResolveAsync(
-        new PlaybackSelection(source.SourceId, query, null, null, null, episode.Audios[0].Locator), default);
+        new PlaybackSelection(source.SourceId, query, null, null, null, null), default);
     // DASH (1080p) предпочитается HLS; Referer nextembed уходит в заголовки.
     Equal("https://cdn.interkh.com/m/master.mpd", playback.Url);
     Equal("1080p", playback.Quality);
     Equal("https://api.nextembed.ws/", playback.Headers?["Referer"]);
+}
+
+static async Task VideoHubMovieContract()
+{
+    var http = FakeHttp.Create(request => request.RequestUri!.AbsolutePath switch
+    {
+        "/api/v1/player/sv/playlist" => """
+            {"isSerial":false,"items":[{"season":0,"episode":0,"voiceStudio":"Дубляж","vkId":"movie-vk-id"}]}
+            """,
+        "/api/v1/player/sv/video/movie-vk-id" => """
+            {"hlsUrl":"https://cdn.test/videohub/movie.m3u8"}
+            """,
+        _ => throw new InvalidOperationException(request.RequestUri.ToString()),
+    });
+    var provider = new VideoHubProvider(http);
+    var query = new MediaQuery("movie", "Тестовый фильм", null, null, 2025, null, 258687);
+
+    var source = Single(await provider.SearchAsync(query, default));
+    Equal("258687", source.SourceId);
+    Equal("movie", source.MediaType);
+
+    var playback = await provider.ResolveAsync(
+        new PlaybackSelection(source.SourceId, query, 1, 1, null, null),
+        default);
+    Equal("https://cdn.test/videohub/movie.m3u8", playback.Url);
+    Equal("Дубляж", playback.Voice);
+}
+
+static async Task RutubeMovieContract()
+{
+    var http = FakeHttp.Create(request => request.RequestUri!.AbsolutePath switch
+    {
+        "/api/search/video/" => """
+            {"results":[
+              {"id":"17465fc541700b94ebd5648423675100","title":"Интерстеллар | Interstellar (2014, 4K)","duration":10144,"thumbnail_url":"https://img.test/interstellar.jpg","category":{"id":4}},
+              {"id":"11111111111111111111111111111111","title":"Интерстеллар 2014 трейлер","duration":180,"category":{"id":4}},
+              {"id":"22222222222222222222222222222222","title":"Интерстеллар 2014 сериал 1 серия","duration":3600,"category":{"id":4}},
+              {"id":"33333333333333333333333333333333","title":"Другой фильм (2014)","duration":7200,"category":{"id":4}}
+            ]}
+            """,
+        "/api/play/options/17465fc541700b94ebd5648423675100/" => """
+            {"video_balancer":{"m3u8":"https://cdn.rutube.test/interstellar/master.m3u8"}}
+            """,
+        _ => throw new InvalidOperationException(request.RequestUri.ToString()),
+    });
+    var provider = new RutubeMovieProvider(http);
+    var query = new MediaQuery("movie", "Интерстеллар", "Interstellar", null, 2014, null, null);
+
+    var source = Single(await provider.SearchAsync(query, default));
+    Equal("17465fc541700b94ebd5648423675100", source.SourceId);
+    Equal("Интерстеллар | Interstellar (2014, 4K)", source.Title);
+    Equal(2014, source.Year);
+    Equal("movie", source.MediaType);
+
+    var playback = await provider.ResolveAsync(
+        new PlaybackSelection(source.SourceId, query, 1, 1, null, null),
+        default);
+    Equal("https://cdn.rutube.test/interstellar/master.m3u8", playback.Url);
+    Equal("https://rutube.ru/", playback.Headers?["Referer"]);
 }
 
 static async Task AniDubContract()
@@ -930,7 +991,7 @@ static Task ProviderDiscoveryContract()
         .OrderBy(id => id, StringComparer.Ordinal)
         .ToArray();
 
-    Equal("alloha,anidub,aniliberty,animego,animelib,animeon,animevost,filmix,kinopub,kodik,lordfilm,rezka,veoveo,videohub", string.Join(',', ids));
+    Equal("alloha,anidub,aniliberty,animego,animelib,animeon,animevost,filmix,kinopub,kodik,lordfilm,rezka,rutubemovie,veoveo,videohub", string.Join(',', ids));
     return Task.CompletedTask;
 }
 

@@ -13,6 +13,7 @@ test('source registry exposes each backend source as an independent descriptor',
     'lordfilm',
     'animego',
     'videohub',
+    'rutubemovie',
     'animeon',
     'animelib',
     'veoveo',
@@ -32,6 +33,8 @@ test('source registry exposes each backend source as an independent descriptor',
   );
   assert.equal(sourceRegistry.get('kodik').slow, false);
   assert.equal(sourceRegistry.get('aniliberty').slow, false);
+  assert.equal(sourceRegistry.get('rutubemovie').capabilities.movies, true);
+  assert.equal(sourceRegistry.get('rutubemovie').capabilities.series, false);
   assert.equal(sourceRegistry.get('kinopub').name, 'KinoWatch (KinoPub)');
   assert.equal(sourceRegistry.get('kinopub').authMode, 'device-code');
   assert.equal(sourceRegistry.has('missing'), false);

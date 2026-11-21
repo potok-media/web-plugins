@@ -7,6 +7,7 @@ import { animelib } from './animelib.js';
 import { kodik } from './kodik.js';
 import { lordfilm } from './lordfilm.js';
 import { videohub } from './videohub.js';
+import { rutubemovie } from './rutubemovie.js';
 import { veoveo } from './veoveo.js';
 import { alloha } from './alloha.js';
 import { filmix } from './filmix.js';
@@ -38,6 +39,7 @@ export const sourceRegistry = createSourceRegistry([
   lordfilm,
   animego,
   videohub,
+  rutubemovie,
   animeon,
   animelib,
   veoveo,
