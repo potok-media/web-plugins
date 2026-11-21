@@ -56,7 +56,8 @@ function extractExternalQuery(url) {
 // waiting overlay; the slow /metadata probe is deferred.
 async function resolvePlaybackBase(stream, episode) {
   const cleanTorrUrl = await resolveTorrUrl();
-  const fileIndex = String(episode && episode.id != null ? episode.id : "");
+  // For single-file torrents (no episode selector), default to file 1.
+  const fileIndex = episode && episode.id != null ? String(episode.id) : "1";
   const hash = cleanHash(
     (episode && episode.torrentHash) ||
     parseHashFromUrl(episode && episode.url) ||

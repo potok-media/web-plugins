@@ -213,6 +213,18 @@ export async function getEpisodes(stream, context) {
     ? attachExternalTracks(cleanedFiles, audioFiles, subtitleFiles, context, stream)
     : cleanedFiles;
 
+  // Single video file: skip episode selector, go straight to player.
+  // The host will call getPlaybackInfo without an episode; playback functions handle episode=null.
+  if (filesWithExternal.length === 1) {
+    return {
+      episodes: [],
+      seasonMap,
+      fileMap,
+      parsingSuspect: false,
+      arm: null,
+    };
+  }
+
   let episodes = mapEpisodes(filesWithExternal, cleanTorrUrl, authHash);
   const releaseResolution = await releaseResolutionPromise;
   const layout = earlyLayout && (!releaseResolution?.workId || earlyLayout.work?.id === releaseResolution.workId)

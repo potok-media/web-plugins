@@ -10,6 +10,8 @@ const stream = { hash, title: 'Show Season 1' };
 const context = { type: 'tv', tmdbId: 42, workId: 'work' };
 const armTarget = { workId: 'work', entryId: 'group', episodeId: 'ep' };
 const canonicalFile = { id: '1', path: 'Show/Show - 24.5.mkv', title: 'Show - 24.5.mkv', sizeBytes: 1000 };
+const extraFile1 = { id: '2', path: 'Show/Show - 24.6.mkv', title: 'Show - 24.6.mkv', sizeBytes: 1000 };
+const extraFile2 = { id: '3', path: 'Show/Show - 25.mkv', title: 'Show - 25.mkv', sizeBytes: 1000 };
 function response(data, status = 200) { return { status, data }; }
 function resolution(releaseId = hash, workId = 'work') {
   return {
@@ -31,7 +33,7 @@ function layout(workId = 'work') {
   };
 }
 
-function mockEpisodeTransport({ saved = {}, unavailable = false, resolve = resolution, layoutWork = 'work' } = {}) {
+function mockEpisodeTransport({ saved = {}, unavailable = false, resolve = resolution, layoutWork = 'work', files = [canonicalFile, extraFile1, extraFile2] } = {}) {
   const calls = [];
   PotokSDK.http.get = async (url) => {
     calls.push({ method: 'get', url });
@@ -41,7 +43,7 @@ function mockEpisodeTransport({ saved = {}, unavailable = false, resolve = resol
   };
   PotokSDK.http.post = async (url, body) => {
     calls.push({ method: 'post', url, body });
-    if (url === 'https://torrent.test/api/torrents') return response({ hash, items: [canonicalFile] });
+    if (url === 'https://torrent.test/api/torrents') return response({ hash, items: files });
     if (url.endsWith('/file/remove?fileId=1')) { delete saved['1']; return response({ success: true }); }
     if (url.endsWith('/file')) { saved[body.fileId] = { ...body }; delete saved[body.fileId].fileId; return response({ success: true }); }
     if (url === '/api/arm/v1/releases/resolve') {
@@ -88,7 +90,7 @@ test('a resolve outage does not cost the saved canonical target when the layout 
   // not strip the user's explicit binding either.
   mockEpisodeTransport({ unavailable: true, saved: { 1: { mode: 'pin', armTarget, season: null, episode: null } } });
   const result = await getEpisodes(stream, context);
-  assert.equal(result.episodes.length, 1);
+  assert.equal(result.episodes.length, 3);
   assert.match(result.episodes[0].url, /files\/1\/hls\/master.m3u8$/);
   assert.equal(result.episodes[0].episodeId, 'ep');
   assert.equal(result.episodes[0].entryId, 'group');
@@ -109,7 +111,7 @@ test('response for another work or release never leaks canonical identity', asyn
 test('layout from a changed context cannot overwrite a correctly bound file title', async () => {
   mockEpisodeTransport({ layoutWork: 'other-work' });
   const result = await getEpisodes(stream, context);
-  assert.equal(result.episodes[0].title, canonicalFile.title);
+  assert.equal(result.episodes[0].title, '24.5.mkv');
   assert.equal(result.episodes[0].episodeId, 'ep');
   assert.equal(result.episodes[0].season, undefined);
 });
