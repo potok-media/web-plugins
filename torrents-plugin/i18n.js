@@ -29,6 +29,12 @@ PotokSDK.i18n.registerTranslations({
       sources: {
         jacred: "JacRed"
       },
+      settings: {
+        searchSource: "Search source",
+        searchSourcePotok: "Potok",
+        searchSourceJacred: "JacRed",
+        searchSourceTitle: "Search Settings"
+      },
       status: {
         mediaSearch: "Media Search",
         torrentPlayer: "Torrent Player",
@@ -71,6 +77,12 @@ PotokSDK.i18n.registerTranslations({
       },
       sources: {
         jacred: "JacRed"
+      },
+      settings: {
+        searchSource: "Источник поиска",
+        searchSourcePotok: "Potok",
+        searchSourceJacred: "JacRed",
+        searchSourceTitle: "Настройки поиска"
       },
       status: {
         mediaSearch: "Поиск медиа",

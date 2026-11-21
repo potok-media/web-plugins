@@ -1,7 +1,8 @@
 import { PotokSDK } from 'potok-sdk';
 import { TorrentParser } from '../utils/parser.js';
 import { parseJson } from '../utils/http.js';
-import { resolveSearchEngineUrl } from '../utils/config.js';
+import { resolveSearchEngineUrl, resolveSearchSource } from '../utils/config.js';
+import { search as searchJacred } from './search-jacred.js';
 import { buildTorrentSearchRequest } from '../utils/searchRequest.js';
 import { armSearchContext } from '../utils/armMetadata.js';
 
@@ -148,6 +149,14 @@ async function searchBuffered(searchEngineUrl, query) {
 
 export async function search(query, onProgress) {
   query = armSearchContext(query, query.armWork);
+
+  // Delegate to the configured backend (Potok SearchEngine or JacRed)
+  const source = await resolveSearchSource();
+  if (source === "jacred") {
+    return searchJacred(query, onProgress);
+  }
+
+  // --- Potok / SearchEngine path ---
   const searchEngineUrl = await resolveSearchEngineUrl();
   if (!searchEngineUrl) {
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));

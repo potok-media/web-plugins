@@ -49,3 +49,23 @@ export async function resolveJacredApiKey() {
   }
   return key;
 }
+
+// Search source: "potok" (default SearchEngine) or "jacred" (JacRed API).
+// Prefers configured value, then stored value. Falls back to "potok" when unset.
+export async function resolveSearchSource() {
+  let src = (PotokSDK.config.searchSource || "").trim().toLowerCase();
+  if (!src) {
+    src = (await PotokSDK.storage.local.getItem("searchSource") || "").trim().toLowerCase();
+  }
+  if (src !== "potok" && src !== "jacred") src = "potok";
+  return src;
+}
+
+// Resolve the search URL based on the selected source.
+// Returns the base URL (without trailing slash) for the active search backend.
+export async function resolveSearchUrl() {
+  const source = await resolveSearchSource();
+  return (source === "jacred")
+    ? await resolveJacredUrl()
+    : await resolveSearchEngineUrl();
+}

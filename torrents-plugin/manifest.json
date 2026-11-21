@@ -31,15 +31,14 @@
       "default": "https://search.potok.rip",
       "label": "potok-torrents:config.searchEngineUrl"
     },
-    "jacredURL": {
-      "type": "string",
-      "default": "",
-      "label": "potok-torrents:config.jacredUrl"
-    },
-    "jacredApiKey": {
-      "type": "string",
-      "default": "",
-      "label": "potok-torrents:config.jacredApiKey"
+    "searchSource": {
+      "type": "select",
+      "default": "potok",
+      "options": [
+        { "label": "potok-torrents:settings.searchSourcePotok", "value": "potok" },
+        { "label": "potok-torrents:settings.searchSourceJacred", "value": "jacred" }
+      ],
+      "label": "potok-torrents:settings.searchSource"
     }
   }
 }

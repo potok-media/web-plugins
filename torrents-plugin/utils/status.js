@@ -1,5 +1,6 @@
 import { PotokSDK } from 'potok-sdk';
 import { resolveTorrUrl } from './config.js';
+import { initSettings } from '../settings/ui.js';
 
 const { VStack, StatusRow } = PotokSDK.ui.components;
 
@@ -135,6 +136,9 @@ export function registerSidebarStatus() {
     });
     setInterval(checkPings, 30000);
   }
+
+  // Install settings styles and register the search-source selector
+  initSettings();
 
   checkPings();
 }
