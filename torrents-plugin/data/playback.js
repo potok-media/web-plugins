@@ -136,17 +136,18 @@ async function fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex, xs) {
 }
 
 // --- provider methods -------------------------------------------------------
+// SDK declarative interface: receives a single payload object { stream, episode, context, episodes, activeEpisodeId }.
 // Returns INSTANTLY: everything is derived synchronously from the stream/episode (no /metadata probe), so the
 // player opens immediately with its waiting overlay. Subtitles + duration are DEFERRED to getPlaybackMetadata.
-export async function getPlaybackInfo(stream, episode, context) {
+export async function getPlaybackInfo({ stream, episode, context }) {
   const { hlsUrl, hasBackend, session, thumbnails, hash, fileIndex } = await resolvePlaybackBase(stream, episode);
 
   const base = {
     streamUrl: hlsUrl,
     streamType: "m3u8",
-    mediaType: context.type,
-    id: positiveId(context.tmdbId),
-    workId: episode?.workId || context.workId || null,
+    mediaType: context?.type || "tv",
+    id: context ? positiveId(context.tmdbId) : undefined,
+    workId: episode?.workId || context?.workId || null,
     episodeId: episode?.episodeId || null,
     episodeIds: episode?.episodeIds || [],
     targets: episode?.targets || [],
@@ -161,8 +162,8 @@ export async function getPlaybackInfo(stream, episode, context) {
     duration: undefined,  // deferred → getPlaybackMetadata (the HLS manifest also provides it)
   };
 
-  if (context.type === "tv") {
-    const showTitle = context.title || stream.title || PotokSDK.i18n.t("potok-torrents:ui.serial");
+  if (context?.type === "tv") {
+    const showTitle = context?.title || stream?.title || PotokSDK.i18n.t("potok-torrents:ui.serial");
     const seasonNum = episode?.season;
     const episodeNum = episode?.episode;
     const coordinate = episode?.displayOrdinal
@@ -178,13 +179,13 @@ export async function getPlaybackInfo(stream, episode, context) {
   }
   return {
     ...base,
-    title: context.title || stream.title || PotokSDK.i18n.t("potok-torrents:ui.video"),
+    title: context?.title || stream?.title || PotokSDK.i18n.t("potok-torrents:ui.video"),
   };
 }
 
 // Deferred slow half of the descriptor: probe TorrentGo /metadata for subtitle tracks + duration. The host
 // calls this right after opening the player, then merges the result into the live playback.
-export async function getPlaybackMetadata(stream, episode) {
+export async function getPlaybackMetadata(stream, episode, context) {
   const { cleanTorrUrl, fileIndex, hash, externalSubs } = await resolvePlaybackBase(stream, episode);
   return fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex, externalSubs);
 }

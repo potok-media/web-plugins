@@ -3,122 +3,102 @@ import { components, injectHostCss } from './sdk.js';
 import { installStyles } from './styles.js';
 
 const { HStack, VStack, Text, Select, Input } = components;
-
-/** Unique CSS prefix — keeps selectors scoped, no collision with host or other plugins */
 const CSS_PREFIX = 'potok-torrents-settings';
 
 let initialized = false;
 
-// ---------------------------------------------------------------------------
-// Shared mutable state (updated via onChange, so re-renders stay in sync)
-// ---------------------------------------------------------------------------
-let selectedSource = 'potok';
-let storedAddress = '';
-let storedApiKey = '';
-
-async function loadStoredValues() {
-  selectedSource = await PotokSDK.storage.local.getItem('searchSource') || 'potok';
-  storedAddress = await PotokSDK.storage.local.getItem(
+// Load values from storage — must complete before first render
+async function loadValues() {
+  const selectedSource = await PotokSDK.storage.local.getItem('searchSource') || 'potok';
+  const address = await PotokSDK.storage.local.getItem(
     selectedSource === 'jacred' ? 'jacredUrl' : 'searchEngineURL'
   ) || '';
-  storedApiKey = await PotokSDK.storage.local.getItem('jacredApiKey') || '';
+  const apiKey = await PotokSDK.storage.local.getItem('jacredApiKey') || '';
+  return { selectedSource, address, apiKey };
+}
+
+// Build layout from passed values — always returns valid UI
+function buildLayout(state) {
+  const i18n = PotokSDK.i18n;
+
+  const sources = [
+    { label: i18n.t('potok-torrents:settings.searchSourcePotok'), value: 'potok' },
+    { label: i18n.t('potok-torrents:settings.searchSourceJacred'), value: 'jacred' }
+  ];
+
+  const addressLabel = (state.selectedSource === 'jacred')
+    ? i18n.t('potok-torrents:config.jacredUrl')
+    : i18n.t('potok-torrents:config.searchEngineUrl');
+
+  const select = Select('pt-settings-source')
+    .options(sources)
+    .value(state.selectedSource)
+    .style('pt-select')
+    .onChange(async (value) => {
+      // Load address for newly selected source
+      const newAddress = await PotokSDK.storage.local.getItem(
+        value === 'jacred' ? 'jacredUrl' : 'searchEngineURL'
+      ) || '';
+      await PotokSDK.storage.local.setItem('searchSource', value);
+      PotokSDK.ui.render(
+        buildLayout({ ...state, selectedSource: value, address: newAddress }),
+        'torrents-search-source'
+      );
+    });
+
+  const addressInput = Input('pt-settings-address')
+    .style('pt-input')
+    .label(addressLabel)
+    .value(state.address)
+    .onChange(async (value) => {
+      await PotokSDK.storage.local.setItem(
+        state.selectedSource === 'jacred' ? 'jacredUrl' : 'searchEngineURL',
+        value
+      );
+    });
+
+  const apiInput = (state.selectedSource === 'jacred')
+    ? Input('pt-settings-api-key')
+        .style('pt-input')
+        .label(i18n.t('potok-torrents:config.jacredApiKey'))
+        .value(state.apiKey)
+        .inputType('password')
+        .onChange(async (value) => {
+          await PotokSDK.storage.local.setItem('jacredApiKey', value);
+        })
+    : undefined;
+
+  const controls = HStack()
+    .spacing(8)
+    .children([select, addressInput]);
+
+  const children = [controls];
+  if (apiInput) children.push(apiInput);
+
+  return HStack()
+    .spacing(12)
+    .style(CSS_PREFIX)
+    .children([
+      Text(i18n.t('potok-torrents:settings.searchSource')).style('pt-label'),
+      VStack().spacing(8).children(children).style('pt-controls')
+    ]);
 }
 
 export async function initSettings() {
   if (initialized) return;
   initialized = true;
 
-  // Install CSS first so the select renders at the correct width
   installStyles();
+  const state = await loadValues();
 
-  // Load persisted values before building the UI
-  await loadStoredValues();
-
-  const i18n = PotokSDK.i18n;
-
-  // ---------------------------------------------------------------------------
-  // Layout builder — synchronous, receives values from closure state
-  // ---------------------------------------------------------------------------
-  function buildLayout() {
-    const sources = [
-      { label: i18n.t('potok-torrents:settings.searchSourcePotok'), value: 'potok' },
-      { label: i18n.t('potok-torrents:settings.searchSourceJacred'), value: 'jacred' }
-    ];
-
-    const addressLabel = (selectedSource === 'jacred')
-      ? i18n.t('potok-torrents:config.jacredUrl')
-      : i18n.t('potok-torrents:config.searchEngineUrl');
-
-    const select = Select('pt-settings-source')
-      .options(sources)
-      .value(selectedSource)
-      .style('pt-select')
-      .onChange(async (value) => {
-        selectedSource = value;
-        // Reload the address field value for the newly selected source
-        storedAddress = await PotokSDK.storage.local.getItem(
-          value === 'jacred' ? 'jacredUrl' : 'searchEngineURL'
-        ) || '';
-        await PotokSDK.storage.local.setItem('searchSource', value);
-        PotokSDK.ui.render(buildLayout(), 'torrents-search-source');
-      });
-
-    const addressInput = Input('pt-settings-address')
-      .style('pt-input')
-      .label(addressLabel)
-      .value(storedAddress)
-      .onChange(async (value) => {
-        storedAddress = value;
-        await PotokSDK.storage.local.setItem(
-          selectedSource === 'jacred' ? 'jacredUrl' : 'searchEngineURL',
-          value
-        );
-      });
-
-    const apiInput = (selectedSource === 'jacred')
-      ? Input('pt-settings-api-key')
-          .style('pt-input')
-          .label(i18n.t('potok-torrents:config.jacredApiKey'))
-          .value(storedApiKey)
-          .inputType('password')
-          .onChange(async (value) => {
-            storedApiKey = value;
-            await PotokSDK.storage.local.setItem('jacredApiKey', value);
-          })
-      : undefined;
-
-    const controls = HStack()
-      .spacing(8)
-      .children([select, addressInput]);
-
-    const children = [controls];
-    if (apiInput) {
-      children.push(apiInput);
-    }
-
-    return HStack()
-      .spacing(12)
-      .style(CSS_PREFIX)
-      .children([
-        Text(i18n.t('potok-torrents:settings.searchSource')).style('pt-label'),
-        VStack()
-          .spacing(8)
-          .children(children)
-          .style('pt-controls')
-      ]);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Register
-  // ---------------------------------------------------------------------------
   PotokSDK.registerSlotContribution({
     slotName: 'sidebar-status',
     id: 'torrents-search-source',
     render: () => ({
-      label: i18n.t('potok-torrents:settings.searchSourceTitle'),
-      layout: buildLayout()
+      label: PotokSDK.i18n.t('potok-torrents:settings.searchSourceTitle'),
+      layout: buildLayout(state)
     })
   });
 
-  PotokSDK.ui.render(buildLayout(), 'torrents-search-source');
+  PotokSDK.ui.render(buildLayout(state), 'torrents-search-source');
 }

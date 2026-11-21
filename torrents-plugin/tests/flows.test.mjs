@@ -167,10 +167,10 @@ test('older SDK without streaming HTTP still performs the buffered search', asyn
 test('playback preserves canonical joined targets and never fabricates S1E1', async () => {
   const { getPlaybackInfo } = await import('../data/playback.js');
   const targets = [armTarget, { ...armTarget, episodeId: 'ep2' }];
-  const result = await getPlaybackInfo(stream, {
+  const result = await getPlaybackInfo({ stream, episode: {
     id: '1', title: 'Joined file', episodeId: null, episodeIds: ['ep', 'ep2'], targets,
     workId: 'work', entryId: 'group', displayOrdinal: '13–14', groupTitle: 'Cour 2',
-  }, context);
+  }, context });
   assert.equal(result.episodeId, null);
   assert.deepEqual(result.episodeIds, ['ep', 'ep2']);
   assert.deepEqual(result.targets, targets);

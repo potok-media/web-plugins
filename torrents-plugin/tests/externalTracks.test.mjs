@@ -12,10 +12,14 @@ test('sidecar attachment keeps integer and fractional episode tracks separate', 
 
 test('ARM playback identity preserves external track parameters', async () => {
   const hash = 'a'.repeat(40);
-  const result = await getPlaybackInfo({ hash }, {
-    id: '1', episodeId: 'ep', workId: 'work', title: 'Episode',
-    url: `https://torrent.test/api/torrents/${hash}/files/1/hls/master.m3u8?xa=3&xs=4`,
-  }, { type: 'tv', tmdbId: 42, title: 'Show' });
+  const result = await getPlaybackInfo({
+    stream: { hash },
+    episode: {
+      id: '1', episodeId: 'ep', workId: 'work', title: 'Episode',
+      url: `https://torrent.test/api/torrents/${hash}/files/1/hls/master.m3u8?xa=3&xs=4`,
+    },
+    context: { type: 'tv', tmdbId: 42, title: 'Show' },
+  });
   assert.match(result.streamUrl, /\?xa=3&xs=4$/);
   assert.equal(result.episodeId, 'ep');
   assert.equal(result.season, undefined);
