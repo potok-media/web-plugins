@@ -12,13 +12,22 @@ PotokSDK.i18n.registerTranslations({
       },
       config: {
         torrentGoUrl: "TorrentGo Address",
-        searchEngineUrl: "SearchEngine Address"
+        searchEngineUrl: "SearchEngine Address",
+        jacredUrl: "JacRed API URL",
+        jacredApiKey: "JacRed API Key"
       },
       errors: {
         noSearchUrl: "SearchEngine address is not configured.",
         noTorrUrl: "TorrentGo address is not configured.",
         torrGoError: "TorrentGo error (status {{status}})",
-        noMediaFiles: "No supported media files found in the torrent."
+        noMediaFiles: "No supported media files found in the torrent.",
+        noJacredUrl: "JacRed API URL is not configured.",
+        noJacredApiKey: "JacRed API key is not configured.",
+        jacredError: "JacRed error (status {{status}})",
+        jacredParseError: "Failed to parse JacRed response."
+      },
+      sources: {
+        jacred: "JacRed"
       },
       status: {
         mediaSearch: "Media Search",
@@ -46,13 +55,22 @@ PotokSDK.i18n.registerTranslations({
       },
       config: {
         torrentGoUrl: "Адрес TorrentGo",
-        searchEngineUrl: "Адрес SearchEngine"
+        searchEngineUrl: "Адрес SearchEngine",
+        jacredUrl: "JacRed API URL",
+        jacredApiKey: "JacRed API Key"
       },
       errors: {
         noSearchUrl: "Адрес поисковика SearchEngine не настроен.",
         noTorrUrl: "Адрес торрент-плеера TorrentGo не настроен.",
         torrGoError: "Ошибка TorrentGo (статус {{status}})",
-        noMediaFiles: "В раздаче не найдено поддерживаемых медиафайлов."
+        noMediaFiles: "В раздаче не найдено поддерживаемых медиафайлов.",
+        noJacredUrl: "JacRed API URL не настроен.",
+        noJacredApiKey: "JacRed API ключ не настроен.",
+        jacredError: "Ошибка JacRed (статус {{status}})",
+        jacredParseError: "Не удалось распарсить ответ JacRed."
+      },
+      sources: {
+        jacred: "JacRed"
       },
       status: {
         mediaSearch: "Поиск медиа",

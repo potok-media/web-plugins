@@ -29,3 +29,23 @@ export async function resolveSearchEngineUrl() {
   if (!/^https?:\/\//i.test(base)) base = `http://${base}`;
   return base.replace(/\/+$/, "");
 }
+
+// JacRed API base URL. Prefers configured value, then stored value. Trailing slash stripped.
+export async function resolveJacredUrl() {
+  let base = (PotokSDK.config.jacredURL || "").trim();
+  if (!base) {
+    base = (await PotokSDK.storage.local.getItem("jacredURL") || "").trim();
+  }
+  if (!base) return "";
+  if (!/^https?:\/\//i.test(base)) base = `http://${base}`;
+  return base.replace(/\/+$/, "");
+}
+
+// JacRed API key. Prefers configured value, then stored value.
+export async function resolveJacredApiKey() {
+  let key = (PotokSDK.config.jacredApiKey || "").trim();
+  if (!key) {
+    key = (await PotokSDK.storage.local.getItem("jacredApiKey") || "").trim();
+  }
+  return key;
+}

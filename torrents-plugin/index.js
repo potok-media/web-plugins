@@ -2,6 +2,7 @@ import { PotokSDK } from 'potok-sdk';
 import './i18n.js';
 import { registerSidebarStatus } from './utils/status.js';
 import { search } from './data/search.js';
+import { search as searchJacred } from './data/search-jacred.js';
 import { getEpisodes } from './data/episodes.js';
 import { getSeasonsMetadata, saveSeasonOverride, clearSeasonOverride, saveFileOverride, clearFileOverride, saveEpisodeBinding } from './data/overrides.js';
 import { getPlaybackInfo, getPlaybackMetadata } from './data/playback.js';
@@ -23,6 +24,24 @@ PotokSDK.streams.registerStreamSource({
   getPlaybackInfo,
   getPlaybackMetadata,
 });
+
+// JacRed stream source: conditional registration when URL is configured.
+// Only provides search; episodes/playback still flow through the main "potok-torrents" source.
+(async () => {
+  try {
+    const jacredUrl = (await PotokSDK.storage.local.getItem("jacredURL") || "").trim();
+    if (jacredUrl) {
+      PotokSDK.streams.registerStreamSource({
+        id: "potok-torrents-jacred",
+        name: PotokSDK.i18n.t("potok-torrents:sources.jacred"),
+        supportedTypes: ["movie", "tv"],
+        search: searchJacred,
+      });
+    }
+  } catch {
+    // JacRed registration is optional — silently skip if storage is unavailable.
+  }
+})();
 
 // Sidebar status service (SearchEngine / TorrentGo health).
 registerSidebarStatus();

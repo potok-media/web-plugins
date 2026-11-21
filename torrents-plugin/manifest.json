@@ -30,6 +30,16 @@
       "type": "string",
       "default": "https://search.potok.rip",
       "label": "potok-torrents:config.searchEngineUrl"
+    },
+    "jacredURL": {
+      "type": "string",
+      "default": "",
+      "label": "potok-torrents:config.jacredUrl"
+    },
+    "jacredApiKey": {
+      "type": "string",
+      "default": "",
+      "label": "potok-torrents:config.jacredApiKey"
     }
   }
 }
