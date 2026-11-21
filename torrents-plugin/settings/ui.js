@@ -11,7 +11,7 @@ let initialized = false;
 async function loadValues() {
   const selectedSource = await PotokSDK.storage.local.getItem('searchSource') || 'potok';
   const address = await PotokSDK.storage.local.getItem(
-    selectedSource === 'jacred' ? 'jacredUrl' : 'searchEngineURL'
+    selectedSource === 'jacred' ? 'jacredURL' : 'searchEngineURL'
   ) || '';
   const apiKey = await PotokSDK.storage.local.getItem('jacredApiKey') || '';
   return { selectedSource, address, apiKey };
@@ -37,7 +37,7 @@ function buildLayout(state) {
     .onChange(async (value) => {
       // Load address for newly selected source
       const newAddress = await PotokSDK.storage.local.getItem(
-        value === 'jacred' ? 'jacredUrl' : 'searchEngineURL'
+        value === 'jacred' ? 'jacredURL' : 'searchEngineURL'
       ) || '';
       await PotokSDK.storage.local.setItem('searchSource', value);
       PotokSDK.ui.render(
@@ -52,7 +52,7 @@ function buildLayout(state) {
     .value(state.address)
     .onChange(async (value) => {
       await PotokSDK.storage.local.setItem(
-        state.selectedSource === 'jacred' ? 'jacredUrl' : 'searchEngineURL',
+        state.selectedSource === 'jacred' ? 'jacredURL' : 'searchEngineURL',
         value
       );
     });
