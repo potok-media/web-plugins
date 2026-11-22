@@ -47,6 +47,16 @@ curl -fsSL https://raw.githubusercontent.com/potok-media/web-plugins/main/online
 
 Скрипт проверит Docker, при необходимости установит его, скачает или обновит `web-plugins`, соберёт образ и выполнит `docker compose up -d`. Если в локальном checkout есть незакоммиченные изменения, `git pull` безопасно пропускается.
 
+Для VideoHUB нужен серверный токен Alloha: сервис сначала преобразует TMDB ID
+(с fallback на IMDb ID) в Kinopoisk ID через Alloha, затем запрашивает VideoHUB.
+Перед запуском задайте токен в окружении:
+
+```bash
+export ALLOHA_TOKEN='ваш-токен'
+```
+
+Токен не возвращается клиенту и не записывается в browser storage.
+
 После запуска добавьте в Potok URL каталога плагина:
 
 ```text

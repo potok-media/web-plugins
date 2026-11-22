@@ -22,6 +22,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Animevost parses the DLE search, page playlist and frame streams", AnimevostContract),
     ("LordFilm parses DLE search and the nextembed player config", LordFilmContract),
     ("VideoHUB resolves a movie directly from its search source id", VideoHubMovieContract),
+    ("VideoHUB falls back from an unresolved Alloha TMDB lookup to IMDb", VideoHubImdbFallbackContract),
+    ("VideoHUB degrades to no result when Alloha is unavailable", VideoHubAllohaFailureContract),
     ("RUTUBE finds full-length movies and resolves play options", RutubeMovieContract),
     ("RUTUBE accepts film queries without a release year", RutubeRelaxedMovieContract),
     ("RUTUBE falls back to the original movie title", RutubeOriginalTitleFallbackContract),
@@ -692,28 +694,85 @@ static async Task LordFilmContract()
 
 static async Task VideoHubMovieContract()
 {
-    var http = FakeHttp.Create(request => request.RequestUri!.AbsolutePath switch
+    var calls = new List<Uri>();
+    var http = FakeHttp.Create(request =>
     {
-        "/api/v1/player/sv/playlist" => """
+        var uri = request.RequestUri!;
+        calls.Add(uri);
+        return (uri.Host, uri.AbsolutePath) switch
+        {
+        ("api.alloha.tv", "/") => """
+            {"data":{"id_kp":258687,"id_tmdb":157336,"id_imdb":"tt0816692"}}
+            """,
+        ("plapi.cdnvideohub.com", "/api/v1/player/sv/playlist") => """
             {"isSerial":false,"items":[{"season":0,"episode":0,"voiceStudio":"Дубляж","vkId":"movie-vk-id"}]}
             """,
-        "/api/v1/player/sv/video/movie-vk-id" => """
+        ("plapi.cdnvideohub.com", "/api/v1/player/sv/video/movie-vk-id") => """
             {"hlsUrl":"https://cdn.test/videohub/movie.m3u8"}
             """,
         _ => throw new InvalidOperationException(request.RequestUri.ToString()),
+        };
     });
-    var provider = new VideoHubProvider(http);
-    var query = new MediaQuery("movie", "Тестовый фильм", null, null, 2025, null, 258687);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var resolver = new MediaResolverService(http, cache, "env-alloha-token");
+    var provider = new VideoHubProvider(http, cache, resolver);
+    var query = new MediaQuery("movie", "Интерстеллар", "Interstellar", "tt0816692", 2014, 157336, null);
 
     var source = Single(await provider.SearchAsync(query, default));
     Equal("258687", source.SourceId);
     Equal("movie", source.MediaType);
+    Equal("api.alloha.tv", calls[0].Host);
+    Equal("token=env-alloha-token&tmdb=157336", calls[0].Query.TrimStart('?'));
+    Equal("plapi.cdnvideohub.com", calls[1].Host);
+    Equal("pub=12&aggr=kp&id=258687", calls[1].Query.TrimStart('?'));
 
     var playback = await provider.ResolveAsync(
         new PlaybackSelection(source.SourceId, query, 1, 1, null, null),
         default);
     Equal("https://cdn.test/videohub/movie.m3u8", playback.Url);
     Equal("Дубляж", playback.Voice);
+}
+
+static async Task VideoHubImdbFallbackContract()
+{
+    var calls = new List<Uri>();
+    var http = FakeHttp.Create(request =>
+    {
+        var uri = request.RequestUri!;
+        calls.Add(uri);
+        if (uri.Host == "api.alloha.tv" && uri.Query.Contains("tmdb=157336", StringComparison.Ordinal))
+            return "{\"data\":null}";
+        if (uri.Host == "api.alloha.tv" && uri.Query.Contains("imdb=tt0816692", StringComparison.Ordinal))
+            return "{\"data\":{\"id_kp\":\"258687\"}}";
+        if (uri.Host == "plapi.cdnvideohub.com" && uri.AbsolutePath == "/api/v1/player/sv/playlist")
+            return "{\"isSerial\":false,\"items\":[{\"vkId\":\"movie-vk-id\"}]}";
+        throw new InvalidOperationException(uri.ToString());
+    });
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var resolver = new MediaResolverService(http, cache, "env-token");
+    var provider = new VideoHubProvider(http, cache, resolver);
+    var query = new MediaQuery("movie", "Интерстеллар", "Interstellar", "tt0816692", 2014, 157336, null);
+
+    var source = Single(await provider.SearchAsync(query, default));
+
+    Equal("258687", source.SourceId);
+    Equal("tmdb=157336", calls[0].Query.Split('&')[1]);
+    Equal("imdb=tt0816692", calls[1].Query.Split('&')[1]);
+    Equal("pub=12&aggr=kp&id=258687", calls[2].Query.TrimStart('?'));
+}
+
+static async Task VideoHubAllohaFailureContract()
+{
+    var http = FakeHttp.Create(_ => throw new HttpRequestException("Alloha unavailable"));
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var resolver = new MediaResolverService(http, cache, "env-token");
+    var provider = new VideoHubProvider(http, cache, resolver);
+
+    var sources = await provider.SearchAsync(
+        new MediaQuery("movie", "Интерстеллар", "Interstellar", "tt0816692", 2014, 157336, null),
+        default);
+
+    Equal(0, sources.Count);
 }
 
 static async Task RutubeMovieContract()

@@ -4,7 +4,10 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace OnlineBalancers.Providers;
 
-public sealed partial class VideoHubProvider(HttpClient http, IMemoryCache? cache = null)
+public sealed partial class VideoHubProvider(
+    HttpClient http,
+    IMemoryCache? cache = null,
+    IMediaResolverService? mediaResolver = null)
     : ProviderBase(http, cache), IOnlineProvider
 {
     private const string Host = "https://plapi.cdnvideohub.com";
@@ -16,15 +19,18 @@ public sealed partial class VideoHubProvider(HttpClient http, IMemoryCache? cach
 
     public async Task<IReadOnlyList<SourceItem>> SearchAsync(MediaQuery query, CancellationToken cancellationToken)
     {
-        if (query.KinopoiskId is not > 0)
+        var kinopoiskId = mediaResolver is null
+            ? query.KinopoiskId
+            : await mediaResolver.ResolveKinopoiskIdAsync(query, cancellationToken);
+        if (kinopoiskId is not > 0)
             return [];
-        var playlist = await GetPlaylistAsync(query.KinopoiskId.Value, cancellationToken);
+        var playlist = await GetPlaylistAsync(kinopoiskId.Value, cancellationToken);
         if (playlist.Items is null || playlist.Items.Length == 0)
             return [];
         return [new SourceItem(
             Id,
             Name,
-            query.KinopoiskId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            kinopoiskId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
             query.Title ?? query.OriginalTitle ?? Name,
             query.OriginalTitle,
             query.Year,

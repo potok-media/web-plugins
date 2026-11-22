@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OnlineBalancers.Providers;
@@ -8,7 +9,9 @@ namespace OnlineBalancers;
 
 public static class ServiceRegistration
 {
-    public static IServiceCollection AddOnlineBalancers(this IServiceCollection services)
+    public static IServiceCollection AddOnlineBalancers(
+        this IServiceCollection services,
+        IConfiguration? configuration = null)
     {
         services.AddMemoryCache();
         services.AddCors(options => options.AddDefaultPolicy(policy => policy
@@ -29,6 +32,11 @@ public static class ServiceRegistration
             ConnectTimeout = TimeSpan.FromSeconds(8),
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
         });
+
+        services.AddSingleton<IMediaResolverService>(serviceProvider => new MediaResolverService(
+            serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("upstream"),
+            serviceProvider.GetRequiredService<IMemoryCache>(),
+            configuration?["ALLOHA_TOKEN"] ?? configuration?["MediaResolver:AllohaToken"]));
 
         foreach (var providerType in DiscoverProviderTypes())
         {

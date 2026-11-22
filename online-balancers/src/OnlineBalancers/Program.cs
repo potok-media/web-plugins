@@ -1,7 +1,7 @@
 using OnlineBalancers;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddOnlineBalancers();
+builder.Services.AddOnlineBalancers(builder.Configuration);
 
 var app = builder.Build();
 app.UseCors();
