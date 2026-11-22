@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Http;
 using OnlineBalancers;
 using OnlineBalancers.Providers;
 
@@ -35,7 +36,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Provider search removes irrelevant title matches", ProviderSearchRelevanceContract),
     ("Provider search respects its concurrency bound", ProviderSearchConcurrencyContract),
     ("Provider search propagates request cancellation", ProviderSearchCancellationContract),
-    ("Episode and playback services return direct URLs with provider headers", ApplicationServicesContract),
+    ("Episode and playback services return opaque relayed stream URLs", ApplicationServicesContract),
+    ("Stream relay forwards provider headers and rewrites every HLS resource", StreamRelayContract),
     ("Paid provider accounts are scoped and field-allowlisted", ProviderAccountContract),
     ("Service registration discovers all backend providers", ProviderDiscoveryContract),
     ("Provider failures log one structured error and rethrow", ProviderLoggingContract),
@@ -1038,7 +1040,8 @@ static async Task ApplicationServicesContract()
     var provider = new PlaybackStubProvider();
     var registry = new ProviderRegistry([provider]);
     var episodeService = new EpisodeService(registry);
-    var playbackService = new PlaybackService(registry);
+    using var streamCache = new MemoryCache(new MemoryCacheOptions());
+    var playbackService = new PlaybackService(registry, new StreamTicketService(streamCache));
     var query = new MediaQuery("tv", "Anime", null, null, 2024, 42, null);
 
     var result = await episodeService.GetEpisodesAsync(
@@ -1053,9 +1056,43 @@ static async Task ApplicationServicesContract()
         new PlaybackRequest(provider.Id, "source", query, 1, 1, null, "episode-locator"),
         "https://plugin.test",
         default);
-    Equal("https://cdn.test/master.m3u8", playback.StreamUrl);
+    Equal(true, playback.StreamUrl.StartsWith("https://plugin.test/stream/", StringComparison.Ordinal));
     Equal("m3u8", playback.StreamType);
     Equal("Dub", playback.Voice);
+}
+
+static async Task StreamRelayContract()
+{
+    string? referer = null;
+    var http = FakeHttp.Create(request =>
+    {
+        referer = request.Headers.Referrer?.ToString();
+        return """
+            #EXTM3U
+            #EXT-X-KEY:METHOD=AES-128,URI="key.bin"
+            segment-1.ts
+            """;
+    });
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var tickets = new StreamTicketService(cache);
+    var relay = new StreamRelayService(new StubHttpClientFactory(http), tickets);
+    var relayUrl = tickets.Issue(
+        "https://plugin.test",
+        "https://vd.test/path/video.m3u8?sig=private",
+        new Dictionary<string, string> { ["Referer"] = "https://hdkino.pub/" });
+    var token = new Uri(relayUrl).Segments[^1];
+    var context = new DefaultHttpContext();
+    context.Request.Scheme = "https";
+    context.Request.Host = new HostString("plugin.test");
+    context.Response.Body = new MemoryStream();
+
+    await relay.RelayAsync(token, context.Request, context.Response, default);
+
+    context.Response.Body.Position = 0;
+    var manifest = await new StreamReader(context.Response.Body).ReadToEndAsync();
+    Equal("https://hdkino.pub/", referer);
+    Equal(false, manifest.Contains("vd.test", StringComparison.Ordinal));
+    Equal(2, manifest.Split("https://plugin.test/stream/", StringSplitOptions.None).Length - 1);
 }
 
 static Task ProviderAccountContract()

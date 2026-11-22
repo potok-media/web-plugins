@@ -32,6 +32,19 @@ public static class ServiceRegistration
             ConnectTimeout = TimeSpan.FromSeconds(8),
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
         });
+        services.AddHttpClient("stream", client =>
+        {
+            client.Timeout = Timeout.InfiniteTimeSpan;
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36");
+        }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            UseCookies = false,
+            ConnectTimeout = TimeSpan.FromSeconds(8),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        });
 
         services.AddSingleton<IMediaResolverService>(serviceProvider => new MediaResolverService(
             serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("upstream"),
@@ -63,6 +76,8 @@ public static class ServiceRegistration
         services.AddSingleton<ProviderRegistry>();
         services.AddSingleton<ProviderSearchCoordinator>();
         services.AddSingleton<EpisodeService>();
+        services.AddSingleton<StreamTicketService>();
+        services.AddSingleton<StreamRelayService>();
         services.AddSingleton<PlaybackService>();
         services.AddSingleton<AccountConnectionService>();
         return services;

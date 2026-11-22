@@ -29,7 +29,7 @@
 - после входа локально сохраняется только выданная сессия Rezka;
 - KinoWatch (KinoPub) подключается штатным device-code flow;
 - токены Alloha вводятся пользователем и остаются в локальном хранилище плагина;
-- stream URL и необходимые upstream-заголовки выдаются плееру в короткоживущем AES-GCM ticket, поэтому cookie и токены не попадают в URL открытым текстом.
+- stream URL и необходимые upstream-заголовки хранятся в короткоживущем серверном ticket, поэтому cookie и токены не попадают в URL открытым текстом.
 
 ## Быстрый запуск
 
@@ -63,7 +63,7 @@ export ALLOHA_TOKEN='ваш-токен'
 http://SERVER:8090/plugin
 ```
 
-Манифест доступен по `http://SERVER:8090/plugin/manifest.json`, healthcheck — по `http://SERVER:8090/healthz`. Настраивать ключи, домены или параметры балансеров не требуется.
+Манифест доступен по `http://SERVER:8090/plugin/manifest.json`, healthcheck — по `http://SERVER:8090/healthz`. Для VideoHUB требуется только `ALLOHA_TOKEN`; домены и параметры балансеров настраивать не нужно.
 
 ## Деплой (git clone → compose up)
 
