@@ -243,7 +243,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
   ]);
   assert.equal(playback.providerId, 'potok-online-balancers');
   // Streaming search: ONE request carrying every free provider.
-  assert.equal(calls[0].body.providers.length, 10);
+  assert.equal(calls[0].body.providers.length, 11);
   assert.equal(calls[2].body.season, 1);
   assert.equal(calls[2].body.episode, 1);
 

@@ -23,6 +23,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("LordFilm parses DLE search and the nextembed player config", LordFilmContract),
     ("VideoHUB resolves a movie directly from its search source id", VideoHubMovieContract),
     ("RUTUBE finds full-length movies and resolves play options", RutubeMovieContract),
+    ("RUTUBE accepts film queries without a release year", RutubeRelaxedMovieContract),
+    ("RUTUBE falls back to the original movie title", RutubeOriginalTitleFallbackContract),
     ("AniDUB rotates dead CDN nodes and force-proxies sibnet streams", AniDubContract),
     ("KinoWatch device flow exposes the current activation domain", KinoWatchDeviceFlowContract),
     ("Alloha keeps account tokens request-scoped across search and playback", AllohaContract),
@@ -723,7 +725,8 @@ static async Task RutubeMovieContract()
               {"id":"17465fc541700b94ebd5648423675100","title":"Интерстеллар | Interstellar (2014, 4K)","duration":10144,"thumbnail_url":"https://img.test/interstellar.jpg","category":{"id":4}},
               {"id":"11111111111111111111111111111111","title":"Интерстеллар 2014 трейлер","duration":180,"category":{"id":4}},
               {"id":"22222222222222222222222222222222","title":"Интерстеллар 2014 сериал 1 серия","duration":3600,"category":{"id":4}},
-              {"id":"33333333333333333333333333333333","title":"Другой фильм (2014)","duration":7200,"category":{"id":4}}
+              {"id":"33333333333333333333333333333333","title":"Другой фильм (2014)","duration":7200,"category":{"id":4}},
+              {"id":"66666666666666666666666666666666","title":"Интерстеллар (2001)","duration":7200,"category":{"id":4}}
             ]}
             """,
         "/api/play/options/17465fc541700b94ebd5648423675100/" => """
@@ -745,6 +748,39 @@ static async Task RutubeMovieContract()
         default);
     Equal("https://cdn.rutube.test/interstellar/master.m3u8", playback.Url);
     Equal("https://rutube.ru/", playback.Headers?["Referer"]);
+}
+
+static async Task RutubeRelaxedMovieContract()
+{
+    var http = FakeHttp.Create(_ => """
+        {"results":[
+          {"id":"44444444444444444444444444444444","title":"Интерстеллар — премьера в 4K","duration":10144,"category":{"id":7}}
+        ]}
+        """);
+    var provider = new RutubeMovieProvider(http);
+    var query = new MediaQuery("film", "Интерстеллар", "Interstellar", null, null, null, null);
+
+    var source = Single(await provider.SearchAsync(query, default));
+    Equal("44444444444444444444444444444444", source.SourceId);
+    Equal(null, source.Year);
+}
+
+static async Task RutubeOriginalTitleFallbackContract()
+{
+    var http = FakeHttp.Create(request =>
+        request.RequestUri!.Query.Contains("Interstellar", StringComparison.Ordinal)
+            ? """
+              {"results":[
+                {"id":"55555555555555555555555555555555","title":"Interstellar","duration":10144}
+              ]}
+              """
+            : """{"results":[]}""");
+    var provider = new RutubeMovieProvider(http);
+    var query = new MediaQuery("movie", "Локализованное имя", "Interstellar", null, 2014, null, null);
+
+    var source = Single(await provider.SearchAsync(query, default));
+    Equal("55555555555555555555555555555555", source.SourceId);
+    Equal("Interstellar", source.Title);
 }
 
 static async Task AniDubContract()

@@ -10,6 +10,7 @@
 - AnimeGo;
 - AnimeON (украинский сервис, geo-hide RU/BY);
 - VideoHUB;
+- RUTUBE (полнометражные фильмы);
 - VeoVeo;
 - Alloha (аккаунт пользователя);
 - Filmix (аккаунт пользователя, device-code flow);

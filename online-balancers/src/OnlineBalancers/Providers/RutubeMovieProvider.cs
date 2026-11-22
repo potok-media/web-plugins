@@ -14,7 +14,6 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
     [
         "трейлер",
         "trailer",
-        "премьера",
         "обзор",
         "сезон",
         "сериал",
@@ -30,15 +29,18 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
         MediaQuery query,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(query.Type, "movie", StringComparison.OrdinalIgnoreCase) || query.Year is not > 0)
+        if (!IsMovieType(query.Type))
             return [];
 
-        var title = query.Title ?? query.OriginalTitle;
-        if (string.IsNullOrWhiteSpace(title))
-            return [];
-
-        var expectedTitles = new[] { query.Title, query.OriginalTitle }
+        var searchTitles = new[] { query.Title, query.OriginalTitle }
             .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (searchTitles.Length == 0)
+            return [];
+
+        var expectedTitles = searchTitles
             .Select(ProviderParsing.NormalizeTitle)
             .Where(value => value.Length > 0)
             .Distinct(StringComparer.Ordinal)
@@ -46,16 +48,20 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
         if (expectedTitles.Length == 0)
             return [];
 
-        var search = $"{title} {query.Year.Value}";
-        var root = await CachedAsync(
-            $"rutubemovie:search:{ProviderParsing.NormalizeTitle(search)}",
-            TimeSpan.FromMinutes(20),
-            () => GetJsonAsync<RutubeSearchRoot>(
-                Get($"{Host}/api/search/video/?content_type=video&duration=movie&query={Uri.EscapeDataString(search)}", Host),
-                cancellationToken));
+        var roots = await Task.WhenAll(searchTitles.Select(async searchTitle =>
+        {
+            var search = query.Year is > 0 ? $"{searchTitle} {query.Year.Value}" : searchTitle;
+            return await CachedAsync(
+                $"rutubemovie:search:{ProviderParsing.NormalizeTitle(search)}",
+                TimeSpan.FromMinutes(20),
+                () => GetJsonAsync<RutubeSearchRoot>(
+                    Get($"{Host}/api/search/video/?content_type=video&duration=movie&query={Uri.EscapeDataString(search)}", Host),
+                    cancellationToken));
+        }));
 
-        return (root.Results ?? [])
-            .Where(item => IsMovieCandidate(item, expectedTitles, query.Year.Value))
+        return roots.SelectMany(root => root.Results ?? [])
+            .Where(item => IsMovieCandidate(item, expectedTitles, query.Year))
+            .DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
             .Take(8)
             .Select(item => new SourceItem(
                 Id,
@@ -63,7 +69,7 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
                 item.Id!,
                 item.Title!,
                 query.OriginalTitle,
-                MatchedYear(item.Title!, query.Year.Value),
+                MatchedYear(item.Title!, query.Year),
                 item.ThumbnailUrl,
                 "Auto",
                 null,
@@ -96,11 +102,11 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
             Headers: new Dictionary<string, string> { ["Referer"] = $"{Host}/" });
     }
 
-    private static bool IsMovieCandidate(RutubeSearchResult item, IReadOnlyList<string> expectedTitles, int year)
+    private static bool IsMovieCandidate(RutubeSearchResult item, IReadOnlyList<string> expectedTitles, int? year)
     {
         if (string.IsNullOrWhiteSpace(item.Id) || !RutubeIdRegex().IsMatch(item.Id) ||
             string.IsNullOrWhiteSpace(item.Title) || item.Duration < MinimumMovieDurationSeconds ||
-            item.Category?.Id != 4 || item.IsHidden || item.IsDeleted || item.IsAdult ||
+            item.IsHidden || item.IsDeleted || item.IsAdult ||
             item.IsLocked || item.IsAudio || item.IsPaid || item.IsLivestream)
             return false;
 
@@ -110,19 +116,27 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
         if (ExcludedTitleMarkers.Any(marker => normalized.Contains(marker, StringComparison.Ordinal)))
             return false;
 
-        return YearRegex().Matches(item.Title)
+        var years = YearRegex().Matches(item.Title)
             .Select(match => int.TryParse(match.Value, out var parsed) ? parsed : 0)
-            .Any(candidate => Math.Abs(candidate - year) <= 1);
+            .Where(candidate => candidate > 0)
+            .ToArray();
+        return year is not > 0 || years.Length == 0 || years.Any(candidate => Math.Abs(candidate - year.Value) <= 1);
     }
 
-    private static int MatchedYear(string title, int expectedYear)
+    private static int? MatchedYear(string title, int? expectedYear)
     {
         var years = YearRegex().Matches(title)
             .Select(match => int.TryParse(match.Value, out var parsed) ? parsed : 0)
             .Where(year => year > 0)
             .ToArray();
-        return years.OrderBy(year => Math.Abs(year - expectedYear)).FirstOrDefault(expectedYear);
+        if (years.Length == 0)
+            return null;
+        return expectedYear is > 0
+            ? years.OrderBy(year => Math.Abs(year - expectedYear.Value)).First()
+            : years[0];
     }
+
+    private static bool IsMovieType(string? value) => value?.Trim().ToLowerInvariant() is "movie" or "film";
 
     private sealed class RutubeSearchRoot
     {
@@ -144,9 +158,6 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
         [JsonPropertyName("thumbnail_url")]
         public string? ThumbnailUrl { get; init; }
 
-        [JsonPropertyName("category")]
-        public RutubeCategory? Category { get; init; }
-
         [JsonPropertyName("is_hidden")]
         public bool IsHidden { get; init; }
 
@@ -167,12 +178,6 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
 
         [JsonPropertyName("is_livestream")]
         public bool IsLivestream { get; init; }
-    }
-
-    private sealed class RutubeCategory
-    {
-        [JsonPropertyName("id")]
-        public int Id { get; init; }
     }
 
     private sealed class RutubePlayOptions
