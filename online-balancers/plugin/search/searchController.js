@@ -1,6 +1,7 @@
 import { mediaQuery } from '../routing/mediaContext.js';
 import { providerAccountEnvelope } from '../accounts/accountVault.js';
 import { castSourcesToArmEntries } from './armCasting.js';
+import { groupSources } from './grouping.js';
 
 export function sourceId(stream) {
   if (stream?.sourceId) return String(stream.sourceId);
@@ -53,7 +54,27 @@ export function mapSource(item, query) {
 }
 
 export function createSearchService({ client, registry, accountVault = null, arm = null, getLocale = null }) {
+  const cast = async (sources, query) => {
+    const normalizedQuery = mediaQuery(query);
+    return castSourcesToArmEntries({
+      arm,
+      context: normalizedQuery,
+      sources,
+      locale: getLocale?.() || null,
+    });
+  };
+
   return Object.freeze({
+    // Partial search cards are deliberately rendered before the final ARM cast. Re-cast only
+    // the clicked card so episode loading always receives either one concrete entry or an
+    // explicitly unresolved provider-native group.
+    async castGroup(group, query) {
+      if (group.entryId || !Array.isArray(group.variants) || !group.variants.length) return group;
+      const result = await cast(group.variants, query);
+      const groups = groupSources([...result.items, ...result.unresolvedItems]);
+      return groups.length === 1 ? { ...groups[0], id: group.id } : group;
+    },
+
     // Streaming search: ONE request to the backend; every provider result/error arrives
     // as an NDJSON chunk and is forwarded to onProgress immediately (cards and chips
     // render as providers finish). The final return value is unchanged (all items,
@@ -92,15 +113,10 @@ export function createSearchService({ client, registry, accountVault = null, arm
       );
 
       const mappedItems = (finalResponse.items || []).map(item => mapSource(item, normalizedQuery));
-      const cast = await castSourcesToArmEntries({
-        arm,
-        context: normalizedQuery,
-        sources: mappedItems,
-        locale: getLocale?.() || null,
-      });
+      const castResult = await cast(mappedItems, normalizedQuery);
       return {
-        items: cast.items,
-        unresolvedItems: cast.unresolvedItems,
+        items: castResult.items,
+        unresolvedItems: castResult.unresolvedItems,
         errors: finalResponse.errors || {},
       };
     },

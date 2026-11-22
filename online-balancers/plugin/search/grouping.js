@@ -21,11 +21,16 @@ export function variantVoice(stream, fallback = '') {
   return fallback || stream?.voice || stream?.provider || '';
 }
 
+function resolvedMediaType(item) {
+  if (!item.entryId) return item.mediaType || 'tv';
+  return item.armKind === 'movie' ? 'movie' : 'tv';
+}
+
 export function groupSources(items) {
   const groups = [];
   for (const item of items) {
     const aliases = titleAliases(item);
-    const mediaType = item.mediaType || 'tv';
+    const mediaType = resolvedMediaType(item);
     let group = item.entryId
       ? groups.find(candidate => candidate.entryId === item.entryId)
       : groups.find(candidate => {

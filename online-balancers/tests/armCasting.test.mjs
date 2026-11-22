@@ -108,3 +108,42 @@ test('franchise sources bind to their own ARM entries by title containment', asy
   );
   assert.deepEqual(result.unresolvedItems, []);
 });
+
+test('a TV source with the Mugen Train title binds to the TV entry, not the movie', async () => {
+  const arm = {
+    async getEntries() {
+      return {
+        entries: [
+          {
+            entryId: 'mugen-movie', kind: 'movie', number: 1, sortPosition: 2,
+            localizedTitles: [{ language: 'ja-Latn', value: 'Kimetsu no Yaiba: Mugen Ressha Hen' }],
+            displayMetadata: { seasonYear: 2020, format: 'MOVIE' },
+          },
+          {
+            entryId: 'mugen-tv', kind: 'season', number: 2, sortPosition: 1,
+            localizedTitles: [{ language: 'ja-Latn', value: 'Kimetsu no Yaiba: Mugen Ressha Hen (TV)' }],
+            displayMetadata: { seasonYear: 2021, format: 'TV' },
+          },
+        ],
+      };
+    },
+  };
+
+  const result = await castSourcesToArmEntries({
+    arm,
+    context: { workId: 'demon-slayer', type: 'tv', locale: 'ru' },
+    sources: [{
+      id: 'kinopub:76093',
+      title: 'Kimetsu no Yaiba: Mugen Ressha Hen',
+      originalTitle: 'Kimetsu no Yaiba: Mugen Ressha Hen',
+      mediaType: 'tv',
+      year: 2021,
+      providerId: 'kinopub',
+    }],
+  });
+
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].entryId, 'mugen-tv');
+  assert.equal(result.items[0].armKind, 'season');
+  assert.deepEqual(result.unresolvedItems, []);
+});

@@ -232,3 +232,39 @@ test('a single playable item autoplays without presenting a fake episode selecto
   assert.equal(playCalls()[0][1].season, null);
   assert.equal(playCalls()[0][1].episode, null);
 });
+
+test('opening a streamed uncast card resolves that selected group before loading episodes', async () => {
+  const rawGroup = {
+    id: 'group:tv:2021:mugen',
+    title: 'Kimetsu no Yaiba: Mugen Ressha Hen',
+    mediaType: 'tv',
+    variants: [{ id: 'kinopub:76093', providerId: 'kinopub', sourceId: '76093' }],
+  };
+  const resolvedGroup = {
+    ...rawGroup,
+    entryId: 'mugen-tv',
+    armKind: 'season',
+  };
+  let receivedGroup = null;
+  const { controller, state } = createController({
+    searchService: {
+      search: async () => ({ items: [], errors: {} }),
+      castGroup: async (group) => {
+        assert.equal(group, rawGroup);
+        return resolvedGroup;
+      },
+    },
+    episodeService: {
+      fetchGroupedEpisodes: async (group) => {
+        receivedGroup = group;
+        return { episodes: [{ id: '1', season: 1, episode: 1 }] };
+      },
+    },
+  });
+  state.context = { title: 'Истребитель демонов', type: 'tv', workId: 'demon-slayer' };
+
+  await controller.actions.openSource(rawGroup);
+
+  assert.equal(receivedGroup, resolvedGroup);
+  assert.equal(state.selectedStream, resolvedGroup);
+});

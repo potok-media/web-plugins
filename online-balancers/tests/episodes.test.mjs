@@ -211,7 +211,8 @@ test('an ARM-cast source lays its episodes out by its own entry, not the franchi
   assert.equal(scoped.arm.state, 'resolved');
   assert.equal(scoped.arm.workId, 'bleach-work');
 
-  // A source WITHOUT a cast entryId keeps the previous full-franchise behavior.
+  // A source WITHOUT a cast entryId must stay provider-native. Mapping it against the full
+  // franchise would make this 13-episode block look like episodes 1-13 of the first series.
   const unscoped = await makeService().fetchGroupedEpisodes({
     id: 'group:unknown',
     mediaType: 'tv',
@@ -219,7 +220,9 @@ test('an ARM-cast source lays its episodes out by its own entry, not the franchi
   }, context);
 
   assert.equal(unscoped.episodes.length, 13);
-  assert.deepEqual([...new Set(unscoped.episodes.map(episode => episode.entryId))], ['bleach-tv1']);
+  assert.deepEqual([...new Set(unscoped.episodes.map(episode => episode.entryId))], [undefined]);
+  assert.equal(unscoped.episodes[0].title, 'Raw 1');
+  assert.equal(unscoped.arm, null);
 });
 
 test('getEpisodes path attaches ARM identity so progress keys converge (withArmIdentity)', async () => {

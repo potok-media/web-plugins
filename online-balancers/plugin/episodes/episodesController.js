@@ -97,11 +97,14 @@ export function createEpisodeService({ client, translate, accountVault = null, a
     // The layout is scoped by the entry the OPENED SOURCE was cast to (group id === entryId) —
     // a page-level entryId hint is deliberately NOT used: the online page shows every source,
     // and each source's episodes are laid out by its own identified entry. Sources the casting
-    // could not bind keep the full-franchise layout (previous behavior).
-    const armLayout = await resolveAnimeArmLayout(
-      arm,
-      { ...context, entryId: group.entryId || undefined },
-    ).catch(() => null);
+    // could not bind stay provider-native instead of borrowing an unrelated franchise entry.
+    // A selected online card may still be uncast while streaming search is in progress.
+    // Never compare that provider block with the whole franchise: short blocks numerically
+    // fit an unrelated first season and acquire false ARM identities. Uncast cards stay
+    // provider-native until the selected-card cast resolves one concrete entry.
+    const armLayout = group.entryId
+      ? await resolveAnimeArmLayout(arm, { ...context, entryId: group.entryId }).catch(() => null)
+      : null;
 
     if (!armLayout) {
       return { episodes: mergeEpisodeVariants(successful), arm: null };

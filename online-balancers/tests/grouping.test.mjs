@@ -52,3 +52,20 @@ test('ARM identity groups provider variants even when their raw titles and years
   assert.equal(groups[0].entryId, 'entry-alicization');
   assert.equal(groups[0].variants.length, 2);
 });
+
+test('a resolved ARM movie has movie media type even when the provider labeled it as TV', () => {
+  const [group] = groupSources([{
+    id: 'provider:mugen',
+    providerId: 'provider',
+    provider: 'Provider',
+    title: 'Mugen Train',
+    mediaType: 'tv',
+    entryId: 'mugen-movie',
+    armTitle: 'Mugen Train Movie',
+    armKind: 'movie',
+    armNumber: 1,
+  }]);
+
+  assert.equal(group.mediaType, 'movie');
+  assert.equal(group.armKind, 'movie');
+});

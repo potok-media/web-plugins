@@ -264,7 +264,19 @@ export function createAppController({
     ui.dismissEpisodes?.();
     emit();
     try {
-      const result = await episodeService.fetchGroupedEpisodes(group, state.context);
+      let selectedGroup = group;
+      if (!group.entryId && searchService.castGroup) {
+        try {
+          selectedGroup = await searchService.castGroup(group, state.context);
+        } catch {
+          // ARM lookup is additive: an unavailable cast must not make a provider source unusable.
+          selectedGroup = group;
+        }
+        if (state.routeKey !== routeKey || state.selectedId !== group.id) return;
+        state.selectedStream = selectedGroup;
+        emit();
+      }
+      const result = await episodeService.fetchGroupedEpisodes(selectedGroup, state.context);
       if (state.routeKey !== routeKey || state.selectedId !== group.id) return;
       if (!result.episodes.length) throw new Error(translate('episodes.empty'));
       state.episodeStatus = 'ready';
@@ -275,7 +287,7 @@ export function createAppController({
       if (shouldAutoplay) state.activeEpisodeId = String(first.id || '');
       presentSelectedEpisodes();
       emit();
-      if (shouldAutoplay) await playEpisode(group, first);
+      if (shouldAutoplay) await playEpisode(selectedGroup, first);
     } catch (error) {
       if (state.routeKey !== routeKey || state.selectedId !== group.id) return;
       state.episodeStatus = 'error';

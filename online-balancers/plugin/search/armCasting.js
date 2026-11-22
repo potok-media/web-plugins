@@ -26,6 +26,28 @@ function entryAliases(entry) {
     .filter(Boolean));
 }
 
+function armMediaType(kind) {
+  return kind === 'movie' ? 'movie' : 'tv';
+}
+
+function sourceMatchesEntryType(source, entry) {
+  return !source?.mediaType || source.mediaType === armMediaType(entry?.kind);
+}
+
+function entryYear(entry) {
+  const seasonYear = Number(entry?.displayMetadata?.seasonYear);
+  if (Number.isInteger(seasonYear)) return seasonYear;
+  const startYear = Number.parseInt(String(entry?.displayMetadata?.startDate || '').slice(0, 4), 10);
+  return Number.isInteger(startYear) ? startYear : null;
+}
+
+function preferExactYear(matches, source) {
+  const sourceYear = Number(source?.year);
+  if (!Number.isInteger(sourceYear)) return matches;
+  const exact = matches.filter(candidate => entryYear(candidate.entry) === sourceYear);
+  return exact.length ? exact : matches;
+}
+
 async function resolveWorkId(arm, context) {
   if (context?.workId) return context.workId;
   if (!context?.tmdbId || !arm?.resolveWork) return null;
@@ -74,10 +96,12 @@ export async function castSourcesToArmEntries({ arm, context = {}, sources = [],
 
   for (const source of sources) {
     const aliases = titleAliases(source);
-    let matches = entries.filter(candidate =>
+    const compatibleEntries = entries.filter(candidate => sourceMatchesEntryType(source, candidate.entry));
+    let matches = compatibleEntries.filter(candidate =>
       aliases.some(alias => candidate.aliases.has(alias)));
+    matches = preferExactYear(matches, source);
     if (matches.length !== 1) {
-      const contained = containedMatches(aliases, entries);
+      const contained = preferExactYear(containedMatches(aliases, compatibleEntries), source);
       matches = contained.length === 1 ? contained : [];
     }
     if (matches.length === 1) {
