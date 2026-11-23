@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PotokSDK } from './fixtures/sdk.mjs';
 import { getEpisodes } from '../data/episodes.js';
+import { getPlaybackInfo } from '../data/playback.js';
 import { saveEpisodeBinding, clearFileOverride } from '../data/overrides.js';
 import { search } from '../data/search.js';
 
@@ -33,7 +34,15 @@ function layout(workId = 'work') {
   };
 }
 
-function mockEpisodeTransport({ saved = {}, unavailable = false, resolve = resolution, layoutWork = 'work', files = [canonicalFile, extraFile1, extraFile2] } = {}) {
+function mockEpisodeTransport({
+  saved = {},
+  unavailable = false,
+  resolve = resolution,
+  layoutWork = 'work',
+  files = [canonicalFile, extraFile1, extraFile2],
+  audioFiles = [],
+  subtitleFiles = [],
+} = {}) {
   const calls = [];
   PotokSDK.http.get = async (url) => {
     calls.push({ method: 'get', url });
@@ -43,7 +52,9 @@ function mockEpisodeTransport({ saved = {}, unavailable = false, resolve = resol
   };
   PotokSDK.http.post = async (url, body) => {
     calls.push({ method: 'post', url, body });
-    if (url === 'https://torrent.test/api/torrents') return response({ hash, items: files });
+    if (url === 'https://torrent.test/api/torrents') {
+      return response({ hash, items: files, audioFiles, subtitleFiles });
+    }
     if (url.endsWith('/file/remove?fileId=1')) { delete saved['1']; return response({ success: true }); }
     if (url.endsWith('/file')) { saved[body.fileId] = { ...body }; delete saved[body.fileId].fileId; return response({ success: true }); }
     if (url === '/api/arm/v1/releases/resolve') {
@@ -54,6 +65,39 @@ function mockEpisodeTransport({ saved = {}, unavailable = false, resolve = resol
   };
   return calls;
 }
+
+test('single-file releases preserve the real TorrentGo file id and external tracks', async () => {
+  const file = { id: '7', path: 'Movie/Movie.mkv', title: 'Movie.mkv', sizeBytes: 1000 };
+  mockEpisodeTransport({
+    files: [file],
+    audioFiles: [{ id: '8', path: 'Movie/Movie.mka', title: 'Movie.mka', sizeBytes: 100 }],
+    subtitleFiles: [{ id: '9', path: 'Movie/Movie.ass', title: 'Movie.ass', sizeBytes: 10 }],
+  });
+
+  const movieContext = { type: 'movie', tmdbId: 42, workId: 'work', title: 'Movie' };
+  const result = await getEpisodes({ ...stream, title: 'Movie' }, movieContext);
+
+  assert.equal(result.episodes.length, 1);
+  assert.equal(result.episodes[0].id, '7');
+  assert.match(result.episodes[0].url, /files\/7\/hls\/master\.m3u8\?xa=8&xs=9$/);
+
+  const playback = await getPlaybackInfo({
+    stream: { ...stream, title: 'Movie' },
+    episode: result.episodes[0],
+    context: movieContext,
+  });
+  assert.equal(playback.fileIndex, '7');
+  assert.match(playback.streamUrl, /files\/7\/hls\/master\.m3u8\?xa=8&xs=9$/);
+});
+
+test('zero playable files is an explicit empty inspection result', async () => {
+  mockEpisodeTransport({ files: [] });
+
+  const result = await getEpisodes(stream, context);
+
+  assert.deepEqual(result.episodes, []);
+  assert.equal(result.emptyMessage, 'potok-torrents:errors.noMediaFiles');
+});
 
 test('save canonical scoped anchor, reload manifest and clear preserve the chosen placement', async () => {
   const saved = {};

@@ -14,7 +14,7 @@ PotokSDK.i18n.registerTranslations({
         torrentGoUrl: "TorrentGo Address",
         searchEngineUrl: "SearchEngine Address",
         jacredUrl: "JacRed API URL",
-        jacredApiKey: "JacRed API Key"
+        jacredApiKey: "JacRed API Key (optional)"
       },
       errors: {
         noSearchUrl: "SearchEngine address is not configured.",
@@ -63,7 +63,7 @@ PotokSDK.i18n.registerTranslations({
         torrentGoUrl: "Адрес TorrentGo",
         searchEngineUrl: "Адрес SearchEngine",
         jacredUrl: "JacRed API URL",
-        jacredApiKey: "JacRed API Key"
+        jacredApiKey: "JacRed API Key (необязательно)"
       },
       errors: {
         noSearchUrl: "Адрес поисковика SearchEngine не настроен.",

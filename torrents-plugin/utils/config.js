@@ -30,11 +30,32 @@ export async function resolveSearchEngineUrl() {
   return base.replace(/\/+$/, "");
 }
 
+// Reads the canonical setting and migrates the short-lived legacy spelling used by older builds.
+export async function resolveStoredJacredUrl() {
+  const canonical = (await PotokSDK.storage.local.getItem("jacredURL") || "").trim();
+  if (canonical) return canonical;
+
+  const legacy = (await PotokSDK.storage.local.getItem("jacredUrl") || "").trim();
+  if (!legacy) return "";
+
+  try {
+    if (typeof PotokSDK.storage.local.setItem === "function") {
+      await PotokSDK.storage.local.setItem("jacredURL", legacy);
+    }
+    if (typeof PotokSDK.storage.local.removeItem === "function") {
+      await PotokSDK.storage.local.removeItem("jacredUrl");
+    }
+  } catch {
+    // Migration is best-effort; the legacy value still keeps this search usable.
+  }
+  return legacy;
+}
+
 // JacRed API base URL. Prefers configured value, then stored value. Trailing slash stripped.
 export async function resolveJacredUrl() {
   let base = (PotokSDK.config.jacredURL || "").trim();
   if (!base) {
-    base = (await PotokSDK.storage.local.getItem("jacredURL") || "").trim();
+    base = await resolveStoredJacredUrl();
   }
   if (!base) return "";
   if (!/^https?:\/\//i.test(base)) base = `http://${base}`;
@@ -50,8 +71,8 @@ export async function resolveJacredApiKey() {
   return key;
 }
 
-// Search source: "potok" (default SearchEngine) or "jacred" (JacRed API).
-// Prefers configured value, then stored value. Falls back to "potok" when unset.
+// Search source comes from the manifest config in current hosts; the fallback keeps compatibility
+// with older hosts/tests that predate the selector.
 export async function resolveSearchSource() {
   let src = (PotokSDK.config.searchSource || "").trim().toLowerCase();
   if (!src) {

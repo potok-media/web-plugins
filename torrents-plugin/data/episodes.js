@@ -39,9 +39,6 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
   }
   const resJson = parseJson(filesResponse);
   const rawFiles = resJson.items || [];
-  if (rawFiles.length === 0) {
-    throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noMediaFiles"));
-  }
 
   const authHash = cleanHash(resJson.hash) || hash;
   // External (sidecar) dub/subtitle files for "ext" releases — separate lists the backend returns alongside the
@@ -187,6 +184,16 @@ export async function getEpisodes(stream, context) {
     ? resolveEntryHint(stream.title || "", earlyLayout, positiveId(context.tmdbId))
     : null;
   const { rawFiles, audioFiles, subtitleFiles, authHash, seasonMap, fileMap } = await fetchTorrentData(stream, context, cleanTorrUrl, hash);
+  if (rawFiles.length === 0) {
+    return {
+      episodes: [],
+      seasonMap,
+      fileMap,
+      parsingSuspect: false,
+      arm: null,
+      emptyMessage: PotokSDK.i18n.t("potok-torrents:errors.noMediaFiles"),
+    };
+  }
   const manifest = buildReleaseManifest({
     releaseId: authHash || hash,
     releaseTitle: stream.title || '',
@@ -212,18 +219,6 @@ export async function getEpisodes(stream, context) {
   const filesWithExternal = hasExternal
     ? attachExternalTracks(cleanedFiles, audioFiles, subtitleFiles, context, stream)
     : cleanedFiles;
-
-  // Single video file: skip episode selector, go straight to player.
-  // The host will call getPlaybackInfo without an episode; playback functions handle episode=null.
-  if (filesWithExternal.length === 1) {
-    return {
-      episodes: [],
-      seasonMap,
-      fileMap,
-      parsingSuspect: false,
-      arm: null,
-    };
-  }
 
   let episodes = mapEpisodes(filesWithExternal, cleanTorrUrl, authHash);
   const releaseResolution = await releaseResolutionPromise;

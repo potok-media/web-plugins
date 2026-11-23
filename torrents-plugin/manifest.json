@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "http-proxy",
-    "ui-notifications"
+    "ui-notifications",
+    "custom-css"
   ],
   "slots": [
     {
@@ -21,24 +22,37 @@
     }
   ],
   "config": {
+    "searchSource": {
+      "type": "select",
+      "default": "jacred",
+      "options": [
+        { "label": "potok-torrents:settings.searchSourcePotok", "value": "potok" },
+        { "label": "potok-torrents:settings.searchSourceJacred", "value": "jacred" }
+      ],
+      "label": "potok-torrents:settings.searchSource",
+      "layoutRow": "search-source"
+    },
+    "jacredURL": {
+      "type": "string",
+      "default": "https://jacred.stream",
+      "label": "potok-torrents:config.jacredUrl",
+      "layoutRow": "search-source"
+    },
+    "searchEngineURL": {
+      "type": "string",
+      "default": "",
+      "label": "potok-torrents:config.searchEngineUrl",
+      "layoutRow": "search-source"
+    },
     "torrentGoURL": {
       "type": "string",
       "default": "https://torrent.potok.rip",
       "label": "potok-torrents:config.torrentGoUrl"
     },
-    "searchEngineURL": {
+    "jacredApiKey": {
       "type": "string",
-      "default": "https://search.potok.rip",
-      "label": "potok-torrents:config.searchEngineUrl"
-    },
-    "searchSource": {
-      "type": "select",
-      "default": "potok",
-      "options": [
-        { "label": "potok-torrents:settings.searchSourcePotok", "value": "potok" },
-        { "label": "potok-torrents:settings.searchSourceJacred", "value": "jacred" }
-      ],
-      "label": "potok-torrents:settings.searchSource"
+      "default": "",
+      "label": "potok-torrents:config.jacredApiKey"
     }
   }
 }
