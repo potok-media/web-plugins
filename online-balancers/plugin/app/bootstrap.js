@@ -15,7 +15,13 @@ import { createAccountVault } from '../accounts/accountVault.js';
 
 export function bootstrap({ client = createOnlineBalancersClient(), registry = sourceRegistry } = {}) {
   installStyles();
-  const accountVault = createAccountVault(PotokSDK.storage.local);
+  const accountVault = createAccountVault(PotokSDK.storage.local, {
+    async refreshAccount(providerId, account) {
+      if (providerId !== 'kinopub') return account;
+      const result = await client.refreshKinoPubAccount(account.refreshToken);
+      return result.account.values;
+    },
+  });
   const searchService = createSearchService({
     client,
     registry,

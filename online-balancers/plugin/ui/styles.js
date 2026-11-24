@@ -218,11 +218,129 @@ export function installStyles() {
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         color: var(--text-primary);
       }
-      .online-page .online-filters-row { width: 100%; align-items: center; flex-wrap: wrap; flex: 0 0 auto; }
+      .online-page .online-filters-row {
+        width: auto;
+        min-width: 0;
+        flex: 0 0 auto;
+        align-items: center;
+        margin-left: auto;
+      }
       .online-page .online-filters-row .online-filter-row {
         margin-left: 0;
-        justify-content: flex-start !important;
-        flex-wrap: wrap !important;
+        justify-content: flex-end !important;
+        flex-wrap: nowrap !important;
+      }
+
+      /* Compact search telemetry: no card surface, provider details stay behind one control. */
+      .online-page .online-search-toolbar {
+        width: 100%;
+        min-width: 0;
+        min-height: 2.5rem;
+        align-items: center !important;
+        justify-content: space-between !important;
+      }
+
+      .online-page .online-search-summary {
+        min-width: 0;
+        flex: 1 1 auto;
+        align-items: center !important;
+        flex-wrap: nowrap !important;
+      }
+
+      .online-page .online-search-spinner {
+        display: inline-block;
+        width: 0.875rem;
+        height: 0.875rem;
+        flex: 0 0 auto;
+        border: 2px solid var(--border-color);
+        border-top-color: var(--accent);
+        border-radius: var(--radius-full, 999px);
+        animation: online-spin 0.8s linear infinite;
+      }
+
+      .online-page .online-search-complete-icon {
+        width: 0.875rem;
+        height: 0.875rem;
+        flex: 0 0 auto;
+        color: var(--success);
+      }
+
+      .online-page .online-search-complete-icon .sdk-btn-mask-icon {
+        width: 0.875rem !important;
+        height: 0.875rem !important;
+      }
+
+      .online-page .online-search-summary-text {
+        min-width: 0;
+        flex: 0 1 auto;
+        color: var(--text-primary);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .online-page .online-search-progress {
+        width: 9rem;
+        max-width: 9rem;
+        min-width: 4rem;
+        flex: 0 1 9rem;
+      }
+
+      .online-page .online-search-progress .sdk-progress-track {
+        height: 2px;
+        background: var(--bg-surface-highest);
+      }
+
+      .online-page .online-search-stat {
+        flex: 0 0 auto;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .online-page .online-search-stat-error {
+        color: var(--warning);
+      }
+
+      .online-page .online-source-details {
+        flex: 0 0 auto;
+      }
+
+      .online-page .online-source-details .sdk-dropdown-trigger {
+        min-height: 2rem;
+        padding: 0 0.5rem;
+        border-radius: var(--radius-s, 0.5rem);
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+      }
+
+      .online-page .online-source-details .sdk-dropdown-menu {
+        left: auto;
+        right: 0;
+        width: min(24rem, calc(100vw - 3rem));
+        max-height: 14rem;
+        overflow-y: auto;
+      }
+
+      @media (max-width: 1100px) {
+        .online-page .online-search-toolbar {
+          flex-wrap: wrap !important;
+        }
+
+        .online-page .online-filters-row {
+          width: 100%;
+          margin-left: 0;
+        }
+
+        .online-page .online-filters-row .online-filter-row {
+          justify-content: flex-start !important;
+          overflow-x: auto;
+          overscroll-behavior-x: contain;
+        }
       }
 
       /* Badges: small uppercase text labels next to the title — no boxes. */
@@ -272,6 +390,14 @@ export function installStyles() {
       }
       .online-page .online-grid-title-row { flex-wrap: wrap; width: 100%; flex: 0 0 auto; }
       .online-page .online-grid-title { font-weight: 600; font-size: 0.875rem; }
+      .online-page .online-grid-providers {
+        width: 100%;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .online-page .online-grid-meta { font-size: 0.75rem; opacity: 0.7; width: 100%; flex: 0 0 auto; }
       .online-page .online-grid-hit {
         position: absolute;
@@ -313,6 +439,19 @@ export function installStyles() {
       .online-page .online-filter-source { width: 7rem; }
       .online-page .online-filter-quality { width: 5.5rem; }
       .online-page .online-filter-voice { width: 7.5rem; }
+
+      .online-page .online-search-summary {
+        width: 100%;
+        flex-wrap: wrap !important;
+      }
+
+      .online-page .online-search-summary-text {
+        flex: 1 1 auto;
+      }
+
+      .online-page .online-search-progress {
+        flex: 1 1 6rem;
+      }
     }
   `);
 }

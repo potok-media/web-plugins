@@ -101,6 +101,12 @@ public static class ApiEndpoints
             CancellationToken cancellationToken) => await HandleAsync(async () =>
                 Results.Ok(await accounts.PollKinoPubAsync(request, cancellationToken))));
 
+        endpoints.MapPost("/api/v1/accounts/kinopub/refresh", async (
+            KinoPubRefreshRequest request,
+            AccountConnectionService accounts,
+            CancellationToken cancellationToken) => await HandleAsync(async () =>
+                Results.Ok(await accounts.RefreshKinoPubAsync(request, cancellationToken))));
+
         endpoints.MapPost("/api/v1/accounts/filmix/device/start", async (
             AccountConnectionService accounts,
             CancellationToken cancellationToken) => await HandleAsync(async () =>

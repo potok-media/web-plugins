@@ -14,7 +14,12 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
     [
         "трейлер",
         "trailer",
+        "подкаст",
+        "podcast",
         "обзор",
+        "разбор",
+        "реакция",
+        "reaction",
         "сезон",
         "сериал",
         "серия",
@@ -71,7 +76,7 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
                 query.OriginalTitle,
                 MatchedYear(item.Title!, query.Year),
                 item.ThumbnailUrl,
-                "Auto",
+                "",
                 null,
                 "movie"))
             .ToArray();
@@ -111,7 +116,7 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
             return false;
 
         var normalized = ProviderParsing.NormalizeTitle(item.Title);
-        if (!expectedTitles.Any(expected => normalized.Contains(expected, StringComparison.Ordinal)))
+        if (!MatchesExpectedTitle(item.Title, normalized, expectedTitles))
             return false;
         if (ExcludedTitleMarkers.Any(marker => normalized.Contains(marker, StringComparison.Ordinal)))
             return false;
@@ -122,6 +127,24 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
             .ToArray();
         return year is not > 0 || years.Length == 0 || years.Any(candidate => Math.Abs(candidate - year.Value) <= 1);
     }
+
+    private static bool MatchesExpectedTitle(
+        string title,
+        string normalizedTitle,
+        IReadOnlyList<string> expectedTitles)
+    {
+        if (expectedTitles.Any(expected => StartsWithTitle(normalizedTitle, expected)))
+            return true;
+
+        return TitleSegmentSeparatorRegex().Split(title)
+            .Select(ProviderParsing.NormalizeTitle)
+            .Where(segment => segment.Length > 0)
+            .Any(segment => expectedTitles.Any(expected => StartsWithTitle(segment, expected)));
+    }
+
+    private static bool StartsWithTitle(string candidate, string expected) =>
+        string.Equals(candidate, expected, StringComparison.Ordinal) ||
+        candidate.StartsWith(expected + " ", StringComparison.Ordinal);
 
     private static int? MatchedYear(string title, int? expectedYear)
     {
@@ -197,4 +220,7 @@ public sealed partial class RutubeMovieProvider(HttpClient http, IMemoryCache? c
 
     [GeneratedRegex("(?:19|20)[0-9]{2}", RegexOptions.CultureInvariant)]
     private static partial Regex YearRegex();
+
+    [GeneratedRegex(@"[|/]|:|\s+[—–-]\s+", RegexOptions.CultureInvariant)]
+    private static partial Regex TitleSegmentSeparatorRegex();
 }

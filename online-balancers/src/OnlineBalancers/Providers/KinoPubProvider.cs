@@ -1,3 +1,4 @@
+using System.Net;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
@@ -86,6 +87,11 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
                         otherMatches.Add(mapped);
                     }
                 }
+            }
+            catch (HttpRequestException exception) when (exception.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                throw new ProviderException(
+                    "KinoWatch (KinoPub) authorization expired. Reconnect the account.");
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
@@ -268,7 +274,12 @@ public sealed class KinoPubProvider(HttpClient http, IMemoryCache? cache = null)
 
     private static string ReadToken(ProviderRequestContext context)
     {
-        var values = context.RequireAccount(IdValue, "accessToken", "label");
+        var values = context.RequireAccount(
+            IdValue,
+            "accessToken",
+            "refreshToken",
+            "expiresAt",
+            "label");
         if (!values.TryGetValue("accessToken", out var token) || string.IsNullOrWhiteSpace(token))
             throw new ProviderException("KinoWatch (KinoPub) account is incomplete.");
         return token;

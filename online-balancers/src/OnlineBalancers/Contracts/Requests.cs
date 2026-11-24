@@ -80,4 +80,6 @@ public sealed record PlaybackSelection(
 
 public sealed record KinoPubDevicePollRequest(string Code);
 
+public sealed record KinoPubRefreshRequest(string RefreshToken);
+
 public sealed record RezkaLoginRequest(string Host, string Login, string Password);

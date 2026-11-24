@@ -96,6 +96,9 @@ export function createOnlineBalancersClient({
     pollKinoPubDevice(code) {
       return post('/api/v1/accounts/kinopub/device/poll', { code });
     },
+    refreshKinoPubAccount(refreshToken) {
+      return post('/api/v1/accounts/kinopub/refresh', { refreshToken });
+    },
     // Filmix has no activation-status endpoint: start returns a code pair, and the
     // account is stored when the user confirms activation (poll).
     startFilmixDevice() {

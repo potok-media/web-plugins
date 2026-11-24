@@ -5,9 +5,16 @@ export function audioCandidate(stream, episode, audio, index) {
   const voice = variantVoice(stream, audio?.name || episode?.voice);
   const quality = audio?.quality || episode?.quality || stream.quality;
   const provider = audio?.provider || episode?.provider || stream.provider;
+  const streamProviderId = audio?.providerId || episode?.providerId || providerId(stream);
+  const sourceTitle = String(stream.sourceTitle || '').trim();
+  const rutubeName = [provider || 'RUTUBE', sourceTitle]
+    .filter((part, partIndex, parts) => part && parts.indexOf(part) === partIndex)
+    .join(' · ');
   return {
     id: `${stream.id}:${episode?.season ?? 'movie'}:${episode?.episode ?? 0}:${audio?.id || `default-${index}`}`,
-    name: [voice, quality, provider].filter(Boolean).join(' · '),
+    name: streamProviderId === 'rutubemovie'
+      ? rutubeName
+      : [voice, quality, provider].filter(Boolean).join(' · '),
     // Never fall back to stream.url here: it is the plugin-internal
     // `online-balancers://` handle, not a playable link. Unresolved URLs stay
     // empty — the play path resolves the selected episode on demand.
@@ -16,7 +23,7 @@ export function audioCandidate(stream, episode, audio, index) {
     voice,
     quality,
     provider,
-    providerId: audio?.providerId || episode?.providerId || providerId(stream),
+    providerId: streamProviderId,
     sourceId: audio?.sourceId || episode?.sourceId || sourceId(stream),
     query: audio?.query || episode?.query || stream.query,
   };

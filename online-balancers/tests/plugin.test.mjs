@@ -189,7 +189,8 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.match(injectedCss[0].css, /flex-wrap: nowrap !important/);
   assert.match(injectedCss[0].css, /overflow-x: auto/);
   assert.doesNotMatch(injectedCss[0].css, /flex: 1 1 12rem/);
-  assert.doesNotMatch(injectedCss[0].css, /online-search/);
+  assert.match(injectedCss[0].css, /online-search-toolbar/);
+  assert.match(injectedCss[0].css, /online-source-details/);
   assert.equal(translations.ru['potok-online-balancers'].action.watch, 'Онлайн');
   const provider = registrations[0];
   assert.equal(provider.id, 'potok-online-balancers');
@@ -274,7 +275,10 @@ test('plugin registers the online-balancers source and delegates the complete fl
   // ready render (the one carrying the filters row) instead of a single tick.
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const latest = rendered.at(-1)?.layout;
-    const latestFiltersRow = latest?.childrenList?.[0]?.childrenList?.[0]?.childrenList?.[1];
+    const latestToolbar = latest?.childrenList?.[0]?.childrenList?.[0]?.childrenList
+      ?.find(item => item.styleValue === 'online-search-toolbar');
+    const latestFiltersRow = latestToolbar?.childrenList
+      ?.find(item => item.styleValue === 'online-filters-row');
     if (latestFiltersRow?.styleValue === 'online-filters-row') break;
     await new Promise(resolve => setImmediate(resolve));
   }
@@ -286,7 +290,18 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(header.childrenList[0].childrenList[1].text, 'Online');
   assert.equal(header.childrenList[1].styleValue, 'online-query-pill');
   assert.equal(header.childrenList[1].childrenList[1].text, 'Anime');
-  const filtersRow = readyContent.childrenList[1];
+  const searchToolbar = readyContent.childrenList.find(item => item.styleValue === 'online-search-toolbar');
+  assert.ok(searchToolbar, 'ready results keep the compact search toolbar');
+  const statusSummary = searchToolbar.childrenList
+    .find(item => item.styleValue?.startsWith('online-search-summary'));
+  assert.ok(statusSummary, 'the toolbar carries a compact provider summary');
+  assert.ok(
+    statusSummary.childrenList.some(item => item.type === 'Icon'
+      && item.text === 'circle-check'
+      && item.styleValue === 'online-search-complete-icon'),
+    'completed search uses the shared Lucide success icon',
+  );
+  const filtersRow = searchToolbar.childrenList.find(item => item.styleValue === 'online-filters-row');
   assert.equal(filtersRow.styleValue, 'online-filters-row');
   const filters = filtersRow.childrenList[0];
   assert.equal(filters.styleValue, 'online-filter-row');
@@ -303,7 +318,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
     'Rezka · Подключить аккаунт',
   ]);
   assert.deepEqual(selects[1].optionsValue.map(item => item.label), ['Все', '1080p', '720p']);
-  assert.deepEqual(selects[2].optionsValue.map(item => item.label), ['Все', 'AniDUB', 'AniLiberty', 'SHIZA']);
+  assert.deepEqual(selects[2].optionsValue.map(item => item.label), ['Все', 'AniDUB', 'SHIZA']);
   assert.equal(header.childrenList[2].text, "Аккаунты");
   header.childrenList[2].click();
   const accountRoot = rendered.at(-1).layout;
@@ -344,7 +359,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(panel.episodes[0].audios.length, 3);
   assert.deepEqual(
     panel.episodes[0].audios.map(audio => audio.voice).sort(),
-    ['AniDUB', 'AniLiberty', 'SHIZA'],
+    ['', 'AniDUB', 'SHIZA'],
   );
 
   panel.onReorder([...panel.episodes].reverse());
@@ -368,15 +383,15 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(rendered.at(-1).layout.type, 'Page');
   assert.equal(rendered.at(-1).layout.childrenList[0].childrenList[0].childrenList[0].styleValue, 'online-header');
   // One upstream resolution, but the descriptor carries every voice variant of the episode.
-  // The FULL "Voice · Quality · Provider" label is the canonical name (the balancer identity in
-  // it is information, not noise); the plain voice label and each candidate's OWN provider
+  // The FULL available metadata label is the canonical name (the balancer identity in it is
+  // information, not a fake voice); the real voice label and each candidate's OWN provider
   // identity (the merged list spans AniLiberty + two Kodik sources) ride along — urls are the
   // candidates' own links, never fabricated `?audio=N` variants of one stream.
   const mergedQuery = { imdbId: null, kinopoiskId: null, originalTitle: null, title: 'Anime', tmdbId: null, type: null, year: null };
   assert.deepEqual(played[0].playlist[played[0].playlistIndex].audios, [
     {
-      name: 'AniLiberty · 1080p · AniLiberty', label: 'AniLiberty · 1080p · AniLiberty',
-      voice: 'AniLiberty', providerId: 'aniliberty', sourceId: '42', query: mergedQuery,
+      name: '1080p · AniLiberty', label: '1080p · AniLiberty',
+      voice: null, providerId: 'aniliberty', sourceId: '42', query: mergedQuery,
       url: 'https://api.test/playback?sourceId=42&ep=1',
     },
     {
@@ -391,11 +406,9 @@ test('plugin registers the online-balancers source and delegates the complete fl
     },
   ]);
   const groupedPlaybackCalls = calls.filter(call => new URL(call.url).pathname === '/api/v1/playback');
-  assert.deepEqual(groupedPlaybackCalls.map(call => call.body.sourceId), ['42', '42', '43', '44']);
-  // Voice-keyed cache + complete payload: the warm-up resolution cached a stream with NO
-  // declared dub, so the panel play that explicitly requests «AniLiberty» cannot reuse it —
-  // one extra upstream call. The remaining candidates (AniDUB, SHIZA at Kodik sources 43/44)
-  // are resolved upfront so the player's audio menu carries ready urls.
-  assert.equal(groupedPlaybackCalls.length, 4);
-  assert.equal(groupedPlaybackCalls[1].body.voice, 'AniLiberty');
+  assert.deepEqual(groupedPlaybackCalls.map(call => call.body.sourceId), ['42', '43', '44']);
+  // The first source has no declared dub, so neither its selected request nor the warm-up request
+  // invents a provider-name voice. Real AniDUB and SHIZA candidates are resolved upfront.
+  assert.equal(groupedPlaybackCalls.length, 3);
+  assert.equal(groupedPlaybackCalls[0].body.voice, null);
 });

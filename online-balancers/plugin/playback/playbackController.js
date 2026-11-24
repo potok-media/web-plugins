@@ -21,7 +21,9 @@ export function selectAudio(episode, audioId) {
   return {
     ...episode,
     selectedAudioId: audio.id,
-    voice: audio.voice || audio.name || episode.voice,
+    // `name` is a display label and may contain quality/provider metadata. Keep the
+    // semantic voice field clean so cache keys and upstream requests never use that label.
+    voice: audio.voice || episode.voice || '',
     url: audio.url || episode.url,
     provider: audio.provider,
     providerId: audio.providerId,
@@ -277,7 +279,9 @@ export function createPlaybackService({
       const candidateTarget = {
         ...selected,
         ...candidate,
-        voice: candidate?.voice || candidate?.name || selected?.voice || stream?.voice || null,
+        // `candidate.name` is presentation-only and may contain quality/provider metadata.
+        // Only a real provider voice may enter cache keys and backend resolution requests.
+        voice: candidate?.voice || selected?.voice || stream?.voice || '',
       };
       try {
         const response = await resolveCandidateStream({
@@ -351,8 +355,8 @@ export function createPlaybackService({
     }]]);
     await Promise.all(candidates.map(async (candidate, index) => {
       if (index === primaryCandidateIndex) return;
-      const voice = candidate?.voice || candidate?.name || null;
-      if (!voice || isLocatorMissing(candidate)) return;
+      const voice = candidate?.voice || null;
+      if (isLocatorMissing(candidate)) return;
       try {
         const response = await resolveCandidateStream({
           provider: candidate?.providerId || providerId(stream),
@@ -448,8 +452,8 @@ export function createPlaybackService({
       // Full candidate set: resolve every voice variant so the player's menu is ready-made.
       const resolvedAudios = [];
       await Promise.all(candidateList.map(async (candidate, index) => {
-        const voice = candidate?.voice || candidate?.name || null;
-        if (!voice || isLocatorMissing(candidate)) return;
+        const voice = candidate?.voice || null;
+        if (isLocatorMissing(candidate)) return;
         try {
           const response = await resolveCandidateStream({
             provider: candidate?.providerId || ep.providerId || primary.providerId,

@@ -18,7 +18,7 @@ export function compareQualities(left, right) {
 }
 
 export function variantVoice(stream, fallback = '') {
-  return fallback || stream?.voice || stream?.provider || '';
+  return fallback || stream?.voice || '';
 }
 
 function resolvedMediaType(item) {

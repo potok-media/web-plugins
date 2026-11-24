@@ -15,6 +15,7 @@ test('search variants are grouped by normalized aliases, type and compatible yea
   assert.equal(groups[0].variants.length, 2);
   assert.deepEqual(groups[0].qualities, ['1080p', '720p']);
   assert.deepEqual(groups[0].providers, ['AniLiberty', 'Kodik']);
+  assert.deepEqual(groups[0].voices, ['Voice'], 'provider names are not treated as voice tracks');
   assert.equal(visibleGroups(groups, { provider: 'kodik', quality: '720p', voice: 'Voice' }).length, 1);
 });
 

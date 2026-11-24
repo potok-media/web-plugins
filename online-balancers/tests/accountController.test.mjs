@@ -67,14 +67,18 @@ test('Rezka password is request-local and only the returned session persists', a
   assert.equal(state.accountDraft.password, '');
 });
 
-test('KinoWatch device flow persists only the access token returned by the backend', async () => {
+test('KinoWatch device flow persists renewable credentials returned by the backend', async () => {
   const { state, controller, vault } = fixture({
     async startKinoPubDevice() {
       return { code: 'opaque-device-code', userCode: 'ABCD', verificationUri: 'https://kino.watch/device' };
     },
     async pollKinoPubDevice(code) {
       assert.equal(code, 'opaque-device-code');
-      return { account: { provider: 'kinopub', values: { accessToken: 'access-token' } } };
+      return { account: { provider: 'kinopub', values: {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        expiresAt: '2000000',
+      } } };
     },
   });
 
@@ -87,7 +91,11 @@ test('KinoWatch device flow persists only the access token returned by the backe
   controller.actions.pollKinoPub();
   await tick();
   await tick();
-  assert.deepEqual(await vault.getAccount('kinopub'), { accessToken: 'access-token' });
+  assert.deepEqual(await vault.getAccount('kinopub'), {
+    accessToken: 'access-token',
+    refreshToken: 'refresh-token',
+    expiresAt: '2000000',
+  });
 });
 
 test('page state receives connection metadata but never persisted account secrets', async () => {

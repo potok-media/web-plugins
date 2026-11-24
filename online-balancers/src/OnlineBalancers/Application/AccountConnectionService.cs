@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using OnlineBalancers.Providers;
@@ -35,10 +36,20 @@ public sealed class AccountConnectionService(IHttpClientFactory clients)
             $"&client_id={KinoPubClientId}&client_secret={KinoPubClientSecret}" +
             $"&code={Uri.EscapeDataString(request.Code)}";
         using var root = await PostEmptyJsonAsync(url, cancellationToken);
-        var token = RequiredString(root.RootElement, "access_token");
-        return new AccountConnectionResponse(new ProviderAccount(
-            "kinopub",
-            new Dictionary<string, string> { ["accessToken"] = token }));
+        return KinoPubAccount(root.RootElement);
+    }
+
+    public async Task<AccountConnectionResponse> RefreshKinoPubAsync(
+        KinoPubRefreshRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken) || request.RefreshToken.Length > 16_384)
+            throw new ProviderException("KinoWatch (KinoPub) refresh token is invalid.");
+        var url = $"{KinoPubHost}/oauth2/token?grant_type=refresh_token" +
+            $"&client_id={KinoPubClientId}&client_secret={KinoPubClientSecret}" +
+            $"&refresh_token={Uri.EscapeDataString(request.RefreshToken)}";
+        using var root = await PostEmptyJsonAsync(url, cancellationToken);
+        return KinoPubAccount(root.RootElement, request.RefreshToken);
     }
 
     // Filmix exposes no activation-status endpoint (the lampac flow shows a user_code and
@@ -158,6 +169,31 @@ public sealed class AccountConnectionService(IHttpClientFactory clients)
             return property.GetString()!;
         throw new ProviderException("Account provider returned an incomplete response.");
     }
+
+    private static AccountConnectionResponse KinoPubAccount(
+        JsonElement element,
+        string? fallbackRefreshToken = null)
+    {
+        var accessToken = RequiredString(element, "access_token");
+        var refreshToken = OptionalString(element, "refresh_token") ?? fallbackRefreshToken;
+        if (string.IsNullOrWhiteSpace(refreshToken))
+            throw new ProviderException("KinoWatch (KinoPub) did not return renewable credentials.");
+        var expiresIn = Math.Max(OptionalInt(element, "expires_in") ?? 3600, 60);
+        var expiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresIn).ToUnixTimeMilliseconds()
+            .ToString(CultureInfo.InvariantCulture);
+        return new AccountConnectionResponse(new ProviderAccount(
+            "kinopub",
+            new Dictionary<string, string>
+            {
+                ["accessToken"] = accessToken,
+                ["refreshToken"] = refreshToken,
+                ["expiresAt"] = expiresAt,
+            }));
+    }
+
+    private static string? OptionalString(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String &&
+        !string.IsNullOrWhiteSpace(property.GetString()) ? property.GetString() : null;
 
     private static int? OptionalInt(JsonElement element, string name) =>
         element.TryGetProperty(name, out var property) && property.TryGetInt32(out var value) ? value : null;

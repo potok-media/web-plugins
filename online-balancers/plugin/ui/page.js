@@ -4,15 +4,68 @@ import { loadingGrid, resultList } from './results.js';
 import { accountsButton, accountsModal } from './accounts.js';
 import {
   Alert,
+  Dropdown,
   EmptyState,
   HStack,
   Icon,
   InlinePlayer,
   Page,
+  ProgressBar,
   Text,
   VStack,
   t,
 } from './sdk.js';
+
+function providerStatusSummary({ state, groups, registry }) {
+  const providers = registry.all.map(source => ({
+    ...source,
+    state: state.providerStatus[source.id] || { status: 'loading' },
+    count: state.items.filter(item => item.providerId === source.id).length,
+  }));
+  const done = providers.filter(source => source.state.status !== 'loading').length;
+  const complete = state.status === 'ready';
+  const progress = providers.length ? done / providers.length : 0;
+  const locked = providers.filter(source => source.state.status === 'locked').length;
+  const errors = providers.filter(source => source.state.status === 'error').length;
+  const detailItems = providers.map(source => {
+    const status = source.state.status;
+    const value = status === 'loading' ? '…'
+      : status === 'error' ? t('search.errorShort')
+        : status === 'locked' ? t('search.locked')
+          : String(source.count);
+    return { id: source.id, label: `${source.name} · ${value}` };
+  });
+  const children = [
+    complete
+      ? Icon('circle-check').style('online-search-complete-icon')
+      : Text('').style('online-search-spinner'),
+    Text(complete
+      ? t('search.completeSummary', { total: providers.length, count: groups.length })
+      : t('search.checkingSummary', { done, total: providers.length }))
+      .style('online-search-summary-text'),
+  ];
+  if (!complete) {
+    children.push(ProgressBar()
+      .value(progress)
+      .variant('accent')
+      .style('online-search-progress'));
+  }
+  if (locked > 0) {
+    children.push(Text(t('search.lockedSummary', { count: locked })).style('online-search-stat'));
+  }
+  if (errors > 0) {
+    children.push(Text(t('search.errorsSummary', { count: errors })).style('online-search-stat online-search-stat-error'));
+  }
+  children.push(Dropdown()
+    .label(t('search.details'))
+    .items(detailItems)
+    .style('online-source-details'));
+
+  return HStack()
+    .spacing(10)
+    .style(`online-search-summary${complete ? ' online-search-summary-complete' : ''}`)
+    .children(children);
+}
 
 function pageContent({ state, actions, registry }) {
   const groups = groupSources(state.items);
@@ -51,14 +104,19 @@ function pageContent({ state, actions, registry }) {
       .onAction(actions.retrySearch));
     return VStack().spacing(16).children(children);
   }
-  if (state.status === 'ready') {
-    children.push(HStack()
+  const toolbarChildren = [providerStatusSummary({ state, groups, registry })];
+  if (state.status === 'ready' || groups.length > 0) {
+    toolbarChildren.push(HStack()
       .spacing(12)
       .style('online-filters-row')
       .children([buildFilters({ groups, state, actions, registry })]));
   }
-  // Loading without any arrived batch yet: card-shaped skeletons. As soon as the first
-  // providers respond, the real cards render and the remaining chips shimmer in place.
+  children.push(HStack()
+    .spacing(16)
+    .style('online-search-toolbar')
+    .children(toolbarChildren));
+  // Loading without any arrived batch yet: card-shaped skeletons. Provider progress remains
+  // visible above the grid throughout the whole request.
   if (state.status === 'loading' && state.items.length === 0) {
     children.push(loadingGrid());
     return VStack().spacing(16).children(children);

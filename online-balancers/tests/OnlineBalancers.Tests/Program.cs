@@ -28,8 +28,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("RUTUBE finds full-length movies and resolves play options", RutubeMovieContract),
     ("RUTUBE accepts film queries without a release year", RutubeRelaxedMovieContract),
     ("RUTUBE falls back to the original movie title", RutubeOriginalTitleFallbackContract),
+    ("RUTUBE rejects a movie mentioned inside a podcast roundup", RutubeRejectsIncidentalMentionContract),
     ("AniDUB rotates dead CDN nodes and force-proxies sibnet streams", AniDubContract),
     ("KinoWatch device flow exposes the current activation domain", KinoWatchDeviceFlowContract),
+    ("KinoWatch persists renewable credentials and rotates them", KinoWatchTokenLifecycleContract),
+    ("KinoWatch reports expired authorization instead of an empty search", KinoWatchExpiredTokenContract),
     ("Alloha keeps account tokens request-scoped across search and playback", AllohaContract),
     ("Rezka uses the local account session for episodes and playback headers", RezkaContract),
     ("Provider search isolates failures and honors the requested source set", ProviderSearchContract),
@@ -349,6 +352,63 @@ static async Task KinoWatchDeviceFlowContract()
 
     Equal("https://kino.watch/device", response.VerificationUri);
     Equal("api.srvkp.com", requestedHost);
+}
+
+static async Task KinoWatchTokenLifecycleContract()
+{
+    var requests = new List<Uri>();
+    var http = FakeHttp.Create(request =>
+    {
+        requests.Add(request.RequestUri!);
+        return request.RequestUri!.AbsolutePath switch
+        {
+            "/oauth2/device" => """
+                {"access_token":"first-access","refresh_token":"first-refresh","expires_in":3600}
+                """,
+            "/oauth2/token" => """
+                {"access_token":"second-access","refresh_token":"second-refresh","expires_in":7200}
+                """,
+            _ => throw new InvalidOperationException(request.RequestUri.ToString()),
+        };
+    });
+    var service = new AccountConnectionService(new StubHttpClientFactory(http));
+
+    var connected = await service.PollKinoPubAsync(new KinoPubDevicePollRequest("device-code"), default);
+    var refreshed = await service.RefreshKinoPubAsync(new KinoPubRefreshRequest("first-refresh"), default);
+
+    Equal("first-access", connected.Account.Values["accessToken"]);
+    Equal("first-refresh", connected.Account.Values["refreshToken"]);
+    Equal(true, long.TryParse(connected.Account.Values["expiresAt"], out _));
+    Equal("second-access", refreshed.Account.Values["accessToken"]);
+    Equal("second-refresh", refreshed.Account.Values["refreshToken"]);
+    Equal(true, requests[1].Query.Contains("grant_type=refresh_token", StringComparison.Ordinal));
+    Equal(true, requests[1].Query.Contains("refresh_token=first-refresh", StringComparison.Ordinal));
+}
+
+static async Task KinoWatchExpiredTokenContract()
+{
+    var http = FakeHttp.CreateResponse(request => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+    {
+        Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+        RequestMessage = request,
+    });
+    var provider = new KinoPubProvider(http);
+    var context = ProviderRequestContext.For(provider, new ProviderAccount(
+        "kinopub",
+        new Dictionary<string, string> { ["accessToken"] = "expired-access" }));
+
+    try
+    {
+        await provider.SearchAsync(
+            new MediaQuery("movie", "Хитрый Койот", "Coyote vs Acme", "tt1756855", null, 1204680, null),
+            context,
+            default);
+        throw new InvalidOperationException("Expired KinoWatch authorization was silently accepted.");
+    }
+    catch (ProviderException exception)
+    {
+        Equal(true, exception.Message.Contains("Reconnect", StringComparison.Ordinal));
+    }
 }
 
 static async Task AllohaContract()
@@ -803,6 +863,7 @@ static async Task RutubeMovieContract()
     Equal("Интерстеллар | Interstellar (2014, 4K)", source.Title);
     Equal(2014, source.Year);
     Equal("movie", source.MediaType);
+    Equal("", source.Quality);
 
     var playback = await provider.ResolveAsync(
         new PlaybackSelection(source.SourceId, query, 1, 1, null, null),
@@ -842,6 +903,28 @@ static async Task RutubeOriginalTitleFallbackContract()
     var source = Single(await provider.SearchAsync(query, default));
     Equal("55555555555555555555555555555555", source.SourceId);
     Equal("Interstellar", source.Title);
+}
+
+static async Task RutubeRejectsIncidentalMentionContract()
+{
+    var http = FakeHttp.Create(_ => """
+        {"results":[
+          {"id":"5b37e5e9207b94d3b94d5d6b0e0125f8","title":"Миньоны, Супергёрл, Фонари, Человек-Паук: Новый день, Хитрый Койот | Подкаст Me and the Boys #0.5","duration":10569}
+        ]}
+        """);
+    var provider = new RutubeMovieProvider(http);
+    var query = new MediaQuery(
+        "movie",
+        "Хитрый Койот",
+        "Coyote vs Acme",
+        "tt1756855",
+        null,
+        1204680,
+        null);
+
+    var sources = await provider.SearchAsync(query, default);
+
+    Equal(0, sources.Count);
 }
 
 static async Task AniDubContract()
@@ -1325,6 +1408,9 @@ file static class FakeHttp
         Timeout = TimeSpan.FromSeconds(2),
     };
 
+    public static HttpClient CreateResponse(Func<HttpRequestMessage, HttpResponseMessage> responder) =>
+        new(new ResponseHandler(responder)) { Timeout = TimeSpan.FromSeconds(2) };
+
     private sealed class Handler(Func<HttpRequestMessage, string> responder) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -1336,6 +1422,13 @@ file static class FakeHttp
             };
             return Task.FromResult(response);
         }
+    }
+
+    private sealed class ResponseHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) => Task.FromResult(responder(request));
     }
 }
 

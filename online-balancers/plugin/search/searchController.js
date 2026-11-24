@@ -33,14 +33,17 @@ export function isPlayableUrl(url) {
 }
 
 export function mapSource(item, query) {
+  const rawQuality = String(item.quality || '').trim();
+  const quality = rawQuality.toLocaleLowerCase() === 'auto' ? '' : rawQuality;
+  const isRutubeMovie = item.provider === 'rutubemovie';
   return {
     id: `${item.provider}:${item.sourceId}`,
-    title: item.title,
+    title: isRutubeMovie ? query.title || item.title : item.title,
     sourceTitle: item.title,
     originalTitle: item.originalTitle,
     year: item.year,
     poster: item.poster,
-    quality: item.quality || '720p',
+    quality,
     kind: 'm3u8',
     provider: item.providerName,
     providerId: item.provider,
@@ -102,7 +105,14 @@ export function createSearchService({ client, registry, accountVault = null, arm
         } else {
           return;
         }
-        onProgress({ items: combined.items, errors: { ...combined.errors } });
+        onProgress({
+          items: combined.items,
+          errors: { ...combined.errors },
+          providerId: chunk.provider,
+          providerStatus: chunk.type === 'provider-error'
+            ? 'error'
+            : chunk.items.length ? 'ok' : 'empty',
+        });
       };
 
       const finalResponse = await client.search(

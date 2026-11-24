@@ -14,6 +14,7 @@ test('search service streams provider chunks in order and keeps the final contra
       // Simulate the backend NDJSON stream — chunks in completion order.
       onEvent?.({ type: 'provider', provider: 'kodik', items: [{ provider: 'kodik', providerName: 'Kodik', sourceId: '1', title: 'A', quality: '720p' }] });
       onEvent?.({ type: 'provider', provider: 'alloha', items: [{ provider: 'alloha', providerName: 'Alloha', sourceId: '2', title: 'A', quality: '1080p' }] });
+      onEvent?.({ type: 'provider', provider: 'animego', items: [] });
       onEvent?.({ type: 'provider-error', provider: 'anidub', error: 'Search timed out after 8 s.' });
       return {
         items: [
@@ -28,6 +29,7 @@ test('search service streams provider chunks in order and keeps the final contra
     free: [
       { id: 'kodik', access: 'free', slow: false },
       { id: 'anidub', access: 'free', slow: true },
+      { id: 'animego', access: 'free', slow: true },
     ],
     accounts: [{ id: 'alloha', access: 'account' }, { id: 'rezka', access: 'account' }],
   };
@@ -38,12 +40,14 @@ test('search service streams provider chunks in order and keeps the final contra
   const result = await service.search({ title: 'A' }, event => progress.push({
     providers: event.items.map(item => item.providerId),
     errors: { ...event.errors },
+    providerId: event.providerId,
+    providerStatus: event.providerStatus,
   }));
 
   // One request: every free provider plus the connected account providers, with the
   // per-provider account envelopes.
   assert.equal(batches.length, 1);
-  assert.deepEqual(batches[0].providers, ['kodik', 'anidub', 'alloha']);
+  assert.deepEqual(batches[0].providers, ['kodik', 'anidub', 'animego', 'alloha']);
   assert.deepEqual(Object.keys(batches[0].accounts), ['alloha']);
   assert.equal(batches[0].accounts.alloha.provider, 'alloha');
 
@@ -52,14 +56,36 @@ test('search service streams provider chunks in order and keeps the final contra
     ['kodik'],
     ['kodik', 'alloha'],
     ['kodik', 'alloha'],
+    ['kodik', 'alloha'],
   ]);
-  assert.deepEqual(progress[2].errors, { anidub: 'Search timed out after 8 s.' });
+  assert.deepEqual(progress.map(event => [event.providerId, event.providerStatus]), [
+    ['kodik', 'ok'],
+    ['alloha', 'ok'],
+    ['animego', 'empty'],
+    ['anidub', 'error'],
+  ]);
+  assert.deepEqual(progress[3].errors, { anidub: 'Search timed out after 8 s.' });
 
   // Without an ARM the cast keeps everything unresolved; the error rides the final
   // response; locked (account-less) providers never enter the request set.
   assert.deepEqual(result.items, []);
   assert.deepEqual(result.unresolvedItems.map(item => item.providerId).sort(), ['alloha', 'kodik']);
   assert.deepEqual(result.errors, { anidub: 'Search timed out after 8 s.' });
+});
+
+test('mapSource preserves a RUTUBE upload title without inventing a quality', async () => {
+  const { mapSource } = await import('../plugin/search/searchController.js');
+  const stream = mapSource({
+    provider: 'rutubemovie',
+    providerName: 'RUTUBE',
+    sourceId: 'movie-1',
+    title: 'Одиссея | The Odyssey (2026, 4K)',
+    quality: 'Auto',
+  }, { title: 'Одиссея', type: 'movie' });
+
+  assert.equal(stream.title, 'Одиссея');
+  assert.equal(stream.sourceTitle, 'Одиссея | The Odyssey (2026, 4K)');
+  assert.equal(stream.quality, '');
 });
 
 test('searchProvider retries a single provider through the account vault', async () => {

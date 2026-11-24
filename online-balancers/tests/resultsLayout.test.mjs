@@ -30,10 +30,12 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
     rounded() { return this; },
     fit() { return this; },
     placement() { return this; },
+    moreLabel(v) { this.moreLabelValue = v; return this; },
+    panelLabel(v) { this.panelLabelValue = v; return this; },
     size() { return this; },
     active() { return this; },
     open(v) { this.openValue = v; return this; },
-    items() { return this; },
+    items(v) { this.itemsValue = v; return this; },
     options(v) { this.optionsValue = v; return this; },
     value() { return this; },
     child(child) { this.childrenList.push(child); return this; },
@@ -171,10 +173,30 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
   const findCard = grid => (grid?.childrenList || [])
     .find(child => String(child.styleValue ?? '').startsWith('online-grid-card'));
 
-  controller.applyRoute({ query: { q: 'Тайтл' } });
+  controller.applyRoute({
+    query: { q: 'Тайтл' },
+  });
 
   // Mid-flight: the skeleton poster grid renders while the first chunk is on its way.
   await waitFor(() => resultsGrid()?.childrenList?.length > 0);
+  assert.ok(
+    findDeep(latest(), node => node.styleValue === 'online-search-toolbar'),
+    'compact search toolbar remains visible while providers are loading',
+  );
+  const providerDetails = findDeep(
+    latest(),
+    node => node.type === 'Dropdown' && node.styleValue === 'online-source-details',
+  );
+  assert.ok(
+    providerDetails,
+    'all provider statuses are available from the details menu',
+  );
+  assert.equal(providerDetails.itemsValue.length, registry.all.length);
+  assert.equal(
+    findDeep(latest(), node => node.styleValue === 'online-source-activity'),
+    null,
+    'the expanded provider strip is not rendered',
+  );
   assert.ok(
     findDeep(resultsGrid(), node => node.type === 'Skeleton'),
     'skeleton poster cards render during loading',
@@ -182,6 +204,11 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
 
   // After the chunks land the real card replaces the skeletons: title, meta, adult badge.
   await waitFor(() => findCard(resultsGrid()));
+  assert.equal(state.status, 'loading', 'the first card arrives before the full search completes');
+  assert.ok(
+    findDeep(latest(), node => node.styleValue === 'online-filters-row'),
+    'filters are available as soon as partial cards arrive',
+  );
   // Let the streamed chunks settle (mock deliveries have small delays).
   await new Promise(resolve => setTimeout(resolve, 500));
   const card = findCard(resultsGrid());
@@ -193,6 +220,15 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
   assert.ok(
     findDeep(card, node => node.styleValue === 'online-badge-adult'),
     'the adult provider is marked on the card',
+  );
+  assert.ok(
+    findDeep(card, node => node.styleValue === 'online-grid-providers'),
+    'merged providers render on their own stable line',
+  );
+  assert.ok(
+    findDeep(card, node => node.styleValue === 'online-grid-provider-badge'
+      && String(node.text ?? '') !== 'Kodik'),
+    'a merged card does not inherit the first arriving provider badge',
   );
 
   // The full-card hit button opens the source. A single playable item autoplays and does not hand a

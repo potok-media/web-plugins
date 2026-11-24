@@ -162,6 +162,11 @@ export function createAppController({
   }
 
   function applyProgress(progress) {
+    if (progress.providerId && progress.providerStatus) {
+      state.providerStatus[progress.providerId] = progress.providerStatus === 'error'
+        ? { status: 'error', error: progress.errors?.[progress.providerId] || 'error' }
+        : { status: progress.providerStatus };
+    }
     for (const item of progress.items) {
       if (state.providerStatus[item.providerId]?.status === 'loading') {
         state.providerStatus[item.providerId] = { status: 'ok' };

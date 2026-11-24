@@ -86,6 +86,7 @@ test('API client exposes request-local account connection operations', async () 
 
   await client.startKinoPubDevice();
   await client.pollKinoPubDevice('device-code');
+  await client.refreshKinoPubAccount('refresh-token');
   await client.startFilmixDevice();
   await client.pollFilmixDevice('filmix-code');
   await client.loginRezka({ host: 'https://rezka.ag', login: 'user', password: 'secret' });
@@ -93,6 +94,7 @@ test('API client exposes request-local account connection operations', async () 
   assert.deepEqual(calls, [
     { path: '/api/v1/accounts/kinopub/device/start', body: {} },
     { path: '/api/v1/accounts/kinopub/device/poll', body: { code: 'device-code' } },
+    { path: '/api/v1/accounts/kinopub/refresh', body: { refreshToken: 'refresh-token' } },
     { path: '/api/v1/accounts/filmix/device/start', body: {} },
     { path: '/api/v1/accounts/filmix/device/poll', body: { code: 'filmix-code' } },
     {

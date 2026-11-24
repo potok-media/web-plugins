@@ -32,6 +32,26 @@ test('movie groups become a single playable pseudo-episode', () => {
   assert.equal(episode.audios.length, 1);
 });
 
+test('RUTUBE movie tracks keep the meaningful upload title and drop fake Auto metadata', () => {
+  const episode = movieEpisode({
+    id: 'group:rutube-movie',
+    title: 'Одиссея',
+    variants: [{
+      id: 'rutubemovie:1',
+      providerId: 'rutubemovie',
+      provider: 'RUTUBE',
+      sourceId: '1',
+      title: 'Одиссея',
+      sourceTitle: 'Одиссея | The Odyssey (2026, 4K)',
+      quality: '',
+    }],
+  });
+
+  assert.equal(episode.audios[0].name, 'RUTUBE · Одиссея | The Odyssey (2026, 4K)');
+  assert.equal(episode.audios[0].quality, '');
+  assert.equal(episode.audios[0].voice, '');
+});
+
 test('ARM canonicalizes anime episodes while provider locators keep their raw coordinates', async () => {
   const rawEpisodes = season => Array.from({ length: 24 }, (_, index) => ({
     id: `raw-${season}-${index + 1}`,
