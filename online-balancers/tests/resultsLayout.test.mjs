@@ -14,7 +14,7 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
     type,
     text: value,
     childrenList: [],
-    variant() { return this; },
+    variant(v) { this.variantValue = v; return this; },
     icon(v) { this.iconValue = v; return this; },
     style(v) { this.styleValue = this.styleValue ? `${this.styleValue} ${v}` : v; return this; },
     label(v) { this.labelValue = v; return this; },
@@ -28,6 +28,8 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
     height() { return this; },
     minWidth() { return this; },
     rounded() { return this; },
+    aspectRatio(v) { this.aspectRatioValue = v; return this; },
+    lines(v) { this.linesValue = v; return this; },
     fit() { return this; },
     placement() { return this; },
     moreLabel(v) { this.moreLabelValue = v; return this; },
@@ -171,7 +173,8 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
     return pageContent?.childrenList?.find(item => item.styleValue?.startsWith('online-results-grid')) ?? null;
   };
   const findCard = grid => (grid?.childrenList || [])
-    .find(child => String(child.styleValue ?? '').startsWith('online-grid-card'));
+    .find(child => String(child.styleValue ?? '').startsWith('online-grid-card')
+      && !String(child.styleValue ?? '').includes('online-grid-card-skeleton'));
 
   controller.applyRoute({
     query: { q: 'Тайтл' },
@@ -201,10 +204,40 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
     findDeep(resultsGrid(), node => node.type === 'Skeleton'),
     'skeleton poster cards render during loading',
   );
+  assert.equal(resultsGrid().childrenList.length, 6, 'the initial grid reserves six card slots');
+  assert.ok(
+    resultsGrid().childrenList.every(node => node.styleValue === 'online-grid-card online-grid-card-skeleton'),
+    'every loading slot mirrors the real result-card structure',
+  );
+  assert.ok(
+    resultsGrid().childrenList.every(node => findDeep(
+      node,
+      child => child.type === 'Skeleton'
+        && child.variantValue === 'media'
+        && child.aspectRatioValue === '2 / 3',
+    )),
+    'every loading card reserves the poster aspect ratio with a media skeleton',
+  );
+  assert.ok(
+    resultsGrid().childrenList.every(node => findDeep(
+      node,
+      child => child.type === 'Skeleton' && child.variantValue === 'text',
+    )),
+    'every loading card includes text skeletons for metadata',
+  );
 
   // After the chunks land the real card replaces the skeletons: title, meta, adult badge.
   await waitFor(() => findCard(resultsGrid()));
   assert.equal(state.status, 'loading', 'the first card arrives before the full search completes');
+  assert.equal(
+    resultsGrid().childrenList.length,
+    6,
+    'arrived cards replace reserved slots without collapsing the loading grid',
+  );
+  assert.ok(
+    findDeep(resultsGrid(), node => String(node.styleValue ?? '').includes('online-grid-card-skeleton')),
+    'unresolved result slots stay skeletons while providers are still pending',
+  );
   assert.ok(
     findDeep(latest(), node => node.styleValue === 'online-filters-row'),
     'filters are available as soon as partial cards arrive',

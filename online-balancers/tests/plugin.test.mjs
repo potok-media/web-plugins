@@ -56,6 +56,8 @@ test('plugin registers the online-balancers source and delegates the complete fl
       seasonsLoading() { return this; },
       active() { return this; },
       rounded() { return this; },
+      aspectRatio() { return this; },
+      lines() { return this; },
       fit() { return this; },
       placement() { return this; },
       count() { return this; },
@@ -160,6 +162,21 @@ test('plugin registers the online-balancers source and delegates the complete fl
             seasonsCount: 1,
           };
         })()
+        : path.endsWith('/playback/batch')
+          ? (() => {
+            const body = JSON.parse(options.body);
+            return {
+              items: body.items.map(item => ({
+                id: item.id,
+                playback: {
+                  streamUrl: `https://api.test/stream/${item.sourceId}.m3u8`,
+                  streamType: 'm3u8',
+                  voice: { 42: 'AniLiberty', 43: 'AniDUB', 44: 'SHIZA' }[item.sourceId] || 'Основной',
+                  session: `session-${item.sourceId}`,
+                },
+              })),
+            };
+          })()
         : (() => {
           const body = JSON.parse(options.body);
           // Extract sourceId from session for refresh requests
@@ -245,8 +262,8 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.equal(playback.providerId, 'potok-online-balancers');
   // Streaming search: ONE request carrying every free provider.
   assert.equal(calls[0].body.providers.length, 11);
-  assert.equal(calls[2].body.season, 1);
-  assert.equal(calls[2].body.episode, 1);
+  assert.equal(calls[2].body.items[0].season, 1);
+  assert.equal(calls[2].body.items[0].episode, 1);
 
   const directPlayback = await provider.getPlaybackInfo({ stream: streams[0], episode: undefined, context: { type: 'movie', title: 'Anime' } });
   assert.equal(directPlayback.playlist[directPlayback.playlistIndex].episode, 1);
@@ -260,7 +277,7 @@ test('plugin registers the online-balancers source and delegates the complete fl
   assert.deepEqual(calls.map(call => new URL(call.url).pathname), [
     '/api/v1/search',
     '/api/v1/episodes',
-    '/api/v1/playback',
+      '/api/v1/playback/batch',
     '/api/v1/episodes',
     '/api/v1/refresh',
   ]);
@@ -405,10 +422,14 @@ test('plugin registers the online-balancers source and delegates the complete fl
       url: 'https://api.test/playback?sourceId=44&ep=1',
     },
   ]);
-  const groupedPlaybackCalls = calls.filter(call => new URL(call.url).pathname === '/api/v1/playback');
-  assert.deepEqual(groupedPlaybackCalls.map(call => call.body.sourceId), ['42', '43', '44']);
+  const groupedPlaybackCalls = calls.filter(call => new URL(call.url).pathname === '/api/v1/playback/batch');
+  // The test performs two distinct playback actions. Each action owns one browser request;
+  // source 42 is already hot in the plugin session cache, so the second batch only carries
+  // the two unresolved Kodik candidates.
+  assert.equal(groupedPlaybackCalls.length, 2);
+  const mergedPlaybackCall = groupedPlaybackCalls.at(-1);
+  assert.deepEqual(mergedPlaybackCall.body.items.map(item => item.sourceId), ['43', '44']);
   // The first source has no declared dub, so neither its selected request nor the warm-up request
   // invents a provider-name voice. Real AniDUB and SHIZA candidates are resolved upfront.
-  assert.equal(groupedPlaybackCalls.length, 3);
-  assert.equal(groupedPlaybackCalls[0].body.voice, null);
+  assert.equal(groupedPlaybackCalls[0].body.items[0].voice, null);
 });

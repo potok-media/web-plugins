@@ -412,7 +412,27 @@ export function installStyles() {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
       }
-      .online-page .online-poster-skeleton { min-height: 15rem; }
+      .online-page .online-grid-card-skeleton {
+        pointer-events: none;
+      }
+      .online-page .online-grid-poster-skeleton {
+        width: 100%;
+        aspect-ratio: 2 / 3;
+        flex: 0 0 auto;
+      }
+      .online-page .online-grid-poster-skeleton .sdk-skeleton,
+      .online-page .online-grid-title-skeleton .sdk-skeleton,
+      .online-page .online-grid-provider-skeleton .sdk-skeleton,
+      .online-page .online-grid-meta-skeleton .sdk-skeleton {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .online-page .online-grid-title-skeleton,
+      .online-page .online-grid-provider-skeleton,
+      .online-page .online-grid-meta-skeleton {
+        flex: 0 0 auto;
+      }
 
       .online-page .online-progress-pill {
         padding: 0.125rem 0.5rem;

@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -14,6 +15,7 @@ public static class ServiceRegistration
         IConfiguration? configuration = null)
     {
         services.AddMemoryCache();
+        services.AddHybridCache();
         services.AddCors(options => options.AddDefaultPolicy(policy => policy
             .SetIsOriginAllowed(_ => true)
             .AllowAnyMethod()
@@ -74,11 +76,16 @@ public static class ServiceRegistration
         }
 
         services.AddSingleton<ProviderRegistry>();
-        services.AddSingleton<ProviderSearchCoordinator>();
+        services.AddSingleton(serviceProvider => new ProviderSearchCoordinator(
+            serviceProvider.GetRequiredService<ProviderRegistry>(),
+            serviceProvider.GetRequiredService<HybridCache>()));
         services.AddSingleton<EpisodeService>();
         services.AddSingleton<StreamTicketService>();
         services.AddSingleton<StreamRelayService>();
-        services.AddSingleton<PlaybackService>();
+        services.AddSingleton(serviceProvider => new PlaybackService(
+            serviceProvider.GetRequiredService<ProviderRegistry>(),
+            serviceProvider.GetRequiredService<StreamTicketService>(),
+            serviceProvider.GetRequiredService<HybridCache>()));
         services.AddSingleton<AccountConnectionService>();
         return services;
     }

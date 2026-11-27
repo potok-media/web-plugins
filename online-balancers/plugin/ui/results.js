@@ -17,15 +17,43 @@ export function sourceSubtitle(group) {
   return buildSourceSubtitle(group, t);
 }
 
+const INITIAL_LOADING_SLOTS = 6;
+
+function loadingCard() {
+  return VStack()
+    .spacing(8)
+    .alignItems('flex-start')
+    .style('online-grid-card online-grid-card-skeleton')
+    .children([
+      Skeleton()
+        .variant('media')
+        .aspectRatio('2 / 3')
+        .rounded('var(--radius-m)')
+        .style('online-grid-poster-skeleton'),
+      Skeleton()
+        .variant('text')
+        .width('78%')
+        .height('0.875rem')
+        .style('online-grid-title-skeleton'),
+      Skeleton()
+        .variant('text')
+        .width('62%')
+        .height('0.75rem')
+        .style('online-grid-provider-skeleton'),
+      Skeleton()
+        .variant('text')
+        .width('46%')
+        .height('0.75rem')
+        .style('online-grid-meta-skeleton'),
+    ]);
+}
+
 export function loadingGrid() {
   return Grid()
     .minWidth('10.75rem')
     .gap('var(--space-l)')
     .style('online-results-grid')
-    .children([0, 1, 2, 3, 4, 5].map(() => Skeleton()
-      .height('16rem')
-      .rounded('var(--radius-m)')
-      .style('online-poster-skeleton')));
+    .children(Array.from({ length: INITIAL_LOADING_SLOTS }, loadingCard));
 }
 
 // Aggregate a group's variants into card meta: best quality, distinct voice count,
@@ -123,9 +151,17 @@ export function resultList({ groups, state, actions, registry }) {
       .description(t('search.emptyHint'));
   }
 
+  const cards = visibleItems.map(group => gridCard(group, { state, actions, registry }));
+  const pendingSlots = state.status === 'loading'
+    ? Math.max(0, INITIAL_LOADING_SLOTS - cards.length)
+    : 0;
+
   return Grid()
     .minWidth('10.75rem')
     .gap('var(--space-l)')
     .style('online-results-grid')
-    .children(visibleItems.map(group => gridCard(group, { state, actions, registry })));
+    .children([
+      ...cards,
+      ...Array.from({ length: pendingSlots }, loadingCard),
+    ]);
 }

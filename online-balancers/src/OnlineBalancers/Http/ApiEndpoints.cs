@@ -90,6 +90,16 @@ public static class ApiEndpoints
                     PublicUrl.Origin(httpRequest),
                     cancellationToken))));
 
+        endpoints.MapPost("/api/v1/playback/batch", async (
+            PlaybackBatchRequest request,
+            HttpRequest httpRequest,
+            PlaybackService playback,
+            CancellationToken cancellationToken) => await HandleAsync(async () =>
+                Results.Ok(await playback.ResolveBatchAsync(
+                    request,
+                    PublicUrl.Origin(httpRequest),
+                    cancellationToken))));
+
         endpoints.MapPost("/api/v1/accounts/kinopub/device/start", async (
             AccountConnectionService accounts,
             CancellationToken cancellationToken) => await HandleAsync(async () =>

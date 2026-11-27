@@ -68,6 +68,20 @@ public sealed record PlaybackRequest(
     string? Locator,
     ProviderAccount? Account = null);
 
+public sealed record PlaybackBatchItemRequest(
+    string Id,
+    string Provider,
+    string SourceId,
+    MediaQuery Query,
+    int? Season,
+    double? Episode,
+    string? Voice,
+    string? Locator);
+
+public sealed record PlaybackBatchRequest(
+    IReadOnlyList<PlaybackBatchItemRequest> Items,
+    IReadOnlyDictionary<string, ProviderAccount>? Accounts = null);
+
 public sealed record SourceSelectionRequest(string SourceId, MediaQuery Query);
 
 public sealed record PlaybackSelection(

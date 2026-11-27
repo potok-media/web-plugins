@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Http;
 using OnlineBalancers;
@@ -40,6 +41,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Provider search respects its concurrency bound", ProviderSearchConcurrencyContract),
     ("Provider search propagates request cancellation", ProviderSearchCancellationContract),
     ("Episode and playback services return opaque relayed stream URLs", ApplicationServicesContract),
+    ("Playback batches deduplicate, cache and isolate partial failures", PlaybackBatchCacheContract),
+    ("Playback batch fan-out respects its concurrency bound", PlaybackBatchConcurrencyContract),
+    ("Playback cache keeps account credentials isolated", PlaybackAccountCacheIsolationContract),
+    ("Provider search caches each provider result for one hour", ProviderSearchCacheContract),
     ("Stream relay forwards provider headers and rewrites every HLS resource", StreamRelayContract),
     ("Paid provider accounts are scoped and field-allowlisted", ProviderAccountContract),
     ("Service registration discovers all backend providers", ProviderDiscoveryContract),
@@ -1144,6 +1149,128 @@ static async Task ApplicationServicesContract()
     Equal("Dub", playback.Voice);
 }
 
+static async Task PlaybackBatchCacheContract()
+{
+    using var services = CacheServices();
+    using var streamCache = new MemoryCache(new MemoryCacheOptions());
+    var good = new BatchPlaybackProvider("good");
+    var broken = new BatchPlaybackProvider("broken", shouldFail: true);
+    var service = new PlaybackService(
+        new ProviderRegistry([good, broken]),
+        new StreamTicketService(streamCache),
+        services.GetRequiredService<HybridCache>());
+    var query = new MediaQuery("tv", "Anime", null, null, 2024, 42, null);
+    var sameSelection = new PlaybackBatchItemRequest(
+        "good-1", good.Id, "source", query, 1, 1, "Dub", "locator");
+
+    var first = await service.ResolveBatchAsync(
+        new PlaybackBatchRequest([
+            sameSelection,
+            sameSelection with { Id = "good-2" },
+            new PlaybackBatchItemRequest("broken", broken.Id, "source", query, 1, 1, null, null),
+        ]),
+        "https://plugin.test",
+        CancellationToken.None);
+
+    Equal(1, good.ResolveCalls);
+    Equal(1, broken.ResolveCalls);
+    Equal(2, first.Items.Count(item => item.Playback is not null));
+    Equal(true, first.Items.Single(item => item.Id == "broken").Error!.Contains("failed", StringComparison.Ordinal));
+
+    var second = await service.ResolveBatchAsync(
+        new PlaybackBatchRequest([sameSelection with { Id = "good-3" }]),
+        "https://plugin.test",
+        CancellationToken.None);
+    Equal(1, good.ResolveCalls);
+    Equal(true, Single(second.Items).Playback!.StreamUrl.StartsWith("https://plugin.test/stream/", StringComparison.Ordinal));
+    Equal(TimeSpan.FromMinutes(30), PlaybackService.CacheLifetime);
+}
+
+static async Task PlaybackAccountCacheIsolationContract()
+{
+    using var services = CacheServices();
+    using var streamCache = new MemoryCache(new MemoryCacheOptions());
+    var provider = new AccountPlaybackProvider();
+    var service = new PlaybackService(
+        new ProviderRegistry([provider]),
+        new StreamTicketService(streamCache),
+        services.GetRequiredService<HybridCache>());
+    var query = new MediaQuery("movie", "Movie", null, null, 2026, 10, null);
+    var item = new PlaybackBatchItemRequest("item", provider.Id, "source", query, null, null, null, null);
+
+    static ProviderAccount Account(string token) => new(
+        "account-playback",
+        new Dictionary<string, string> { ["token"] = token });
+
+    await service.ResolveBatchAsync(
+        new PlaybackBatchRequest([item], new Dictionary<string, ProviderAccount> { [provider.Id] = Account("one") }),
+        "https://plugin.test",
+        CancellationToken.None);
+    await service.ResolveBatchAsync(
+        new PlaybackBatchRequest([item], new Dictionary<string, ProviderAccount> { [provider.Id] = Account("one") }),
+        "https://plugin.test",
+        CancellationToken.None);
+    await service.ResolveBatchAsync(
+        new PlaybackBatchRequest([item], new Dictionary<string, ProviderAccount> { [provider.Id] = Account("two") }),
+        "https://plugin.test",
+        CancellationToken.None);
+
+    Equal(2, provider.ResolveCalls);
+}
+
+static async Task PlaybackBatchConcurrencyContract()
+{
+    using var services = CacheServices();
+    using var streamCache = new MemoryCache(new MemoryCacheOptions());
+    var tracker = new SearchConcurrencyTracker();
+    var provider = new ConcurrentPlaybackProvider(tracker);
+    var service = new PlaybackService(
+        new ProviderRegistry([provider]),
+        new StreamTicketService(streamCache),
+        services.GetRequiredService<HybridCache>(),
+        maxConcurrency: 2);
+    var query = new MediaQuery("tv", "Anime", null, null, 2024, 42, null);
+    var items = Enumerable.Range(1, 6)
+        .Select(index => new PlaybackBatchItemRequest(
+            $"item-{index}", provider.Id, $"source-{index}", query, 1, index, null, null))
+        .ToArray();
+
+    var response = await service.ResolveBatchAsync(
+        new PlaybackBatchRequest(items),
+        "https://plugin.test",
+        CancellationToken.None);
+
+    Equal(6, response.Items.Count(item => item.Playback is not null));
+    Equal(2, tracker.Maximum);
+}
+
+static async Task ProviderSearchCacheContract()
+{
+    using var services = CacheServices();
+    var provider = new StubProvider("cached-search");
+    var coordinator = new ProviderSearchCoordinator(
+        new ProviderRegistry([provider]),
+        services.GetRequiredService<HybridCache>());
+    var query = new MediaQuery("tv", "Anime", null, null, 2024, 42, null);
+
+    await Task.WhenAll(
+        coordinator.SearchAsync(query, null, CancellationToken.None),
+        coordinator.SearchAsync(query, null, CancellationToken.None));
+    await coordinator.SearchAsync(query, null, CancellationToken.None);
+
+    Equal(1, provider.SearchCalls);
+    Equal(TimeSpan.FromHours(1), ProviderSearchCoordinator.CacheLifetime);
+}
+
+static ServiceProvider CacheServices()
+{
+    var services = new ServiceCollection();
+    services.AddLogging();
+    services.AddMemoryCache();
+    services.AddHybridCache();
+    return services.BuildServiceProvider();
+}
+
 static async Task StreamRelayContract()
 {
     string? referer = null;
@@ -1590,5 +1717,86 @@ file sealed class PlaybackStubProvider : IOnlineProvider
     {
         ResolveCalls++;
         return Task.FromResult(new ResolvedPlayback("https://cdn.test/master.m3u8", "1080p", "Dub"));
+    }
+}
+
+file sealed class BatchPlaybackProvider(string id, bool shouldFail = false) : IOnlineProvider
+{
+    public string Id => id;
+    public string Name => id;
+    public int ResolveCalls { get; private set; }
+
+    public Task<IReadOnlyList<SourceItem>> SearchAsync(MediaQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<SourceItem>>([]);
+
+    public Task<EpisodesResult> GetEpisodesAsync(SourceSelection source, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public async Task<ResolvedPlayback> ResolveAsync(
+        PlaybackSelection selection,
+        CancellationToken cancellationToken)
+    {
+        ResolveCalls++;
+        await Task.Delay(20, cancellationToken);
+        if (shouldFail)
+            throw new ProviderException($"{id} failed");
+        return new ResolvedPlayback($"https://cdn.test/{id}/{selection.SourceId}.m3u8");
+    }
+}
+
+file sealed class AccountPlaybackProvider : IOnlineProvider
+{
+    public string Id => "account-playback";
+    public string Name => "Account playback";
+    public ProviderDescriptor Descriptor => new(Id, Name, Access: "account");
+    public int ResolveCalls { get; private set; }
+
+    public Task<IReadOnlyList<SourceItem>> SearchAsync(MediaQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<SourceItem>>([]);
+
+    public Task<EpisodesResult> GetEpisodesAsync(SourceSelection source, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task<ResolvedPlayback> ResolveAsync(
+        PlaybackSelection selection,
+        CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    public Task<ResolvedPlayback> ResolveAsync(
+        PlaybackSelection selection,
+        ProviderRequestContext context,
+        CancellationToken cancellationToken)
+    {
+        ResolveCalls++;
+        var values = context.RequireAccount(Id, "token");
+        return Task.FromResult(new ResolvedPlayback(
+            $"https://cdn.test/{values["token"]}/{selection.SourceId}.m3u8"));
+    }
+}
+
+file sealed class ConcurrentPlaybackProvider(SearchConcurrencyTracker tracker) : IOnlineProvider
+{
+    public string Id => "concurrent-playback";
+    public string Name => "Concurrent playback";
+
+    public Task<IReadOnlyList<SourceItem>> SearchAsync(MediaQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<SourceItem>>([]);
+
+    public Task<EpisodesResult> GetEpisodesAsync(SourceSelection source, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public async Task<ResolvedPlayback> ResolveAsync(
+        PlaybackSelection selection,
+        CancellationToken cancellationToken)
+    {
+        tracker.Enter();
+        try
+        {
+            await Task.Delay(30, cancellationToken);
+            return new ResolvedPlayback($"https://cdn.test/{selection.SourceId}.m3u8");
+        }
+        finally
+        {
+            tracker.Exit();
+        }
     }
 }

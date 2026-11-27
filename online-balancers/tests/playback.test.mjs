@@ -204,3 +204,56 @@ test('playback payload leaves complete: window episodes carry ready streamUrls a
   // A different voice does not see the AniDUB cache.
   assert.equal(sessionStore.getResolution('aniliberty', 'src-1', 1, 5, 'AniLibria'), null);
 });
+
+test('playback prepares the complete window through one backend batch request', async () => {
+  const batchCalls = [];
+  const client = {
+    resolvePlayback: async () => {
+      throw new Error('single playback transport must not be used');
+    },
+    resolvePlaybacks: async (items, accounts) => {
+      batchCalls.push({ items, accounts });
+      return {
+        items: items.map(item => ({
+          id: item.id,
+          playback: {
+            streamUrl: `https://cdn.test/ep${item.episode}-${item.voice}.m3u8`,
+            streamType: 'm3u8',
+            voice: item.voice,
+          },
+        })),
+      };
+    },
+  };
+  const service = createPlaybackService({
+    client,
+    episodeService: { fetchEpisodes: async () => ({ episodes: [] }) },
+    sessionStore: createSessionStore(),
+    pluginId: 'potok-online-balancers',
+    translate: key => key,
+    playVideo: () => {},
+  });
+  const episodes = Array.from({ length: 10 }, (_, index) => ({
+    id: `1:${index + 1}`,
+    season: 1,
+    episode: index + 1,
+    voice: 'AniDUB',
+    providerId: 'aniliberty',
+    sourceId: 'src-1',
+    query: { tmdbId: 1 },
+  }));
+
+  const payload = await service.resolvePlayback(
+    { id: 'stream-1', title: 'Anime', mediaType: 'tv', providerId: 'aniliberty', sourceId: 'src-1', query: { tmdbId: 1 } },
+    episodes[4],
+    { type: 'tv', title: 'Anime', tmdbId: 1 },
+    episodes,
+    '1:5',
+  );
+
+  assert.equal(batchCalls.length, 1);
+  assert.equal(batchCalls[0].items.length, 9);
+  assert.deepEqual(batchCalls[0].accounts, {});
+  assert.equal(payload.playlist[payload.playlistIndex].streamUrl, 'https://cdn.test/ep5-AniDUB.m3u8');
+  assert.equal(payload.playlist[9].streamUrl, 'https://cdn.test/ep10-AniDUB.m3u8');
+});

@@ -74,6 +74,13 @@ public sealed record PlaybackResponse(
     IReadOnlyDictionary<string, string>? Headers = null,
     IReadOnlyList<PlaybackVariant>? Variants = null);
 
+public sealed record PlaybackBatchItemResponse(
+    string Id,
+    PlaybackResponse? Playback = null,
+    string? Error = null);
+
+public sealed record PlaybackBatchResponse(IReadOnlyList<PlaybackBatchItemResponse> Items);
+
 public sealed record DeviceCodeResponse(
     string Code,
     string UserCode,

@@ -87,6 +87,12 @@ export function createOnlineBalancersClient({
     resolvePlayback(selection) {
       return post('/api/v1/playback', selection);
     },
+    resolvePlaybacks(items, accounts = null) {
+      return post('/api/v1/playback/batch', {
+        items,
+        ...(accounts && Object.keys(accounts).length > 0 ? { accounts } : {}),
+      });
+    },
     refreshPlayback(session, account = null) {
       return post('/api/v1/refresh', { session, ...(account ? { account } : {}) });
     },

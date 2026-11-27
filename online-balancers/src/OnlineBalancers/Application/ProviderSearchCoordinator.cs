@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Logging;
 
 namespace OnlineBalancers;
@@ -10,24 +11,48 @@ public sealed class ProviderSearchCoordinator
     // (~28s) and hold the whole search hostage. Each provider runs under its own linked
     // token; on expiry it lands in errors as a soft timeout the UI can retry.
     public static readonly TimeSpan DefaultPerProviderTimeout = TimeSpan.FromSeconds(8);
+    internal static readonly TimeSpan CacheLifetime = TimeSpan.FromHours(1);
+
+    private static readonly HybridCacheEntryOptions CacheOptions = new()
+    {
+        Expiration = CacheLifetime,
+        LocalCacheExpiration = CacheLifetime,
+    };
 
     private readonly ProviderRegistry _registry;
     private readonly int _maxConcurrency;
     private readonly TimeSpan _perProviderTimeout;
     private readonly ILogger<ProviderSearchCoordinator>? _logger;
+    private readonly HybridCache? _cache;
 
-    public ProviderSearchCoordinator(ProviderRegistry registry) : this(registry, 8) { }
+    public ProviderSearchCoordinator(ProviderRegistry registry)
+        : this(registry, (HybridCache?)null, 8, DefaultPerProviderTimeout, null) { }
+
+    public ProviderSearchCoordinator(ProviderRegistry registry, HybridCache cache)
+        : this(registry, cache, 8) { }
 
     public ProviderSearchCoordinator(ProviderRegistry registry, int maxConcurrency)
-        : this(registry, maxConcurrency, DefaultPerProviderTimeout, null) { }
+        : this(registry, null, maxConcurrency, DefaultPerProviderTimeout, null) { }
+
+    public ProviderSearchCoordinator(ProviderRegistry registry, HybridCache cache, int maxConcurrency)
+        : this(registry, cache, maxConcurrency, DefaultPerProviderTimeout, null) { }
 
     public ProviderSearchCoordinator(
         ProviderRegistry registry,
         int maxConcurrency,
         TimeSpan perProviderTimeout,
         ILogger<ProviderSearchCoordinator>? logger = null)
+        : this(registry, null, maxConcurrency, perProviderTimeout, logger) { }
+
+    internal ProviderSearchCoordinator(
+        ProviderRegistry registry,
+        HybridCache? cache,
+        int maxConcurrency,
+        TimeSpan perProviderTimeout,
+        ILogger<ProviderSearchCoordinator>? logger = null)
     {
         _registry = registry;
+        _cache = cache;
         _maxConcurrency = Math.Max(1, maxConcurrency);
         _perProviderTimeout = perProviderTimeout;
         _logger = logger;
@@ -85,7 +110,7 @@ public sealed class ProviderSearchCoordinator
                     ? matched
                     : null;
                 var context = ProviderRequestContext.For(provider, providerAccount);
-                items = await provider.SearchAsync(query, context, budget.Token);
+                items = await SearchProviderAsync(provider, query, context, providerAccount, budget.Token);
             }
             catch (OperationCanceledException) when (budget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
@@ -141,6 +166,24 @@ public sealed class ProviderSearchCoordinator
         return new SearchResponse(
             SearchResultRanker.FilterAndRank(query, results.SelectMany(items => items)),
             new Dictionary<string, string>(errors, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private async Task<IReadOnlyList<SourceItem>> SearchProviderAsync(
+        IOnlineProvider provider,
+        MediaQuery query,
+        ProviderRequestContext context,
+        ProviderAccount? account,
+        CancellationToken cancellationToken)
+    {
+        if (_cache is null)
+            return await provider.SearchAsync(query, context, cancellationToken);
+
+        return await _cache.GetOrCreateAsync(
+            ProviderCacheKeys.Search(provider.Id, query, account),
+            async sharedCancellationToken =>
+                (await provider.SearchAsync(query, context, sharedCancellationToken)).ToArray(),
+            CacheOptions,
+            cancellationToken: cancellationToken);
     }
 
     private IReadOnlyList<IOnlineProvider> SelectProviders(

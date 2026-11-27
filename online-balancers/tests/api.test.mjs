@@ -47,10 +47,21 @@ test('API client keeps all application operations behind one transport seam', as
 
   await client.getEpisodes({ provider: 'kodik', sourceId: '1', query: {} });
   await client.resolvePlayback({ provider: 'kodik', sourceId: '1', query: {} });
+  await client.resolvePlaybacks(
+    [{ id: 'current', provider: 'kodik', sourceId: '1', query: {} }],
+    { kinopub: { provider: 'kinopub', values: { accessToken: 'token' } } },
+  );
   await client.refreshPlayback('session');
   assert.deepEqual(calls, [
     { path: '/api/v1/episodes', body: { provider: 'kodik', sourceId: '1', query: {} } },
     { path: '/api/v1/playback', body: { provider: 'kodik', sourceId: '1', query: {} } },
+    {
+      path: '/api/v1/playback/batch',
+      body: {
+        items: [{ id: 'current', provider: 'kodik', sourceId: '1', query: {} }],
+        accounts: { kinopub: { provider: 'kinopub', values: { accessToken: 'token' } } },
+      },
+    },
     { path: '/api/v1/refresh', body: { session: 'session' } },
   ]);
 });

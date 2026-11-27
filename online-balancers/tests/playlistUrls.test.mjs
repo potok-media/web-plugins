@@ -229,11 +229,10 @@ test('a host-forwarded episode without audio ids keeps its voice via name matchi
     '1:1',
   );
 
-  // Both candidates are resolved upfront (the payload leaves complete); the voice was matched
-  // by NAME (audio ids were stripped) — the resolved candidate drives the verbatim streamUrl
-  // and payload.voice. The full display name is the canonical `name`; the plain voice label
-  // survives separately for matching, and every entry carries its ready url.
-  assert.equal(playbackCalls, 2);
+  // Both candidates are filled upfront (the payload leaves complete), but because the host
+  // stripped their semantic voice ids they describe the same upstream request and are resolved
+  // once. The voice is still matched by NAME and every menu entry receives that ready URL.
+  assert.equal(playbackCalls, 1);
   assert.equal(payload.voice, 'Dub B');
   assert.equal(currentItem(payload).streamUrl, 'https://cdn.test/s1e1.m3u8');
   assert.deepEqual(currentItem(payload).audios.map(audio => audio.label), ['Dub A', 'Dub B']);

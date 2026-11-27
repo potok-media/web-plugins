@@ -14,6 +14,17 @@ const isLocatorMissing = (candidate) =>
   && LOCATOR_REQUIRED_PROVIDERS.has(String(candidate.providerId).toLowerCase())
   && !candidate?.locator;
 
+const canonicalValue = (value) => {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalValue(value[key])]));
+  }
+  return value ?? null;
+};
+
+const resolutionKey = ({ provider, sourceId: source, query, season, episode, voice, locator }) =>
+  JSON.stringify(canonicalValue({ provider, source, query, season, episode, voice, locator }));
+
 export function selectAudio(episode, audioId) {
   const audios = episode?.audios || [];
   const audio = audios.find(item => item.id === audioId) || audios[0];
@@ -108,6 +119,10 @@ export function createPlaybackService({
     } else {
       selectedCandidateIndex = byId >= 0 ? byId : 0;
     }
+    const candidateOrder = [
+      selectedCandidateIndex,
+      ...candidates.map((_, index) => index).filter(index => index !== selectedCandidateIndex),
+    ];
     // Resolve ONLY the selected candidate. Every extra candidate is a separate upstream
     // resolution of a stream the player will not open — that is the "million requests" trap.
     // Refresh path disabled — always do full resolution so episode params reach the API
@@ -222,47 +237,171 @@ export function createPlaybackService({
       });
     }
 
-    // Full resolution. The payload must leave this function COMPLETE: every voice candidate
-    // of the current episode and every episode of the window carries a ready streamUrl, so
-    // the player never resolves anything itself. All resolutions go through the voice-keyed
-    // cache and the candidate's OWN provider/source/query.
-    const resolveCandidateStream = async ({ provider: candidateProvider, source: candidateSource, query: candidateQuery, season, episode, voice }) => {
-      const cached = sessionStore.getResolution(candidateProvider, candidateSource, season, episode, voice);
+    // Build the complete current-episode + sliding-window resolution plan first. The browser
+    // sends this plan as ONE request; fan-out, deduplication, throttling and shared caching live
+    // on the backend. The host still receives the same ready-made playlist as before.
+    const allPlaylistEpisodes = episodes || [];
+    const WINDOW_BEFORE = 3;
+    const WINDOW_AFTER = 5;
+    const selectedSeason = selected?.season ?? context?.season ?? null;
+    const selectedEpisode = selected?.episode ?? context?.episode ?? null;
+    let windowAnchor = activeEpisodeId != null
+      ? allPlaylistEpisodes.findIndex(ep => String(ep.id) === String(activeEpisodeId))
+      : -1;
+    if (windowAnchor < 0 && selected?.id != null) {
+      windowAnchor = allPlaylistEpisodes.findIndex(ep => ep.id === selected.id);
+    }
+    if (windowAnchor < 0 && selectedEpisode != null) {
+      windowAnchor = allPlaylistEpisodes.findIndex(ep =>
+        (ep.season ?? null) === selectedSeason && (ep.episode ?? null) === selectedEpisode);
+    }
+    if (windowAnchor < 0) windowAnchor = 0;
+    const anchorEpisodeId = allPlaylistEpisodes[windowAnchor]?.id ?? null;
+    const windowStart = Math.max(0, windowAnchor - WINDOW_BEFORE);
+    const windowEnd = Math.min(allPlaylistEpisodes.length, windowAnchor + WINDOW_AFTER + 1);
+    const playlistEpisodes = allPlaylistEpisodes
+      .slice(windowStart, windowEnd)
+      .filter(ep => String(ep.id) !== String(anchorEpisodeId));
+
+    const planned = new Map();
+    const resolvedByKey = new Map();
+    let nextRequestId = 0;
+    const planResolution = ({ provider, source, query, season, episode, voice, locator = null }) => {
+      const descriptor = {
+        provider,
+        sourceId: source,
+        query,
+        season: season ?? null,
+        episode: episode ?? null,
+        voice: voice || null,
+        locator: locator || null,
+      };
+      const key = resolutionKey(descriptor);
+      if (resolvedByKey.has(key) || planned.has(key)) return descriptor;
+      const cached = sessionStore.getResolution(provider, source, season, episode, voice);
       if (cached) {
-        console.log('[Playback] resolvePlayback — cache HIT for', { id: candidateProvider, src: candidateSource, season, episode, voice });
-        return cached;
+        resolvedByKey.set(key, { playback: cached, error: null });
+        return descriptor;
       }
-      const account = candidateProvider && accountVault ? await accountVault.getAccount(candidateProvider) : null;
-      const response = await client.resolvePlayback({
-        provider: candidateProvider,
-        sourceId: candidateSource,
-        query: candidateQuery,
-        season,
-        episode,
-        voice,
-        ...(account ? { account: providerAccountEnvelope(candidateProvider, account) } : {}),
+      planned.set(key, { id: `playback-${nextRequestId++}`, ...descriptor });
+      return descriptor;
+    };
+
+    const currentDescriptors = candidateOrder
+      .map(index => candidates[index])
+      .filter(candidate => !isLocatorMissing(candidate))
+      .map(candidate => {
+        const target = {
+          ...selected,
+          ...candidate,
+          voice: candidate?.voice || selected?.voice || stream?.voice || '',
+        };
+        return planResolution({
+          provider: (typeof target?.providerId === 'string' && target.providerId
+            ? target.providerId
+            : null) || providerId(stream),
+          source: (typeof target?.sourceId === 'string' && target.sourceId
+            ? target.sourceId
+            : null) || sourceId(stream),
+          query: sourceQuery(target, context),
+          season: target?.season ?? context?.season ?? null,
+          episode: target?.episode ?? context?.episode ?? null,
+          voice: target?.voice || null,
+          locator: target?.locator || null,
+        });
       });
-      if (response?.streamUrl) {
-        sessionStore.setResolution(candidateProvider, candidateSource, season, episode, {
-          streamUrl: response.streamUrl,
-          streamType: response.streamType,
-          voice: response.voice,
-          headers: response.headers,
-          quality: response.quality,
-          variants: response.variants,
-        }, voice);
+    const fallbackDescriptors = currentDescriptors.length > 0
+      ? currentDescriptors
+      : [{
+          provider: providerId(stream),
+          sourceId: sourceId(stream),
+          query: sourceQuery(selected, context),
+        }];
+
+    for (const ep of playlistEpisodes) {
+      if (isPlayableUrl(ep?.streamUrl ?? ep?.url)) continue;
+      const epSeason = ep.season ?? context?.season ?? null;
+      const epNumber = ep.episode ?? context?.episode ?? null;
+      const candidateList = Array.isArray(ep?.audios) ? ep.audios : [];
+      const variants = candidateList.length > 0 ? candidateList : [ep];
+      for (const candidate of variants) {
+        if (isLocatorMissing(candidate)) continue;
+        const explicitProvider = candidate?.providerId || ep?.providerId || null;
+        const explicitSource = candidate?.sourceId || ep?.sourceId || null;
+        const fallbacks = explicitProvider && explicitSource ? [fallbackDescriptors[0]] : fallbackDescriptors;
+        for (const fallback of fallbacks) {
+          planResolution({
+            provider: explicitProvider || fallback.provider,
+            source: explicitSource || fallback.sourceId,
+            query: candidateList.length > 0
+              ? (candidate?.query || sourceQuery(ep, context))
+              : sourceQuery(ep, context),
+            season: epSeason,
+            episode: epNumber,
+            voice: candidate?.voice || ep?.voice || null,
+            locator: candidate?.locator || ep?.locator || null,
+          });
+        }
       }
-      return response;
+    }
+
+    const pendingItems = [...planned.values()];
+    if (pendingItems.length > 0) {
+      const accountEntries = await Promise.all([...new Set(pendingItems.map(item => item.provider))]
+        .map(async provider => {
+          const account = provider && accountVault ? await accountVault.getAccount(provider) : null;
+          return account ? [provider, providerAccountEnvelope(provider, account)] : null;
+        }));
+      const accounts = Object.fromEntries(accountEntries.filter(Boolean));
+      let batch;
+      if (typeof client.resolvePlaybacks === 'function') {
+        batch = await client.resolvePlaybacks(pendingItems, accounts);
+      } else {
+        // Compatibility for old embedded clients and focused unit-test stubs. Production uses
+        // resolvePlaybacks and therefore performs exactly one browser request.
+        batch = {
+          items: await Promise.all(pendingItems.map(async item => {
+            try {
+              const playback = await client.resolvePlayback({
+                ...item,
+                ...(accounts[item.provider] ? { account: accounts[item.provider] } : {}),
+              });
+              return { id: item.id, playback };
+            } catch (error) {
+              return { id: item.id, error: error instanceof Error ? error.message : String(error) };
+            }
+          })),
+        };
+      }
+      const byId = new Map((batch?.items || []).map(item => [item.id, item]));
+      for (const [key, item] of planned) {
+        const result = byId.get(item.id) || { error: 'Playback batch returned no result.' };
+        resolvedByKey.set(key, result);
+        const response = result.playback;
+        if (response?.streamUrl) {
+          sessionStore.setResolution(item.provider, item.sourceId, item.season, item.episode, {
+            streamUrl: response.streamUrl,
+            streamType: response.streamType,
+            voice: response.voice,
+            headers: response.headers,
+            quality: response.quality,
+            variants: response.variants,
+          }, item.voice);
+        }
+      }
+    }
+
+    const resolveCandidateStream = async ({ provider, source, query, season, episode, voice, locator = null }) => {
+      const key = resolutionKey({ provider, sourceId: source, query, season, episode, voice, locator });
+      const result = resolvedByKey.get(key);
+      if (result?.playback) return result.playback;
+      throw new Error(result?.error || 'Playback was not included in the batch plan.');
     };
 
     // Resolve the primary: the selected candidate first, then the remaining ones in order.
     // A saved/selected voice whose provider cannot resolve (AnimeLib without its playback
     // locator, a dead balancer) must not kill the whole playback — the first resolvable
     // candidate becomes the primary and the menus/session memory follow it.
-    const candidateOrder = [
-      selectedCandidateIndex,
-      ...candidates.map((_, index) => index).filter((index) => index !== selectedCandidateIndex),
-    ];
     let primaryResponse = null;
     let primaryCandidateIndex = selectedCandidateIndex;
     let primaryTarget = null;
@@ -295,6 +434,7 @@ export function createPlaybackService({
           season: candidateTarget?.season ?? context?.season ?? null,
           episode: candidateTarget?.episode ?? context?.episode ?? null,
           voice: candidateTarget?.voice || null,
+          locator: candidateTarget?.locator || null,
         });
         if (response?.streamUrl) {
           primaryResponse = response;
@@ -355,16 +495,20 @@ export function createPlaybackService({
     }]]);
     await Promise.all(candidates.map(async (candidate, index) => {
       if (index === primaryCandidateIndex) return;
-      const voice = candidate?.voice || null;
+      // Host callbacks can strip the candidate's semantic voice while retaining only its
+      // display name. Planning deliberately falls back to the selected voice in that case;
+      // use the same descriptor here so the already-resolved batch entry is found.
+      const voice = candidate?.voice || selected?.voice || stream?.voice || null;
       if (isLocatorMissing(candidate)) return;
       try {
         const response = await resolveCandidateStream({
           provider: candidate?.providerId || providerId(stream),
           source: candidate?.sourceId || sourceId(stream),
-          query: candidate?.query || sourceQuery(selected, context),
+          query: sourceQuery({ ...selected, ...candidate }, context),
           season: primarySeason,
           episode: primaryEpisode,
           voice,
+          locator: candidate?.locator || null,
         });
         if (response?.streamUrl) {
           candidateUrls.set(index, { url: response.streamUrl, headers: response.headers });
@@ -383,32 +527,6 @@ export function createPlaybackService({
     // per-candidate audios; the player never resolves anything. Episodes outside the window
     // keep their pseudo `online-balancers://` handle — the plugin re-windows on a far-jump
     // click via replacePlaylist. Episodes with a real http(s) URL are skipped.
-    const allPlaylistEpisodes = episodes || [];
-    const WINDOW_BEFORE = 3;
-    const WINDOW_AFTER = 5;
-    const selectedSeason = selected?.season ?? context?.season ?? null;
-    const selectedEpisode = selected?.episode ?? context?.episode ?? null;
-    let windowAnchor = activeEpisodeId != null
-      ? allPlaylistEpisodes.findIndex(ep => String(ep.id) === String(activeEpisodeId))
-      : -1;
-    if (windowAnchor < 0 && selected?.id != null) {
-      windowAnchor = allPlaylistEpisodes.findIndex(ep => ep.id === selected.id);
-    }
-    if (windowAnchor < 0 && selectedEpisode != null) {
-      windowAnchor = allPlaylistEpisodes.findIndex(ep =>
-        (ep.season ?? null) === selectedSeason && (ep.episode ?? null) === selectedEpisode);
-    }
-    if (windowAnchor < 0) windowAnchor = 0;
-    const anchorEpisodeId = allPlaylistEpisodes[windowAnchor]?.id ?? null;
-    const windowStart = Math.max(0, windowAnchor - WINDOW_BEFORE);
-    const windowEnd = Math.min(allPlaylistEpisodes.length, windowAnchor + WINDOW_AFTER + 1);
-    // The anchor was JUST resolved as the primary — including it would re-resolve the same
-    // episode (the episode's default voice often differs from the requested one, so the
-    // voice-keyed cache misses) and waste an upstream call.
-    const playlistEpisodes = allPlaylistEpisodes
-      .slice(windowStart, windowEnd)
-      .filter(ep => String(ep.id) !== String(anchorEpisodeId));
-
     const windowResults = await Promise.all(playlistEpisodes.map(async (ep) => {
       const existingUrl = ep?.streamUrl ?? ep?.url;
       if (isPlayableUrl(existingUrl)) {
@@ -433,6 +551,7 @@ export function createPlaybackService({
             season: epSeason,
             episode: epNumber,
             voice,
+            locator: ep?.locator || null,
           });
           return {
             episodeId: ep.id,
@@ -462,6 +581,7 @@ export function createPlaybackService({
             season: epSeason,
             episode: epNumber,
             voice,
+            locator: candidate?.locator || ep?.locator || null,
           });
           if (response?.streamUrl) {
             resolvedAudios[index] = { url: response.streamUrl, headers: response.headers };
