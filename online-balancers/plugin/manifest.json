@@ -9,7 +9,14 @@
     "custom-css",
     "storage",
     "clipboard",
-    "external-url"
+    "external-url",
+    "arm",
+    "playback",
+    "navigation",
+    "i18n",
+    "slots",
+    "streams",
+    "timers"
   ],
   "slots": [
     {

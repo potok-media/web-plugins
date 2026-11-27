@@ -1,16 +1,32 @@
-export function resolveApiBase(baseUri = globalThis.document?.baseURI) {
-  if (!baseUri) throw new Error('Online Balancers: plugin base URI is unavailable');
-  return new URL('../', baseUri).origin;
+import { PotokSDK } from 'potok-sdk';
+
+export function resolveApiBase(baseUri) {
+  if (baseUri) return new URL('../', baseUri).origin;
+  const runtimeBase = PotokSDK?.runtime?.context?.plugin?.apiBase;
+  if (runtimeBase) return String(runtimeBase).replace(/\/+$/, '');
+  throw new Error('Online Balancers: plugin API base is unavailable');
 }
 
 export function createOnlineBalancersClient({
   apiBase = resolveApiBase(),
-  fetchImpl = globalThis.fetch,
+  http = PotokSDK?.http,
+  fetchImpl,
 } = {}) {
-  if (typeof fetchImpl !== 'function') throw new Error('Online Balancers: fetch is unavailable');
+  if (!http && typeof fetchImpl !== 'function') {
+    throw new Error('Online Balancers: Potok Core HTTP transport is unavailable');
+  }
   const base = String(apiBase).replace(/\/+$/, '');
 
   async function post(path, body) {
+    if (http) {
+      const response = await http.request({
+        url: `${base}${path}`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+      return response.data;
+    }
     const response = await fetchImpl(`${base}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -32,6 +48,33 @@ export function createOnlineBalancersClient({
   // Each provider chunk is forwarded to onProviderResult as it arrives; the promise
   // resolves with the done payload and rejects if the stream ends without it.
   async function streamSearch(path, body, onProviderResult) {
+    if (http) {
+      let buffer = '';
+      let donePayload;
+      const consume = chunk => {
+        buffer += String(chunk || '');
+        let newline = buffer.indexOf('\n');
+        while (newline >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          newline = buffer.indexOf('\n');
+          if (!line) continue;
+          const event = JSON.parse(line);
+          if (event.type === 'done') donePayload = event.response;
+          else onProviderResult?.(event);
+        }
+      };
+      await http.stream({
+        url: `${base}${path}`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }, consume);
+      if (donePayload === undefined) {
+        throw new Error('Online Balancers: search stream ended without a done chunk');
+      }
+      return donePayload;
+    }
     const response = await fetchImpl(`${base}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

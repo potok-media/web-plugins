@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createCoreHttp } from './helpers/coreHttp.mjs';
 
 // Poster-grid results: skeleton cards during the flight, real cards once provider chunks
 // land, and the full-card hit button opens the source.
@@ -57,6 +58,8 @@ test('results render as a poster grid with skeletons and a full-card hit area', 
     ['provider-accounts', JSON.stringify({ version: 1, accounts: { filmix: { accessToken: 'tok' } } })],
   ]);
   globalThis.PotokSDK = {
+    runtime: { context: { plugin: { apiBase: 'https://api.test' } } },
+    http: createCoreHttp(),
     storage: {
       local: {
         async getItem(key) { return pluginStorage.get(key) ?? null; },

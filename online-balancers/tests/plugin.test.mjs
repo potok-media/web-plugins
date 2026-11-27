@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createCoreHttp } from './helpers/coreHttp.mjs';
 
 test('plugin registers the online-balancers source and delegates the complete flow to its API', async () => {
   const registrations = [];
@@ -77,6 +78,8 @@ test('plugin registers the online-balancers source and delegates the complete fl
 
   globalThis.document = { baseURI: 'https://api.test/plugin/' };
   globalThis.PotokSDK = {
+    runtime: { context: { plugin: { apiBase: 'https://api.test' } } },
+    http: createCoreHttp(),
     storage: {
       local: {
         async getItem(key) { return pluginStorage.get(key) ?? null; },

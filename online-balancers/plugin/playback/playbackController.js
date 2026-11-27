@@ -2,6 +2,7 @@ import { providerId, sourceId, sourceQuery, isPlayableUrl } from '../search/sear
 import { createPlaybackPayload } from './playbackMapper.js';
 import { providerAccountEnvelope } from '../accounts/accountVault.js';
 import { PLUGIN_ID } from '../constants.js';
+import { PotokSDK } from 'potok-sdk';
 
 // Providers whose resolve REQUIRES a playback locator captured at search time (AnimeLib has no
 // query/sourceId resolve path). Descriptors restored from a saved lastSource do not carry the
@@ -56,7 +57,7 @@ export function createPlaybackService({
   const safeStr = (v) => v != null ? JSON.parse(JSON.stringify(v)) : undefined;
 
   async function resolvePlayback(stream, episode, context, episodes, activeEpisodeId) {
-    console.log('[Playback] resolvePlayback ENTER', {
+    PotokSDK.logging.log('[Playback] resolvePlayback ENTER', {
       stream: safeStr(stream),
       episode: safeStr(episode),
       context: safeStr(context),
@@ -128,7 +129,7 @@ export function createPlaybackService({
     // Refresh path disabled — always do full resolution so episode params reach the API
     const useRefresh = false;
     if (useRefresh) {
-      console.log('[Playback] resolvePlayback — using refresh (session exists, episode switch)');
+      PotokSDK.logging.log('[Playback] resolvePlayback — using refresh (session exists, episode switch)');
       const refreshResult = await refresh({
         session: stored.session,
         onlineProviderId: stored.providerId,
@@ -214,7 +215,7 @@ export function createPlaybackService({
           });
         }
       });
-      console.log('[Playback] playlist episodes resolved (refresh path)', {
+      PotokSDK.logging.log('[Playback] playlist episodes resolved (refresh path)', {
         total: playlistEpisodes.length,
         resolved: resolvedUrlMap.size,
         urls: Object.fromEntries(resolvedUrlMap),
@@ -409,7 +410,7 @@ export function createPlaybackService({
     for (const index of candidateOrder) {
       const candidate = candidates[index];
       if (isLocatorMissing(candidate)) {
-        console.warn('[Playback] candidate skipped: provider requires a locator the descriptor does not carry', {
+        PotokSDK.logging.warn('[Playback] candidate skipped: provider requires a locator the descriptor does not carry', {
           providerId: candidate?.providerId,
           voice: candidate?.voice || candidate?.name || null,
         });
@@ -444,7 +445,7 @@ export function createPlaybackService({
         }
       } catch (error) {
         lastPrimaryError = error;
-        console.warn('[Playback] candidate resolve failed, trying the next one:', {
+        PotokSDK.logging.warn('[Playback] candidate resolve failed, trying the next one', {
           voice: candidateTarget?.voice,
           reason: error instanceof Error ? error.message : String(error),
         });
@@ -514,7 +515,7 @@ export function createPlaybackService({
           candidateUrls.set(index, { url: response.streamUrl, headers: response.headers });
         }
       } catch (error) {
-        console.warn('[Playback] candidate voice resolve failed:', {
+        PotokSDK.logging.warn('[Playback] candidate voice resolve failed', {
           voice,
           reason: error instanceof Error ? error.message : String(error),
         });
@@ -560,7 +561,7 @@ export function createPlaybackService({
             audios: null,
           };
         } catch (error) {
-          console.warn('[Playback] window episode resolve failed:', {
+          PotokSDK.logging.warn('[Playback] window episode resolve failed', {
             episodeId: ep.id,
             reason: error instanceof Error ? error.message : String(error),
           });
@@ -587,7 +588,7 @@ export function createPlaybackService({
             resolvedAudios[index] = { url: response.streamUrl, headers: response.headers };
           }
         } catch (error) {
-          console.warn('[Playback] window candidate resolve failed:', {
+          PotokSDK.logging.warn('[Playback] window candidate resolve failed', {
             episodeId: ep.id,
             voice,
             reason: error instanceof Error ? error.message : String(error),
@@ -643,7 +644,7 @@ export function createPlaybackService({
         audios: candidates.map((candidate, index) => candidateUrls.get(index) ?? null),
       });
     }
-    console.log('[Playback] playlist window resolved', {
+    PotokSDK.logging.log('[Playback] playlist window resolved', {
       total: allPlaylistEpisodes.length,
       window: playlistEpisodes.length,
       windowStart,
@@ -694,7 +695,7 @@ export function createPlaybackService({
   }
 
   async function play(stream, episode, context, episodes, activeEpisodeId) {
-    console.log('[Playback] play ENTER', {
+    PotokSDK.logging.log('[Playback] play ENTER', {
       stream: safeStr(stream),
       episode: safeStr(episode),
       context: safeStr(context),
@@ -702,7 +703,7 @@ export function createPlaybackService({
       activeEpisodeId,
     });
     const payload = await resolvePlayback(stream, episode, context, episodes, activeEpisodeId);
-    console.log('[Playback] play — payload built', {
+    PotokSDK.logging.log('[Playback] play — payload built', {
       streamUrl: payload.streamUrl,
       streamType: payload.streamType,
       title: payload.title,
@@ -720,7 +721,7 @@ export function createPlaybackService({
     // The plugin page renders the InlinePlayer stage — request inline mounting so the host embeds
     // the player there instead of lifting the fullscreen overlay.
     const inlinePayload = { ...payload, mount: 'inline' };
-    console.log('[Playback] play — calling playVideo with payload (mount=inline)');
+    PotokSDK.logging.log('[Playback] play — calling playVideo with payload (mount=inline)');
     playVideo(inlinePayload);
     return payload;
   }

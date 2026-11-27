@@ -1,4 +1,5 @@
 import { isPlayableUrl } from '../search/searchController.js';
+import { PotokSDK } from 'potok-sdk';
 
 export function withAudioIndex(url, index) {
   if (!url) return url;
@@ -27,7 +28,7 @@ export function createPlaybackPayload({
   candidateUrls,
 }) {
   const safeStr = (v) => v != null ? JSON.parse(JSON.stringify(v)) : undefined;
-  console.log('[PlaybackMapper] createPlaybackPayload ENTER', {
+  PotokSDK.logging.log('[PlaybackMapper] createPlaybackPayload ENTER', {
     primaryStreamUrl: primary?.response?.streamUrl,
     selected: safeStr(selected),
     context: safeStr(context),
@@ -162,7 +163,7 @@ export function createPlaybackPayload({
       voice: primary.target?.voice || stream?.voice || null,
     },
   };
-  console.log('[PlaybackMapper] createPlaybackPayload RETURN', {
+  PotokSDK.logging.log('[PlaybackMapper] createPlaybackPayload RETURN', {
     title: payload.title,
     playlistLength: payload.playlist?.length,
     playlistIndex: payload.playlistIndex,

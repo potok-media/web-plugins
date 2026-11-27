@@ -11,7 +11,7 @@ export function registerPlugin({ controller, renderLayout, searchService, episod
     async search(query) {
       const response = await searchService.search(query);
       if (Object.keys(response.errors).length > 0) {
-        console.warn('[OnlineBalancers] Some providers failed:', response.errors);
+        PotokSDK.logging.warn('[OnlineBalancers] Some providers failed', response.errors);
       }
       // Casting only annotates: ARM-bound sources carry workId/entryId, everything the providers
       // returned stays in the output — bound first, uncast appended after.
