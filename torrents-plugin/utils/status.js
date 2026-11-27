@@ -1,6 +1,7 @@
 import { PotokSDK } from 'potok-sdk';
-import { resolveTorrUrl } from './config.js';
+import { resolveSearchEngineUrl, resolveTorrUrl } from './config.js';
 import { initSettings } from '../settings/ui.js';
+import { get } from './http.js';
 
 const { VStack, StatusRow } = PotokSDK.ui.components;
 
@@ -8,13 +9,14 @@ const FAIL_THRESHOLD = 3;
 const LATENCY_JITTER_MS = 20;
 const HEALTH_TIMEOUT_MS = 20000;
 
-const statusState = PotokSDK.createState({
+const statusState = {
   searchEngine: { configured: false, online: false, latency: -1 },
   torrServer: { configured: false, online: false, latency: -1 }
-});
+};
 
 const failCounts = { searchEngine: 0, torrServer: 0 };
 let pingTimerStarted = false;
+let statusRegistered = false;
 
 function getStatusLabel(info) {
   if (!info.configured) return PotokSDK.i18n.t("potok-torrents:status.off");
@@ -51,6 +53,9 @@ function statusesEqual(prev, next) {
 function commitStatus(key, next) {
   if (statusesEqual(statusState[key], next)) return;
   statusState[key] = next;
+  if (statusRegistered) {
+    PotokSDK.ui.render(buildStatusLayout(), "torrents-sidebar-status");
+  }
 }
 
 function applyPing(key, ping) {
@@ -89,7 +94,7 @@ async function pingService(baseUrl, path = "/health") {
 
   const startTime = Date.now();
   try {
-    const res = await PotokSDK.http.get(url, undefined, HEALTH_TIMEOUT_MS);
+    const res = await get(url, undefined, HEALTH_TIMEOUT_MS);
     const latency = Date.now() - startTime;
     if (res.status >= 200 && res.status < 400) {
       return { configured: true, online: true, latency };
@@ -101,11 +106,7 @@ async function pingService(baseUrl, path = "/health") {
 }
 
 async function checkPings() {
-  let searchUrl = PotokSDK.config.searchEngineURL || "";
-  if (!searchUrl) {
-    searchUrl = await PotokSDK.storage.local.getItem("searchEngineURL") || "";
-  }
-
+  const searchUrl = await resolveSearchEngineUrl();
   const torrUrl = await resolveTorrUrl();
 
   const [searchRes, torrRes] = await Promise.all([
@@ -128,12 +129,10 @@ export function registerSidebarStatus() {
       };
     }
   });
+  statusRegistered = true;
 
   if (!pingTimerStarted) {
     pingTimerStarted = true;
-    statusState.$subscribe(() => {
-      PotokSDK.ui.render(buildStatusLayout(), "torrents-sidebar-status");
-    });
     setInterval(checkPings, 30000);
   }
 

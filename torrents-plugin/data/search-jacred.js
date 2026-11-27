@@ -2,6 +2,7 @@ import { PotokSDK } from 'potok-sdk';
 import { cleanHash } from '../utils/hash.js';
 import { resolveJacredUrl, resolveJacredApiKey } from '../utils/config.js';
 import { TorrentParser } from '../utils/parser.js';
+import { get } from '../utils/http.js';
 
 // --- JacRed API response → RawStreamPayload mapping ---------------------------
 // JacRed returns: { tracker, url, title, size, sizeName, createTime, updateTime, sid, pir,
@@ -122,7 +123,7 @@ export async function search(query, onProgress) {
 
   let response;
   try {
-    response = await PotokSDK.http.get(url, headers, 30_000);
+    response = await get(url, headers, 30_000);
   } catch (err) {
     throw new Error(err.message || 'JacRed request failed');
   }

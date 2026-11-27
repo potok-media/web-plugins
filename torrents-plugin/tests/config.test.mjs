@@ -34,11 +34,11 @@ test('host CSS keeps the source and active address inline and makes the JacRed k
 });
 
 test('legacy jacredUrl storage is migrated to canonical jacredURL', async () => {
-  const originalConfig = PotokSDK.config;
+  const originalConfig = PotokSDK.runtime.context.config;
   const originalStorage = PotokSDK.storage.local;
   const values = new Map([['jacredUrl', 'jacred.local/api/']]);
 
-  PotokSDK.config = {};
+  PotokSDK.runtime.context.config = {};
   PotokSDK.storage.local = {
     getItem: async (key) => values.get(key) ?? null,
     setItem: async (key, value) => values.set(key, value),
@@ -50,7 +50,7 @@ test('legacy jacredUrl storage is migrated to canonical jacredURL', async () => 
     assert.equal(values.get('jacredURL'), 'jacred.local/api/');
     assert.equal(values.has('jacredUrl'), false);
   } finally {
-    PotokSDK.config = originalConfig;
+    PotokSDK.runtime.context.config = originalConfig;
     PotokSDK.storage.local = originalStorage;
   }
 });

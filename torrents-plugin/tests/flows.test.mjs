@@ -44,14 +44,10 @@ function mockEpisodeTransport({
   subtitleFiles = [],
 } = {}) {
   const calls = [];
-  PotokSDK.http.get = async (url) => {
-    calls.push({ method: 'get', url });
-    if (url.includes('/overrides/')) return response({ seasonMap: { _: { season: 2, offset: -12 } }, fileMap: saved });
-    if (url.includes('/layout?')) return response(layout(layoutWork));
-    throw new Error(`Unexpected metadata call ${url}`);
-  };
-  PotokSDK.http.post = async (url, body) => {
-    calls.push({ method: 'post', url, body });
+  PotokSDK.http.request = async ({ url, method, body }) => {
+    calls.push({ method: method.toLowerCase(), url, body });
+    if (method === 'GET' && url.includes('/overrides/')) return response({ seasonMap: { _: { season: 2, offset: -12 } }, fileMap: saved });
+    if (method === 'GET' && url.includes('/layout?')) return response(layout(layoutWork));
     if (url === 'https://torrent.test/api/torrents') {
       return response({ hash, items: files, audioFiles, subtitleFiles });
     }
@@ -61,7 +57,7 @@ function mockEpisodeTransport({
       if (unavailable) throw new Error('ARM unavailable');
       return response(resolve(body.releaseId));
     }
-    throw new Error(`Unexpected POST ${url}`);
+    throw new Error(`Unexpected ${method} ${url}`);
   };
   return calls;
 }
@@ -169,11 +165,11 @@ test('manual mapping rejects wrong work, scope or a target without entryId befor
 });
 
 test('search forwards host catalogue titles without an ARM metadata request or numeric season restriction', async () => {
-  PotokSDK.http.get = async (url) => { throw new Error(`Unexpected metadata request ${url}`); };
+  PotokSDK.http.request = async ({ url }) => { throw new Error(`Unexpected metadata request ${url}`); };
   const posted = [];
-  PotokSDK.http.streamPost = async (_url, body, _headers, _timeout, progress) => {
+  PotokSDK.http.stream = async ({ body }, onChunk) => {
     posted.push(body);
-    progress({ type: 'batch', results: [{ id: hash, title: 'Completely Different Alias S07E01' }] });
+    onChunk(`${JSON.stringify({ type: 'batch', results: [{ id: hash, title: 'Completely Different Alias S07E01' }] })}\n`);
     return response(null);
   };
   const result = await search({ ...context, title: 'Canonical Show',
@@ -188,9 +184,9 @@ test('search forwards host catalogue titles without an ARM metadata request or n
 });
 
 test('concurrent searches retain the metadata supplied for each work', async () => {
-  PotokSDK.http.get = async () => { throw new Error('Search must use the supplied metadata'); };
+  PotokSDK.http.request = async () => { throw new Error('Search must use the supplied metadata'); };
   const posted = [];
-  PotokSDK.http.streamPost = async (_url, body) => { posted.push(body); return response(null); };
+  PotokSDK.http.stream = async ({ body }) => { posted.push(body); return response(null); };
   await Promise.all([
     search({ title: 'first title', searchAliases: ['first alias'], type: 'tv', workId: 'first' }),
     search({ title: 'second title', searchAliases: ['second alias'], type: 'tv', workId: 'second' }),
@@ -201,9 +197,9 @@ test('concurrent searches retain the metadata supplied for each work', async () 
   ]);
 });
 
-test('older SDK without streaming HTTP still performs the buffered search', async () => {
-  delete PotokSDK.http.streamPost;
-  PotokSDK.http.post = async (url) => {
+test('unsupported streaming endpoint falls back to buffered search', async () => {
+  PotokSDK.http.stream = async () => response(null, 404);
+  PotokSDK.http.request = async ({ url }) => {
     assert.equal(url, 'https://search.test/api/v1/torrents/search');
     return response({ results: [{ id: hash, title: 'Show S01' }] });
   };

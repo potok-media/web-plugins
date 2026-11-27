@@ -38,14 +38,7 @@ PotokSDK.registerSlotContribution({
       layout: PotokSDK.ui.components.Button(watchText)
         .variant("watch-primary")
         .onClick(() => {
-          PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-torrents`, {
-            media: props.media,
-            season: props.season,
-            episode: props.episode,
-            workId: props.workId,
-            entryId: props.entryId,
-            episodeId: props.episodeId,
-          });
+          PotokSDK.ui.navigateTo(`/media/${props.mediaType}/${props.mediaId}/watch/potok-torrents`);
         })
     };
   }

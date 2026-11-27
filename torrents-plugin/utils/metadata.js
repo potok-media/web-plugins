@@ -1,5 +1,5 @@
 import { PotokSDK } from 'potok-sdk';
-import { parseJson } from './http.js';
+import { get, parseJson } from './http.js';
 import { logger } from './logger.js';
 
 /**
@@ -14,7 +14,7 @@ export async function applyTMDBMetadata(epList, mediaId, mediaType) {
   try {
     await Promise.all(seasonsToFetch.map(async (sNum) => {
       try {
-        const res = await PotokSDK.http.get(`/api/media/tmdb/tv/${mediaId}/season/${sNum}`);
+        const res = await get(`/api/media/tmdb/tv/${mediaId}/season/${sNum}`);
         if (res && res.status === 200) {
           const data = parseJson(res);
           if (data && data.episodes) {

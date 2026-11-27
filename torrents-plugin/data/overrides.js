@@ -1,11 +1,11 @@
 import { PotokSDK } from 'potok-sdk';
-import { parseJson } from '../utils/http.js';
+import { get, parseJson, post } from '../utils/http.js';
 import { streamHash } from '../utils/hash.js';
 import { resolveSearchEngineUrl } from '../utils/config.js';
 
 // TMDB seasons + episodes (used by the season-override editor to pick the correct mapping).
 export async function getSeasonsMetadata(stream, context) {
-  const detailRes = await PotokSDK.http.get(`/api/media/detail/${context.type === "tv" ? "tv" : "movie"}/${context.tmdbId}`);
+  const detailRes = await get(`/api/media/detail/${context.type === "tv" ? "tv" : "movie"}/${context.tmdbId}`);
   const totalSeasons = (parseJson(detailRes) || {}).numberOfSeasons || 1;
 
   // Start at 0 so specials (TMDB season/0) can be picked as an override target. Seasons with no episodes
@@ -13,7 +13,7 @@ export async function getSeasonsMetadata(stream, context) {
   const promises = [];
   for (let i = 0; i <= totalSeasons; i++) {
     promises.push(
-      PotokSDK.http.get(`/api/media/tmdb/tv/${context.tmdbId}/season/${i}`)
+      get(`/api/media/tmdb/tv/${context.tmdbId}/season/${i}`)
         .then(parseJson)
         .catch(() => ({ seasonNumber: i, episodes: [] }))
     );
@@ -29,7 +29,7 @@ export async function saveSeasonOverride(stream, context, sourceSeason, targetSe
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
   }
   const hash = streamHash(stream);
-  const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/season`, {
+  const res = await post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/season`, {
     sourceSeason: sourceSeason === undefined ? null : sourceSeason,
     targetSeason,
     offset
@@ -47,7 +47,7 @@ export async function clearSeasonOverride(stream, context, sourceSeason) {
   }
   const hash = streamHash(stream);
   const q = (sourceSeason === undefined || sourceSeason === null) ? "" : `?sourceSeason=${encodeURIComponent(sourceSeason)}`;
-  const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/season/remove${q}`, {});
+  const res = await post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/season/remove${q}`, {});
   if (res.status !== 200) {
     throw new Error(`Reset override failed with status ${res.status}`);
   }
@@ -61,7 +61,7 @@ export async function saveFileOverride(stream, context, fileId, season, episode,
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
   }
   const hash = streamHash(stream);
-  const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/file`, {
+  const res = await post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/file`, {
     fileId: String(fileId),
     season,
     episode,
@@ -79,7 +79,7 @@ export async function clearFileOverride(stream, context, fileId) {
     throw new Error(PotokSDK.i18n.t("potok-torrents:errors.noSearchUrl"));
   }
   const hash = streamHash(stream);
-  const res = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/file/remove?fileId=${encodeURIComponent(fileId)}`, {});
+  const res = await post(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}/file/remove?fileId=${encodeURIComponent(fileId)}`, {});
   if (res.status !== 200) {
     throw new Error(`Reset file override failed with status ${res.status}`);
   }
@@ -99,7 +99,7 @@ export async function saveEpisodeBinding(stream, context, override) {
   if (scopeFileIds && !scopeFileIds.includes(String(override.fileId))) {
     throw new Error("The anchor file must belong to its selected scope");
   }
-  const response = await PotokSDK.http.post(`${searchEngineUrl}/api/v1/torrents/overrides/${streamHash(stream)}/file`, {
+  const response = await post(`${searchEngineUrl}/api/v1/torrents/overrides/${streamHash(stream)}/file`, {
     fileId: String(override.fileId),
     season: null,
     episode: null,

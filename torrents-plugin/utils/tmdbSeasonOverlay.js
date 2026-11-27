@@ -1,5 +1,5 @@
 import { PotokSDK } from 'potok-sdk';
-import { parseJson } from './http.js';
+import { get, parseJson } from './http.js';
 
 // Localized TMDB episode metadata for ARM-bound files, fetched per season through the
 // gateway (never a direct TMDB call) and cached per plugin session. The graph deliberately
@@ -11,8 +11,8 @@ function loadSeason(show, seasonNumber) {
   const key = `${show}:${seasonNumber}`;
   let request = pending.get(key);
   if (!request) {
-    const language = PotokSDK.i18n.locale || "ru-RU";
-    request = PotokSDK.http.get(
+    const language = PotokSDK.i18n.language || "ru-RU";
+    request = get(
       `/api/media/tmdb/tv/${encodeURIComponent(show)}/season/${encodeURIComponent(seasonNumber)}?language=${encodeURIComponent(language)}`,
       undefined, 15_000)
       .then((response) => (response?.status === 200 ? parseJson(response) : null))

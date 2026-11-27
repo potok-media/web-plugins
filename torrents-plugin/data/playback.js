@@ -1,6 +1,6 @@
 import { PotokSDK } from 'potok-sdk';
 import { TorrentParser } from '../utils/parser.js';
-import { parseJson } from '../utils/http.js';
+import { get, parseJson } from '../utils/http.js';
 import { cleanHash, parseHashFromUrl } from '../utils/hash.js';
 import { resolveTorrUrl } from '../utils/config.js';
 import { logger } from '../utils/logger.js';
@@ -12,7 +12,7 @@ function langName(code) {
   if (!code) return "";
   const c = String(code).trim().toLowerCase();
   try {
-    const locale = PotokSDK.i18n.locale || "en";
+    const locale = PotokSDK.i18n.language || "en";
     const name = new Intl.DisplayNames([locale], { type: "language" }).of(c);
     return name ? name.charAt(0).toUpperCase() + name.slice(1) : c.toUpperCase();
   } catch (e) {
@@ -100,7 +100,7 @@ async function fetchPlaybackMetadata(cleanTorrUrl, hash, fileIndex, xs) {
   try {
     let metadataUrl = `${cleanTorrUrl}/api/torrents/${hash}/files/${fileIndex}/metadata`;
     if (xs) metadataUrl += `?xs=${xs}`;
-    const metadataResponse = await PotokSDK.http.get(metadataUrl);
+    const metadataResponse = await get(metadataUrl);
     const metadata = (metadataResponse && metadataResponse.status === 200) ? parseJson(metadataResponse) : null;
     if (!metadata) return {};
 

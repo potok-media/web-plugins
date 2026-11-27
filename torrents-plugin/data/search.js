@@ -1,6 +1,6 @@
 import { PotokSDK } from 'potok-sdk';
 import { TorrentParser } from '../utils/parser.js';
-import { parseJson } from '../utils/http.js';
+import { parseJson, post, streamPost } from '../utils/http.js';
 import { resolveSearchEngineUrl, resolveSearchSource } from '../utils/config.js';
 import { search as searchJacred } from './search-jacred.js';
 import { buildTorrentSearchRequest } from '../utils/searchRequest.js';
@@ -134,7 +134,7 @@ function appendUnique(acc, incoming) {
 }
 
 async function searchBuffered(searchEngineUrl, query) {
-  const res = await PotokSDK.http.post(
+  const res = await post(
     `${searchEngineUrl}/api/v1/torrents/search`,
     searchBody(query),
     undefined,
@@ -167,10 +167,8 @@ export async function search(query, onProgress) {
     if (typeof onProgress === "function") onProgress(accumulated.slice());
   };
 
-  if (typeof PotokSDK.http.streamPost !== "function") return searchBuffered(searchEngineUrl, query);
-
   try {
-    const res = await PotokSDK.http.streamPost(
+    const res = await streamPost(
       `${searchEngineUrl}/api/v1/torrents/search/stream`,
       searchBody(query),
       undefined,

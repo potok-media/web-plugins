@@ -21,7 +21,7 @@ const seasonPayload = {
 
 function mockSeason(payload = seasonPayload, status = 200) {
   const calls = [];
-  PotokSDK.http.get = async (url) => {
+  PotokSDK.http.request = async ({ url }) => {
     calls.push(url);
     return { status, data: payload };
   };
@@ -35,12 +35,12 @@ test('a bound file gets localized title, still, airDate and the season name as t
   assert.equal(episode.stillPath, '/s3.jpg');
   assert.equal(episode.airDate, '2024-05-19');
   assert.equal(episode.groupTitle, 'Тренировка столпов');
-  assert.deepEqual(calls, [`/api/media/tmdb/tv/85937/season/5?language=${encodeURIComponent(PotokSDK.i18n.locale || "ru-RU")}`]);
+  assert.deepEqual(calls, [`/api/media/tmdb/tv/85937/season/5?language=${encodeURIComponent(PotokSDK.i18n.language || "ru-RU")}`]);
 });
 
 test('unbound files pass through untouched and never trigger a fetch', async () => {
   let fetched = 0;
-  PotokSDK.http.get = async () => { fetched += 1; return { status: 200, data: seasonPayload }; };
+  PotokSDK.http.request = async () => { fetched += 1; return { status: 200, data: seasonPayload }; };
   const [file] = await overlayTmdbEpisodeMetadata([{ id: '9', resolutionState: 'unresolved', title: 'raw.mkv' }]);
   assert.equal(file.title, 'raw.mkv');
   assert.equal(fetched, 0);

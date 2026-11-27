@@ -1,6 +1,6 @@
 import { PotokSDK } from 'potok-sdk';
 import { TorrentParser } from '../utils/parser.js';
-import { parseJson } from '../utils/http.js';
+import { get, parseJson, post } from '../utils/http.js';
 import { cleanHash, streamHash } from '../utils/hash.js';
 import { resolveTorrUrl, resolveSearchEngineUrl } from '../utils/config.js';
 import { applyArmMetadata, positiveId } from '../utils/armMetadata.js';
@@ -26,11 +26,11 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
   // Overrides live in the SearchEngine (moved out of the gateway); skip gracefully if it isn't configured.
   const searchEngineUrl = await resolveSearchEngineUrl();
   const overridePromise = searchEngineUrl
-    ? PotokSDK.http.get(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}`).catch(() => null)
+    ? get(`${searchEngineUrl}/api/v1/torrents/overrides/${hash}`).catch(() => null)
     : Promise.resolve(null);
 
   const [filesResponse, overrideRes] = await Promise.all([
-    PotokSDK.http.post(filesUrl, requestBody, undefined, 90_000),
+    post(filesUrl, requestBody, undefined, 90_000),
     overridePromise,
   ]);
 
@@ -53,7 +53,7 @@ async function fetchTorrentData(stream, context, cleanTorrUrl, hash) {
 
 async function resolveReleaseManifest(manifest) {
   try {
-    const response = await PotokSDK.http.post('/api/arm/v1/releases/resolve', manifest, undefined, 30_000);
+    const response = await post('/api/arm/v1/releases/resolve', manifest, undefined, 30_000);
     const resolution = response?.status === 200 ? parseJson(response) : null;
     if (!resolution || resolution.releaseId !== manifest.releaseId
       || (manifest.workId && resolution.workId && resolution.workId !== manifest.workId)) return null;
